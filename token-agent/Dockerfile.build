@@ -1,9 +1,0 @@
-FROM cdrx/pyinstaller-windows:latest
-
-COPY requirements.txt /src/
-RUN pip install -r requirements.txt
-
-COPY main.py /src/
-RUN pyinstaller --onefile --console --name token-agent main.py
-
-CMD ["cp", "/src/dist/token-agent.exe", "/output/"]
