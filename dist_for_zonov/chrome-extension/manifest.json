@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "ARSHIN Token Relay",
+  "version": "1.0",
+  "description": "Relays ARSHIN auth token to local token-agent",
+  "permissions": [],
+  "host_permissions": [
+    "https://fgis.gost.ru/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://fgis.gost.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
