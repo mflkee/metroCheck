@@ -1,0 +1,351 @@
+"""CheckService — бизнес-логика проверок протоколов."""
+
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.check_result import CheckResult
+from app.models.check_run import CheckRun
+from app.repositories.calibration_repository import CalibrationRepository
+from app.repositories.protocol_data_repository import ProtocolDataRepository
+from app.repositories.protocol_file_repository import ProtocolFileRepository
+
+
+class CheckService:
+    """Service for running checks on calibrations vs protocols."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+        self.cal_repo = CalibrationRepository(db)
+        self.proto_repo = ProtocolFileRepository(db)
+        self.data_repo = ProtocolDataRepository(db)
+
+    async def run_checks(self, year: int, month: int) -> dict[str, Any]:
+        """Run all checks for a given month.
+
+        Steps:
+        1. Completeness: all calibrations have protocols
+        2. Protocol found: all protocols match a calibration
+        3. Data match: compare verifier, date, temperature, humidity, pressure
+        """
+        # Create check run
+        check_run = CheckRun(year=year, month=month, status="running")
+        self.db.add(check_run)
+        await self.db.commit()
+        await self.db.refresh(check_run)
+
+        try:
+            results = []
+
+            # 1. Completeness check
+            completeness_results = await self._check_completeness(check_run.id, year, month)
+            results.extend(completeness_results)
+
+            # 2. Protocol found check
+            found_results = await self._check_protocols_found(check_run.id, year, month)
+            results.extend(found_results)
+
+            # 3. Data match check
+            match_results = await self._check_data_match(check_run.id, year, month)
+            results.extend(match_results)
+
+            # Update check run
+            errors = sum(1 for r in results if r.status == "error")
+            warnings = sum(1 for r in results if r.status == "warning")
+            missing = sum(1 for r in results if r.status == "missing")
+
+            check_run.status = "completed"
+            check_run.errors_count = errors
+            check_run.warnings_count = warnings
+            check_run.total_calibrations = await self._count_calibrations(year, month)
+            check_run.total_protocols = await self._count_protocols(year, month)
+
+            import json
+            check_run.summary_json = json.dumps({
+                "errors": errors,
+                "warnings": warnings,
+                "missing": missing,
+                "total_checks": len(results),
+            })
+
+            await self.db.commit()
+
+            return {
+                "run_id": check_run.id,
+                "status": "completed",
+                "errors": errors,
+                "warnings": warnings,
+                "missing": missing,
+                "total": len(results),
+            }
+
+        except Exception as e:
+            check_run.status = "failed"
+            await self.db.commit()
+            return {"run_id": check_run.id, "status": "failed", "error": str(e)}
+
+    async def _check_completeness(self, run_id: int, year: int, month: int) -> list[CheckResult]:
+        """Check that all calibrations have matching protocols."""
+        from sqlalchemy import select
+        from app.models.calibration import Calibration
+
+        results = []
+        calibrations = await self.cal_repo.get_by_month(year, month)
+
+        for cal in calibrations:
+            # Find protocol by serial number (with homoglyph normalization)
+            serial = self._normalize_serial(cal.mi_number or "")
+            protocol = await self.data_repo.get_by_serial(serial)
+
+            if not protocol:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    calibration_id=cal.id,
+                    check_type="completeness",
+                    status="missing",
+                    comment=f"No protocol found for serial number: {cal.mi_number}",
+                )
+                self.db.add(result)
+                results.append(result)
+            else:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    calibration_id=cal.id,
+                    protocol_data_id=protocol.id,
+                    check_type="completeness",
+                    status="ok",
+                    comment="Protocol found",
+                )
+                self.db.add(result)
+                results.append(result)
+
+        await self.db.commit()
+        return results
+
+    async def _check_protocols_found(self, run_id: int, year: int, month: int) -> list[CheckResult]:
+        """Check that all protocols match a calibration."""
+        results = []
+        protocols = await self.data_repo.get_by_month(year, month)
+
+        for proto in protocols:
+            if not proto.serial_number:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    protocol_data_id=proto.id,
+                    check_type="protocol_found",
+                    status="warning",
+                    comment="Protocol has no serial number extracted",
+                )
+                self.db.add(result)
+                results.append(result)
+                continue
+
+            serial = self._normalize_serial(proto.serial_number)
+            calibration = await self.cal_repo.get_by_serial(serial)
+
+            if not calibration:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    protocol_data_id=proto.id,
+                    check_type="protocol_found",
+                    status="warning",
+                    comment=f"No calibration found for serial: {proto.serial_number}",
+                )
+                self.db.add(result)
+                results.append(result)
+            else:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    calibration_id=calibration.id,
+                    protocol_data_id=proto.id,
+                    check_type="protocol_found",
+                    status="ok",
+                    comment="Calibration found",
+                )
+                self.db.add(result)
+                results.append(result)
+
+        await self.db.commit()
+        return results
+
+    async def _check_data_match(self, run_id: int, year: int, month: int) -> list[CheckResult]:
+        """Check that calibration data matches protocol data."""
+        from sqlalchemy import select
+        from app.models.calibration import Calibration
+
+        results = []
+        calibrations = await self.cal_repo.get_by_month(year, month)
+
+        for cal in calibrations:
+            serial = self._normalize_serial(cal.mi_number or "")
+            protocol = await self.data_repo.get_by_serial(serial)
+
+            if not protocol:
+                continue
+
+            # Check verifier
+            if cal.verifier and protocol.verifier:
+                if cal.verifier.strip().lower() != protocol.verifier.strip().lower():
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"Verifier mismatch: ARSHIN='{cal.verifier}' vs Protocol='{protocol.verifier}'",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+            # Check date
+            if cal.verification_date and protocol.verification_date:
+                if cal.verification_date != protocol.verification_date:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"Date mismatch: ARSHIN={cal.verification_date} vs Protocol={protocol.verification_date}",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+            # Check temperature against ARSHIN conditions (allow ±2°C)
+            if protocol.temperature is not None:
+                if protocol.temperature < -50 or protocol.temperature > 60:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="warning",
+                        comment=f"Temperature out of range: {protocol.temperature}°C",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+                cal_temp = self._parse_condition(cal.conditions, "temperature")
+                if cal_temp is not None and abs(protocol.temperature - cal_temp) > 2.0:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"Temperature mismatch: ARSHIN={cal_temp}°C vs Protocol={protocol.temperature}°C",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+            # Check humidity (must be 0-100%)
+            if protocol.humidity is not None:
+                if protocol.humidity < 0 or protocol.humidity > 100:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="warning",
+                        comment=f"Humidity out of range: {protocol.humidity}%",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+            # Check pressure against ARSHIN conditions (allow ±3 kPa)
+            if protocol.pressure is not None:
+                cal_pressure = self._parse_condition(cal.conditions, "pressure")
+                if cal_pressure is not None and abs(protocol.pressure - cal_pressure) > 3.0:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"Pressure mismatch: ARSHIN={cal_pressure} kPa vs Protocol={protocol.pressure} kPa",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+            # If no errors found for this pair
+            existing_errors = [r for r in results if r.calibration_id == cal.id and r.protocol_data_id == protocol.id]
+            if not existing_errors:
+                result = CheckResult(
+                    check_run_id=run_id,
+                    calibration_id=cal.id,
+                    protocol_data_id=protocol.id,
+                    check_type="data_match",
+                    status="ok",
+                    comment="All fields match",
+                )
+                self.db.add(result)
+                results.append(result)
+
+        await self.db.commit()
+        return results
+
+    def _parse_condition(self, conditions_json: str | None, field: str) -> float | None:
+        """Parse a numeric value from ARSHIN conditions JSON string.
+
+        Handles formats like '20,1°С', '100,9 кПа', '30,0'.
+        """
+        if not conditions_json:
+            return None
+        try:
+            import json
+            cond = json.loads(conditions_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        field_map = {
+            "temperature": ("conditionsTemperature", "conditions_temperature"),
+            "pressure": ("conditionsPressure", "conditions_pressure"),
+            "humidity": ("conditionsHymidity", "conditions_hymidity", "conditions_humidity"),
+        }
+        keys = field_map.get(field, ())
+        raw = None
+        for key in keys:
+            raw = cond.get(key)
+            if raw is not None:
+                break
+        if raw is None:
+            return None
+
+        import re
+        raw = str(raw).replace(",", ".").replace(" ", "")
+        nums = re.findall(r"[-]?\d+\.?\d*", raw)
+        return float(nums[0]) if nums else None
+
+    def _normalize_serial(self, serial: str) -> str:
+        """Normalize serial number for comparison (handle homoglyphs)."""
+        # Replace common homoglyphs
+        replacements = {
+            "А": "A", "В": "B", "С": "C", "Е": "E",
+            "Н": "H", "К": "K", "М": "M", "О": "O",
+            "Р": "P", "Т": "T", "Х": "X",
+            "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+        }
+        normalized = serial
+        for old, new in replacements.items():
+            normalized = normalized.replace(old, new)
+        return normalized.upper().strip()
+
+    async def _count_calibrations(self, year: int, month: int) -> int:
+        from sqlalchemy import func, select
+        from app.models.calibration import Calibration
+        result = await self.db.execute(
+            select(func.count()).select_from(Calibration)
+            .where(Calibration.year == year)
+            .where(Calibration.month == month)
+        )
+        return result.scalar() or 0
+
+    async def _count_protocols(self, year: int, month: int) -> int:
+        from sqlalchemy import func, select
+        from app.models.protocol_file import ProtocolFile
+        result = await self.db.execute(
+            select(func.count()).select_from(ProtocolFile)
+            .where(ProtocolFile.year == year)
+            .where(ProtocolFile.month == month)
+        )
+        return result.scalar() or 0

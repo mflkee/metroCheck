@@ -1,0 +1,329 @@
+[{
+  "id": "01_main",
+  "name": "Main Full Check",
+  "active": false,
+  "nodes": [
+    {
+      "id": "5e24fb56-7cc1-4d11-b099-fc5c0969e410",
+      "name": "Receive Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "run-check",
+        "responseMode": "onReceived",
+        "responseData": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "ff74460b-02f6-4884-ade4-bfab6036ad14",
+      "name": "Prepare Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "parameters": {
+        "mode": "define",
+        "values": {
+          "number": [
+            {
+              "name": "year",
+              "value": "={{ $json.year || new Date().getFullYear() }}"
+            },
+            {
+              "name": "month",
+              "value": "={{ $json.month || (new Date().getMonth() + 1) }}"
+            }
+          ],
+          "string": [
+            {
+              "name": "paths",
+              "value": "={{ $json.paths || '/data/protocols' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "170291dd-df2f-4ff7-b81b-4f41c23a2b2f",
+      "name": "ARSHIN Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/v1/arshin/check",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "rows",
+              "value": 1
+            },
+            {
+              "name": "year",
+              "value": "={{ $json.year }}"
+            },
+            {
+              "name": "month",
+              "value": "={{ $json.month }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d14c8adc-cd84-411d-bed0-58fec3dfe880",
+      "name": "Check Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "leftValue": "={{ $json.statusCode || $json.status || 0 }}",
+              "rightValue": 200,
+              "operation": "equal"
+            }
+          ],
+          "string": [],
+          "boolean": []
+        }
+      }
+    },
+    {
+      "id": "74e91445-a845-4063-a016-c0ab8cb688ea",
+      "name": "Scan Protocols",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 150],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/v1/protocols/scan",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "year",
+              "value": "={{ $json.year }}"
+            },
+            {
+              "name": "month",
+              "value": "={{ $json.month }}"
+            }
+          ]
+        },
+        "options": {
+          "bodyContentType": "json"
+        }
+      }
+    },
+    {
+      "id": "11004305-ec2d-468a-8a11-590243cc3590",
+      "name": "Run Checks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 150],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/v1/checks/run",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "protocols",
+              "value": "={{ $json.protocols || $json }}"
+            }
+          ]
+        },
+        "options": {
+          "bodyContentType": "json"
+        }
+      }
+    },
+    {
+      "id": "c7ebcdb3-0cdd-4ba0-bd00-291ed2491757",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1450, 150],
+      "parameters": {
+        "resume": "duration",
+        "amount": 5,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "5e20f6be-3db7-4fdf-80d7-534432a56280",
+      "name": "Get Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1650, 150],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/v1/checks/results",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "check_id",
+              "value": "={{ $json.check_id || $json.id || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "87a89f76-f99f-4bd7-80ce-093c357970e5",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1850, 150],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/v1/checks/report",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "results",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {
+          "bodyContentType": "json"
+        }
+      }
+    },
+    {
+      "id": "8f79a12c-7b92-4c3a-9bf0-b4907be3cccf",
+      "name": "Finish",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2050, 150],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Receive Request": {
+      "main": [
+        [
+          {
+            "node": "Prepare Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Params": {
+      "main": [
+        [
+          {
+            "node": "ARSHIN Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ARSHIN Check": {
+      "main": [
+        [
+          {
+            "node": "Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status": {
+      "main": [
+        [
+          {
+            "node": "Scan Protocols",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Scan Protocols": {
+      "main": [
+        [
+          {
+            "node": "Run Checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Checks": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Results": {
+      "main": [
+        [
+          {
+            "node": "Generate Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Report": {
+      "main": [
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "943b8709-04f2-445a-a1fd-950c90bb7b04",
+  "triggerCount": 0,
+  "versionCounter": 1,
+  "tags": []
+}]
