@@ -1,12 +1,34 @@
 """token-agent: receives ARSHIN token from Chrome Extension, serves to backend.
 
 Environment variables:
-  TOKEN_AGENT_FILE  — optional path to write token to file (e.g. C:\Users\Zonov\token.txt)
+  TOKEN_AGENT_FILE  — optional path to write token to file (e.g. C:\\Users\\Zonov\\token.txt)
 """
 
 import os
+import sys
 import time
+import traceback
+import logging
 from typing import Optional
+
+LOG_FILE = os.environ.get("TOKEN_AGENT_LOG", "token-agent.log")
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+# Also log to console if available
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.INFO)
+logging.getLogger("").addHandler(console)
+
+logger = logging.getLogger("token-agent")
+
+logger.info("=" * 50)
+logger.info("token-agent starting...")
+logger.info("Python: %s", sys.executable)
+logger.info("CWD: %s", os.getcwd())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +62,7 @@ def _write_token_file(token):
                 "expires_in": TOKEN_TTL,
             }, f)
     except Exception as e:
-        print("[token-agent] Failed to write token file: {}".format(e))
+        logger.error("Failed to write token file: %s", e)
 
 
 class TokenCallback(BaseModel):
@@ -63,11 +85,10 @@ async def receive_token(data: TokenCallback):
         raw = raw[7:]
     _token = raw
     _updated_at = int(time.time())
-    print(
-        "[token-agent] Token received — {}/{}: {}...".format(
-            data.key or "?", data.source or "?",
-            (_token or "")[:20]
-        )
+    logger.info(
+        "Token received — %s/%s: %s...",
+        data.key or "?", data.source or "?",
+        (_token or "")[:20]
     )
     _write_token_file(_token)
     return {"status": "ok"}
@@ -92,11 +113,11 @@ async def request_token():
 
 @app.post("/token/discover")
 async def discover_storage(data: dict):
-    print("[token-agent] Discovery dump:")
+    logger.info("Discovery dump:")
     for store_name, keys in data.items():
-        print("  {}:".format(store_name))
+        logger.info("  %s:", store_name)
         for k, v in keys.items():
-            print("    {} = {}".format(k, v))
+            logger.info("    %s = %s", k, v)
     return {"status": "ok"}
 
 
@@ -107,10 +128,24 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8003,
-        log_level="info",
-        access_log=True,
-    )
+    try:
+        logger.info("Starting uvicorn on %s:%d", "0.0.0.0", 8003)
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=8003,
+            log_level="info",
+            access_log=True,
+        )
+    except Exception as exc:
+        logger.critical("FAILED TO START: %s", exc)
+        logger.critical("Traceback:\n%s", traceback.format_exc())
+        print("\n*** ERROR STARTING TOKEN-AGENT ***")
+        print(str(exc))
+        print("\nFull details written to:", os.path.abspath(LOG_FILE))
+        print("\nPress Enter to exit...")
+        try:
+            input()
+        except KeyboardInterrupt:
+            pass
+        sys.exit(1)
