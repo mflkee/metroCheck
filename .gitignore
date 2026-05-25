@@ -33,3 +33,7 @@ n8n_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Nested git repos (accidental submodules)
+data/**/.git/
+**/.git/modules/
