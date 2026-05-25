@@ -1,0 +1,46 @@
+name: Deploy metroCheck to mkair-server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, mkair]
+    steps:
+      - name: Ensure repo exists or clone
+        run: |
+          if [ ! -d ~/apps/metroCheck/.git ]; then
+            mkdir -p ~/apps
+            git clone git@github.com:mflkee/metroCheck.git ~/apps/metroCheck
+          fi
+
+      - name: Pull latest code
+        run: |
+          cd ~/apps/metroCheck
+          git fetch origin
+          git reset --hard origin/main
+
+      - name: Build & deploy
+        run: |
+          cd ~/apps/metroCheck
+          docker compose up -d --build
+
+      - name: Health check
+        run: |
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to become ready within 30s"
+          exit 1
+
+      - name: Show status
+        if: always()
+        run: |
+          cd ~/apps/metroCheck
+          docker compose ps
