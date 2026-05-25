@@ -48,6 +48,9 @@ services:
       ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
       FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
       APP_ENV: ${APP_ENV:-development}
+      HTTP_PROXY: http://awg:8888
+      HTTPS_PROXY: http://awg:8888
+      NO_PROXY: .gost.ru,fgis.gost.ru,localhost,127.0.0.1,postgres,redis
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
@@ -59,12 +62,72 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      awg:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  awg:
+    image: alpine:3.20
+    container_name: mkair_awg
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache bash curl tinyproxy iptables-legacy iproute2 wireguard-tools >/dev/null 2>&1
+        update-alternatives --install /sbin/iptables iptables /sbin/iptables-legacy 10 >/dev/null 2>&1
+        tinyproxy -d -c /etc/tinyproxy/tinyproxy.conf &
+        sleep 1
+        for f in /etc/awg/*.conf; do
+          [ -f "$$f" ] || continue
+          name=$$(basename "$$f" .conf)
+          addr=$$(grep -i '^Address' "$$f" | head -1 | cut -d= -f2 | tr -d ' ')
+          mkdir -p /etc/amnezia/amneziawg
+          cp "$$f" "/etc/amnezia/amneziawg/$${name}.conf"
+          chmod 600 "/etc/amnezia/amneziawg/$${name}.conf"
+          # Strip Address/DNS only (awg handles AmneziaWG params)
+          grep -v -i '^Address\b\|^DNS\b' "$$f" > "/tmp/$${name}.conf"
+          /usr/local/bin/amneziawg-go "$$name" &
+          sleep 3
+          /usr/local/bin/awg setconf "$$name" "/tmp/$${name}.conf"
+          ip -4 address add "$$addr" dev "$$name"
+          ip link set mtu 1420 up dev "$$name"
+          /usr/local/bin/awg set "$$name" fwmark 51820
+          ip -4 rule add not fwmark 51820 table 51820 2>/dev/null || true
+          ip -4 rule add table main suppress_prefixlength 0 2>/dev/null || true
+          ip -4 route add 0.0.0.0/0 dev "$$name" table 51820
+          echo "=== awg interface $$name is up ==="
+        done
+        echo "=== Testing OpenRouter ==="
+        curl -sI --max-time 15 https://openrouter.ai/api/v1/models | head -5
+        echo ""
+        echo "=== Proxy ready on :8888 ==="
+        sleep infinity
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - ./n8n/awg-config/mkair.conf:/etc/awg/mkair.conf:ro
+      - ./n8n/awg-config/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+      - ./n8n/awg-config/amneziawg-go:/usr/local/bin/amneziawg-go:ro
+      - ./n8n/awg-config/awg:/usr/local/bin/awg:ro
+    networks:
+      - backend_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf --max-time 5 --proxy http://localhost:8888 https://openrouter.ai >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   n8n:
     image: n8nio/n8n:latest
@@ -82,6 +145,7 @@ services:
       N8N_MCP_SERVER_ENABLED: "true"
       N8N_MCP_SERVER_API_KEY: ${N8N_MCP_KEY:-mkair-mcp-key}
       N8N_API_KEY: ${N8N_API_KEY:-mkair-n8n-api-key}
+      # Queue mode with Redis
       EXECUTIONS_MODE: queue
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PORT: 6379
@@ -91,11 +155,16 @@ services:
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-mkair}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-mkair}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-mkair_secret}
+      # SMB / VPN related
       MKAIR_PROTOCOLS_PATH: ${MKAIR_PROTOCOLS_PATH:-/protocols}
+      HTTP_PROXY: http://awg:8888
+      HTTPS_PROXY: http://awg:8888
+      NO_PROXY: .gost.ru,fgis.gost.ru,localhost,127.0.0.1,postgres,redis
     ports:
       - "${N8N_PORT:-5681}:5678"
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./n8n/awg-config:/etc/awg:ro
       - ${PROTOCOLS_HOST_PATH:-./protocols}:${MKAIR_PROTOCOLS_PATH:-/protocols}:ro
     networks:
       - backend_network
@@ -105,6 +174,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      awg:
+        condition: service_started
 
 volumes:
   postgres_data:
