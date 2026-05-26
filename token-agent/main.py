@@ -128,12 +128,15 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
+    import uvicorn.loops.asyncio  # force PyInstaller to bundle
+    import uvicorn.loops.auto
     try:
         logger.info("Starting uvicorn on %s:%d", "0.0.0.0", 8003)
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
             port=8003,
+            loop="asyncio",
             log_level="info",
             access_log=True,
         )

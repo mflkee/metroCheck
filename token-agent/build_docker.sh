@@ -14,7 +14,7 @@ docker run --rm \
   -v "$SRC_DIR:/src" \
   -w /src \
   "$IMAGE" \
-  "pip install -r /src/requirements.txt && pyinstaller --onefile --console --name token-agent /src/main.py"
+  "pip install -r /src/requirements.txt && pyinstaller --onefile --console --name token-agent --hidden-import=uvicorn.loops.asyncio --hidden-import=uvicorn.loops.auto /src/main.py"
 
 mkdir -p "$OUTPUT_DIR"
 if [ -f "$SRC_DIR/token-agent.exe" ]; then
