@@ -4,6 +4,7 @@ Environment variables:
   TOKEN_AGENT_FILE  — optional path to write token to file (e.g. C:\\Users\\Zonov\\token.txt)
 """
 
+import uvicorn.protocols.http.auto
 import os
 import sys
 import time
