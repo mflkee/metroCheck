@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: mkair_postgres
+    container_name: metroCheck_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mkair}
@@ -21,7 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mkair_redis
+    container_name: metroCheck_redis
     restart: unless-stopped
     volumes:
       - redis_data:/data
@@ -39,7 +39,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: mkair_backend
+    container_name: metroCheck_backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mkair}:${POSTGRES_PASSWORD:-mkair_secret}@postgres:5432/${POSTGRES_DB:-mkair}
@@ -68,7 +68,7 @@ services:
 
   n8n:
     image: n8nio/n8n:latest
-    container_name: mkair_n8n
+    container_name: metroCheck_n8n
     restart: unless-stopped
     environment:
       N8N_BASIC_AUTH_ACTIVE: "true"
