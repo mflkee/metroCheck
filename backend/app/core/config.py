@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     AI_MAX_TOKENS: int = 1000
     AI_TEMPERATURE: float = 0.1
 
+    # Email notifications
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    FROM_EMAIL: str = "mkair-reports@example.com"
+    REPORT_EMAIL: str = ""  # Where to send reports
+
     class Config:
         env_file = ".env"
         case_sensitive = True

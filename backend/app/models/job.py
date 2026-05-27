@@ -38,5 +38,16 @@ class Job(Base):
     # Who triggered
     triggered_by: Mapped[str] = mapped_column(String(50), default="system")  # system / user / cron
     
+    # Progress tracking by devices
+    total_devices: Mapped[int] = mapped_column(Integer, default=0)
+    processed_devices: Mapped[int] = mapped_column(Integer, default=0)
+    current_device: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # Health status snapshot
+    health_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Email notification
+    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    
     # If this job is waiting for token
     waiting_for_token: Mapped[bool] = mapped_column(Boolean, default=False)
