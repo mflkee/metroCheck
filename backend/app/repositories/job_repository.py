@@ -65,6 +65,9 @@ class JobRepository:
         error_message: Optional[str] = None,
         check_run_id: Optional[int] = None,
         result_json: Optional[str] = None,
+        total_devices: Optional[int] = None,
+        processed_devices: Optional[int] = None,
+        current_device: Optional[str] = None,
     ) -> None:
         job = await self.get_by_id(job_id)
         if job:
@@ -77,6 +80,12 @@ class JobRepository:
                 job.check_run_id = check_run_id
             if result_json:
                 job.result_json = result_json
+            if total_devices is not None:
+                job.total_devices = total_devices
+            if processed_devices is not None:
+                job.processed_devices = processed_devices
+            if current_device:
+                job.current_device = current_device
             await self.db.commit()
 
     async def list_all(self, limit: int = 50) -> list[Job]:

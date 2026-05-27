@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MKAIR — Очередь проверок</title>
+    <title>MKAIR — Контроль протоколов поверки</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -12,9 +12,10 @@
             color: #e2e8f0;
             line-height: 1.6;
         }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        h1 { font-size: 24px; margin-bottom: 20px; color: #60a5fa; }
-        h2 { font-size: 18px; margin: 20px 0 10px; color: #94a3b8; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 24px; margin-bottom: 8px; color: #60a5fa; }
+        .subtitle { color: #64748b; font-size: 14px; margin-bottom: 20px; }
+        h2 { font-size: 16px; margin: 20px 0 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
         
         .card {
             background: #1e293b;
@@ -28,35 +29,43 @@
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
         }
-        .status-running { background: #10b981; color: #064e3b; }
-        .status-pending { background: #f59e0b; color: #78350f; }
-        .status-paused { background: #6b7280; color: #f3f4f6; }
-        .status-completed { background: #3b82f6; color: #eff6ff; }
-        .status-failed { background: #ef4444; color: #fef2f2; }
-        .status-cancelled { background: #6b7280; color: #d1d5db; }
+        .status-ok { background: #064e3b; color: #34d399; }
+        .status-error { background: #450a0a; color: #f87171; }
+        .status-warning { background: #422006; color: #fbbf24; }
+        .status-running { background: #064e3b; color: #34d399; }
+        .status-pending { background: #422006; color: #fbbf24; }
+        .status-expired { background: #450a0a; color: #f87171; }
+        .status-unreachable { background: #1e1b4b; color: #a5b4fc; }
         
         .progress-bar {
             width: 100%;
-            height: 8px;
+            height: 12px;
             background: #334155;
-            border-radius: 4px;
+            border-radius: 6px;
             overflow: hidden;
             margin: 8px 0;
         }
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            transition: width 0.3s ease;
-            border-radius: 4px;
+            transition: width 0.5s ease;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-size: 10px;
+            font-weight: 700;
+            color: white;
         }
         
         .job-row {
             display: grid;
-            grid-template-columns: 80px 100px 80px 120px 1fr 100px;
+            grid-template-columns: 60px 90px 80px 100px 1fr 120px;
             gap: 12px;
             align-items: center;
             padding: 12px 0;
@@ -70,7 +79,7 @@
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             transition: all 0.2s;
         }
@@ -96,27 +105,10 @@
             font-size: 14px;
         }
         
-        .token-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 13px;
-        }
-        .token-ok { background: #064e3b; color: #34d399; }
-        .token-expired { background: #450a0a; color: #f87171; }
-        
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #64748b;
-        }
-        
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
             margin-bottom: 20px;
         }
         .stat-card {
@@ -124,23 +116,116 @@
             padding: 16px;
             border-radius: 8px;
             text-align: center;
+            border: 1px solid #334155;
         }
-        .stat-value { font-size: 28px; font-weight: 700; color: #60a5fa; }
-        .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #60a5fa; }
+        .stat-label { font-size: 11px; color: #64748b; margin-top: 4px; text-transform: uppercase; }
+        .stat-value.error { color: #ef4444; }
+        .stat-value.warning { color: #fbbf24; }
+        .stat-value.success { color: #34d399; }
         
-        .log-entry {
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            padding: 4px 0;
-            color: #94a3b8;
+        .health-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
         }
-        .log-entry .time { color: #64748b; margin-right: 8px; }
+        .health-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: #252f47;
+            border-radius: 8px;
+        }
+        .health-icon { font-size: 20px; }
+        .health-info { flex: 1; }
+        .health-name { font-size: 13px; color: #94a3b8; }
+        .health-detail { font-size: 12px; color: #64748b; }
+        
+        .device-progress {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        .device-current {
+            font-size: 12px;
+            color: #60a5fa;
+            margin-top: 2px;
+            font-family: monospace;
+        }
+        
+        .error-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error-item {
+            padding: 10px;
+            background: #451a1a;
+            border-left: 3px solid #ef4444;
+            margin-bottom: 8px;
+            border-radius: 0 6px 6px 0;
+            font-size: 13px;
+        }
+        .error-type { color: #f87171; font-weight: 600; }
+        .error-msg { color: #fca5a5; }
+        .warning-item {
+            background: #422006;
+            border-left-color: #fbbf24;
+        }
+        .warning-type { color: #fbbf24; }
+        .warning-msg { color: #fcd34d; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+            font-size: 14px;
+        }
+        
+        .mode-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #1e293b;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            font-size: 14px;
+        }
+        .mode-indicator.active {
+            border-color: #10b981;
+            background: #064e3b;
+        }
+        .mode-indicator.waiting {
+            border-color: #f59e0b;
+            background: #422006;
+        }
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>MKAIR — Очередь проверок протоколов</h1>
-        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+                <h1>MKAIR — Контроль протоколов поверки</h1>
+                <div class="subtitle">Автоматическая проверка соответствия АРШИН ↔ Протоколы</div>
+            </div>
+            <div id="mode-indicator" class="mode-indicator">
+                <span id="mode-pulse" class="pulse" style="display: none;"></span>
+                <span id="mode-text">Автоматический режим</span>
+            </div>
+        </div>
+
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-value" id="stat-pending">0</div>
@@ -151,12 +236,53 @@
                 <div class="stat-label">Выполняется</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value" id="stat-completed">0</div>
-                <div class="stat-label">Завершено</div>
+                <div class="stat-value" id="stat-devices">—</div>
+                <div class="stat-label">Приборов проверено</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value" id="stat-token">—</div>
-                <div class="stat-label">Токен АРШИН</div>
+                <div class="stat-value" id="stat-errors">0</div>
+                <div class="stat-label">Ошибок найдено</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Статус системы</h2>
+            <div class="health-grid" id="health-grid">
+                <div class="health-item">
+                    <span class="health-icon">🌐</span>
+                    <div class="health-info">
+                        <div class="health-name">АРШИН API</div>
+                        <div class="health-detail" id="health-arshin-api">Проверка...</div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <span class="health-icon">🔑</span>
+                    <div class="health-info">
+                        <div class="health-name">Токен АРШИН</div>
+                        <div class="health-detail" id="health-arshin-token">Проверка...</div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <span class="health-icon">🤖</span>
+                    <div class="health-info">
+                        <div class="health-name">Token Agent (Зонов)</div>
+                        <div class="health-detail" id="health-token-agent">Проверка...</div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <span class="health-icon">⚡</span>
+                    <div class="health-info">
+                        <div class="health-name">OpenRouter</div>
+                        <div class="health-detail" id="health-openrouter">Проверка...</div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <span class="health-icon">🔗</span>
+                    <div class="health-info">
+                        <div class="health-name">n8n Workflows</div>
+                        <div class="health-detail" id="health-n8n">Проверка...</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -184,7 +310,7 @@
                 <button class="btn btn-primary" onclick="enqueueManual()">Запустить сейчас</button>
             </div>
             <p style="font-size: 13px; color: #64748b;">
-                Ручной запуск имеет приоритет и прервёт автоматическую проверку.
+                Ручной запуск имеет приоритет. Автоматическая проверка приостановится и возобновится после завершения.
             </p>
         </div>
 
@@ -192,6 +318,13 @@
             <h2>Текущая проверка</h2>
             <div id="running-job">
                 <div class="empty-state">Нет активных проверок</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Последние ошибки</h2>
+            <div id="recent-errors">
+                <div class="empty-state">Ошибок пока нет</div>
             </div>
         </div>
 
@@ -239,8 +372,68 @@
             });
         }
 
+        function formatDuration(seconds) {
+            if (!seconds) return '—';
+            const mins = Math.floor(seconds / 60);
+            const hours = Math.floor(mins / 60);
+            if (hours > 0) return `${hours}ч ${mins % 60}мин`;
+            return `${mins}мин`;
+        }
+
         function statusBadge(status) {
             return `<span class="status-badge status-${status}">${status}</span>`;
+        }
+
+        async function updateHealth() {
+            try {
+                const health = await api('/health');
+                
+                // ARSHIN API
+                const arshinApi = health.arshin_api || {};
+                document.getElementById('health-arshin-api').innerHTML = 
+                    arshinApi.status === 'ok' 
+                        ? '<span class="status-badge status-ok">Доступен</span>'
+                        : `<span class="status-badge status-error">${arshinApi.status || 'н/д'}</span>`;
+                
+                // ARSHIN Token
+                const arshinToken = health.arshin_token || {};
+                if (arshinToken.status === 'ok') {
+                    const mins = arshinToken.expires_min || 0;
+                    const color = mins < 10 ? 'status-expired' : 'status-ok';
+                    document.getElementById('health-arshin-token').innerHTML = 
+                        `<span class="status-badge ${color}">${mins} мин</span>`;
+                } else {
+                    document.getElementById('health-arshin-token').innerHTML = 
+                        `<span class="status-badge status-expired">Нет токена</span>`;
+                }
+                
+                // Token Agent
+                const tokenAgent = health.token_agent || {};
+                document.getElementById('health-token-agent').innerHTML = 
+                    tokenAgent.status === 'ok'
+                        ? '<span class="status-badge status-ok">Онлайн</span>'
+                        : `<span class="status-badge status-unreachable">${tokenAgent.status || 'н/д'}</span>`;
+                
+                // OpenRouter
+                const openrouter = health.openrouter || {};
+                if (openrouter.status === 'ok') {
+                    document.getElementById('health-openrouter').innerHTML = 
+                        `<span class="status-badge status-ok">$${openrouter.balance || '?'}</span>`;
+                } else {
+                    document.getElementById('health-openrouter').innerHTML = 
+                        `<span class="status-badge status-error">${openrouter.status || 'н/д'}</span>`;
+                }
+                
+                // n8n
+                const n8n = health.n8n || {};
+                document.getElementById('health-n8n').innerHTML = 
+                    n8n.status === 'ok'
+                        ? '<span class="status-badge status-ok">Работает</span>'
+                        : `<span class="status-badge status-error">${n8n.status || 'н/д'}</span>`;
+                
+            } catch (e) {
+                console.error('Health check error:', e);
+            }
         }
 
         async function updateQueue() {
@@ -250,25 +443,44 @@
                 // Update stats
                 document.getElementById('stat-pending').textContent = data.pending?.length || 0;
                 document.getElementById('stat-running').textContent = data.running ? 1 : 0;
-                document.getElementById('stat-completed').textContent = data.recent?.filter(j => j.status === 'completed').length || 0;
                 
-                // Token status
-                try {
-                    const token = await api('/checks/token-status');
-                    const el = document.getElementById('stat-token');
-                    if (token.status === 'ok') {
-                        const mins = Math.floor(token.expires_in / 60);
-                        el.innerHTML = `<span class="token-status token-ok">● ${mins} мин</span>`;
+                // Mode indicator
+                const modeEl = document.getElementById('mode-indicator');
+                const modeText = document.getElementById('mode-text');
+                const modePulse = document.getElementById('mode-pulse');
+                
+                if (data.running) {
+                    if (data.running.job_type === 'manual') {
+                        modeEl.className = 'mode-indicator active';
+                        modeText.textContent = 'Ручная проверка';
+                        modePulse.style.display = 'inline-block';
                     } else {
-                        el.innerHTML = `<span class="token-status token-expired">● Нет токена</span>`;
+                        modeEl.className = 'mode-indicator active';
+                        modeText.textContent = 'Автоматическая проверка';
+                        modePulse.style.display = 'inline-block';
                     }
-                } catch (e) {
-                    document.getElementById('stat-token').textContent = '—';
+                } else if (data.pending?.length > 0) {
+                    modeEl.className = 'mode-indicator waiting';
+                    modeText.textContent = 'Ожидание запуска';
+                    modePulse.style.display = 'none';
+                } else {
+                    modeEl.className = 'mode-indicator';
+                    modeText.textContent = 'Автоматический режим';
+                    modePulse.style.display = 'none';
                 }
                 
                 // Running job
                 const runningEl = document.getElementById('running-job');
                 if (data.running) {
+                    const progress = data.running.progress_percent || 0;
+                    const total = data.running.total_devices || 0;
+                    const processed = data.running.processed_devices || 0;
+                    const current = data.running.current_device || '';
+                    
+                    document.getElementById('stat-devices').textContent = total > 0 
+                        ? `${processed}/${total}` 
+                        : '—';
+                    
                     runningEl.innerHTML = `
                         <div class="job-row">
                             <div><strong>#${data.running.id}</strong></div>
@@ -277,9 +489,11 @@
                             <div>${data.running.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
                             <div style="flex: 1;">
                                 <div>${data.running.progress || '...'}</div>
+                                ${current ? `<div class="device-current">${current}</div>` : ''}
                                 <div class="progress-bar">
-                                    <div class="progress-fill" style="width: ${data.running.progress_percent || 0}%"></div>
+                                    <div class="progress-fill" style="width: ${progress}%">${progress}%</div>
                                 </div>
+                                ${total > 0 ? `<div class="device-progress">Приборов: ${processed} / ${total}</div>` : ''}
                             </div>
                             <div>
                                 <button class="btn btn-danger" onclick="cancelJob(${data.running.id})">Отменить</button>
@@ -288,6 +502,7 @@
                     `;
                 } else {
                     runningEl.innerHTML = '<div class="empty-state">Нет активных проверок</div>';
+                    document.getElementById('stat-devices').textContent = '—';
                 }
                 
                 // Pending jobs
@@ -328,7 +543,41 @@
                 }
                 
             } catch (e) {
-                console.error('Update error:', e);
+                console.error('Queue update error:', e);
+            }
+        }
+
+        async function updateErrors() {
+            try {
+                // Get latest check run errors
+                const summary = await api('/checks/summary');
+                const errorsEl = document.getElementById('recent-errors');
+                
+                if (summary.latest_run && summary.latest_run.id) {
+                    const results = await api(`/checks/results/${summary.latest_run.id}`);
+                    const errors = results.errors || [];
+                    
+                    document.getElementById('stat-errors').textContent = errors.length;
+                    
+                    if (errors.length > 0) {
+                        errorsEl.innerHTML = errors.slice(0, 10).map(e => {
+                            const isWarning = e.status === 'warning';
+                            return `
+                                <div class="error-item ${isWarning ? 'warning-item' : ''}">
+                                    <div class="${isWarning ? 'warning-type' : 'error-type'}">${e.check_type}</div>
+                                    <div class="${isWarning ? 'warning-msg' : 'error-msg'}">${e.comment}</div>
+                                </div>
+                            `;
+                        }).join('');
+                        if (errors.length > 10) {
+                            errorsEl.innerHTML += `<div style="text-align: center; padding: 10px; color: #64748b;">+${errors.length - 10} ошибок</div>`;
+                        }
+                    } else {
+                        errorsEl.innerHTML = '<div class="empty-state">Ошибок не найдено ✓</div>';
+                    }
+                }
+            } catch (e) {
+                console.error('Errors update error:', e);
             }
         }
 
@@ -337,7 +586,6 @@
             const month = parseInt(document.getElementById('run-month').value);
             try {
                 await api('/jobs/enqueue', 'POST', { year, month });
-                alert('Проверка добавлена в очередь');
                 updateQueue();
             } catch (e) {
                 alert('Ошибка: ' + e.message);
@@ -363,9 +611,14 @@
             }
         }
 
-        // Auto-update every 3 seconds
+        // Auto-update
+        updateHealth();
         updateQueue();
-        setInterval(updateQueue, 3000);
+        updateErrors();
+        
+        setInterval(updateHealth, 10000);  // Every 10s
+        setInterval(updateQueue, 3000);    // Every 3s
+        setInterval(updateErrors, 10000);  // Every 10s
     </script>
 </body>
 </html>
