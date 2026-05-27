@@ -1,5 +1,15 @@
 # Port Map — проекты MKAIR
 
+## Сеть: Netbird VPN (mesh)
+
+| Узел | Netbird IP | Роль |
+|------|-----------|------|
+| mkair-server | 100.89.59.195 | Сервер (metroLog, metroGen, metroCheck, monitoring) |
+| mflkee (локально) | 100.104.105.63 | Разработка metroCheck |
+| Зонов (Нижневартовск) | 100.89.96.31 | Token Agent (порт 8003) |
+
+---
+
 ## Локальные проекты (`~/projects/`)
 
 | Проект | Сервис | Внутр. порт | Хост порт | Статус |
@@ -23,27 +33,49 @@
 | | Backend (FastAPI) | 8000 | **8002** | ✅ |
 | | n8n | 5678 | **5681** | ✅ |
 
-## Сервер mkair-server (Tailscale: 100.80.114.18)
+---
 
-Проекты лежат в `~/apps/`, не в `~/projects/`. SSH доступен (пароль: 7405).
+## Сервер mkair-server (Netbird: 100.89.59.195)
+
+Проекты лежат в `~/apps/`. Деплой через GitHub Actions self-hosted runner.
 
 | Проект | Сервис | Внутр. порт | Хост порт | Статус |
 |--------|--------|-------------|-----------|--------|
-| **metroLog** | PostgreSQL | 5432 | 5432 | Up 2 weeks |
-| | Redis | 6379 | 6379 | Up 2 weeks |
-| | Backend | 8000 | 8000 | Up 2 days |
-| | Worker | — | — | Up 2 days |
-| | Frontend | 80 | 5173 | Up 10 days |
-| **metroGen** | PostgreSQL | 5432 | 5433 | Up 4 weeks (healthy) |
-| | API | 8000 | 8001 | Up 4 weeks (healthy) |
-| | Frontend | 80 | 5174 | Up 4 weeks |
-| **monitoring** | Grafana | 3000 | 192.168.1.84:8090 | Up 4 weeks |
-| | Prometheus | 9090 | 127.0.0.1:9091 | Up 4 weeks |
-| | Alertmanager | 9093 | 127.0.0.1:9093 | Up 4 weeks |
-| | Blackbox Exporter | 9115 | 127.0.0.1:9115 | Up 4 weeks |
-| | cAdvisor | 8080 | 127.0.0.1:8080 | Up 4 weeks (healthy) |
-| | Node Exporter | 9100 | — | Up 4 weeks |
+| **metroLog** | PostgreSQL | 5432 | 5432 | Up |
+| | Redis | 6379 | 6379 | Up |
+| | Backend | 8000 | 8000 | Up |
+| | Worker | — | — | Up |
+| | Frontend | 80 | 5173 | Up |
+| **metroGen** | PostgreSQL | 5432 | 5433 | Up |
+| | API | 8000 | 8001 | Up |
+| | Frontend | 80 | 5174 | Up |
+| **metroCheck** | PostgreSQL | 5432 | **5434** | Up |
+| | Redis | 6379 | **6382** | Up |
+| | Backend | 8000 | **8002** | Up |
+| | n8n | 5678 | **5681** | Up |
+| **monitoring** | Grafana | 3000 | 192.168.1.84:8090 | Up |
+| | Prometheus | 9090 | 127.0.0.1:9091 | Up |
+| | Alertmanager | 9093 | 127.0.0.1:9093 | Up |
+| | Blackbox Exporter | 9115 | 127.0.0.1:9115 | Up |
+| | cAdvisor | 8080 | 127.0.0.1:8080 | Up |
+| | Node Exporter | 9100 | — | Up |
 | **metroSearch** | — | — | — | ❌ Не запущен |
+
+---
+
+## Внешние узлы (Netbird)
+
+| Узел | IP | Сервис | Порт | Описание |
+|------|-----|--------|------|----------|
+| **Зонов ПК** | 100.89.96.31 | token-agent | 8003 | FastAPI сервер, хранит ARSHIN токен |
+
+Token Agent доступен с mkair-server:
+```bash
+curl -X POST http://100.89.96.31:8003/token/request \
+  -H "X-API-Key: mkair-token-agent-key"
+```
+
+---
 
 ## Почему такие порты для metroCheck
 
@@ -54,7 +86,9 @@
 | Redis | 6381 | **6382** | metroLog-devbox-redis (6380) — смещение для запаса |
 | n8n | 5679 | **5681** | n8n_test-AWG (5678) |
 
-## Занятые порты (локально, все проекты)
+---
+
+## Занятые порты (локально)
 
 ```
 5432  — metroLog PostgreSQL
@@ -74,14 +108,20 @@
 5174  — metroGen Frontend
 ```
 
-## Занятые порты (сервер mkair-server, 100.80.114.18)
+---
+
+## Занятые порты (сервер mkair-server)
 
 ```
 5432  — metroLog PostgreSQL
 5433  — metroGen PostgreSQL
+5434  — metroCheck PostgreSQL  ←
 6379  — metroLog Redis
+6382  — metroCheck Redis       ←
 8000  — metroLog Backend
 8001  — metroGen API
+8002  — metroCheck Backend     ←
+5681  — metroCheck n8n         ←
 5173  — metroLog Frontend
 5174  — metroGen Frontend
 3000  — Grafana (192.168.1.84:8090)
@@ -92,19 +132,52 @@
 9100  — Node Exporter
 ```
 
-## Tailscale сеть
+---
 
-Все сервисы доступны через Tailscale (100.x.x.x). Для доступа с других устройств использовать:
+## Доступ через Netbird
 
 ```
-http://100.104.105.63:8002  — metroCheck Backend (локально)
-http://100.104.105.63:5681  — metroCheck n8n (локально)
-http://100.80.114.18:8000   — metroLog Backend (сервер)
-http://100.80.114.18:8001   — metroGen API (сервер)
+http://100.89.59.195:8000   — metroLog Backend (сервер)
+http://100.89.59.195:8001   — metroGen API (сервер)
+http://100.89.59.195:8002   — metroCheck Backend (сервер)  ←
+http://100.89.59.195:5681   — metroCheck n8n (сервер)      ←
+http://100.89.96.31:8003    — Token Agent (Зонов)           ←
 ```
+
+---
 
 ## SSH доступ
 
-| Сервер | IP | Пользователь | Пароль |
-|--------|----|-------------|--------|
-| mkair-server | 100.80.114.18 | mflkee | <PASSWORD> |
+| Сервер | IP (Netbird) | Пользователь | Пароль |
+|--------|-------------|-------------|--------|
+| mkair-server | 100.89.59.195 | mflkee | <PASSWORD> |
+
+---
+
+## CI/CD (GitHub Actions)
+
+Файл: `.github/workflows/deploy.yml`
+
+- **Trigger**: push в `main` или ручной запуск
+- **Runner**: self-hosted на mkair-server (тег `mkair`)
+- **Шаги**: clone → pull → `docker compose up -d --build` → health check
+
+Запуск деплоя:
+```bash
+git push origin main
+```
+
+Или вручную: GitHub → Actions → "Deploy metroCheck" → Run workflow
+
+---
+
+## Firewall (mkair-server)
+
+Для доступа token-agent с сервера на Зонова нужно разрешить порт 8003:
+
+```powershell
+# На ПК Зонова (Windows, Admin PowerShell):
+New-NetFirewallRule -DisplayName "Allow Netbird ARSHIN Agent" `
+  -Direction Inbound -Protocol TCP -LocalPort 8003 `
+  -Action Allow -RemoteAddress 100.64.0.0/10
+```

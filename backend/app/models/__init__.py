@@ -6,6 +6,7 @@ from app.models.protocol_data import ProtocolData
 from app.models.check_result import CheckResult
 from app.models.check_run import CheckRun
 from app.models.ai_request import AIRequest
+from app.models.job import Job
 
 __all__ = [
     "Base",
@@ -16,4 +17,5 @@ __all__ = [
     "CheckResult",
     "CheckRun",
     "AIRequest",
+    "Job",
 ]

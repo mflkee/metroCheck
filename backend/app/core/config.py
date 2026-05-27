@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ARSHIN_BASE_URL: str = "https://fgis.gost.ru/fundmetrology/eapi"
 
     # Token-agent (ПК Зонова via Netbird)
-    ZONOV_IP: str = "100.64.0.2"
+    ZONOV_IP: str = "100.89.96.31"
     TOKEN_AGENT_KEY: str = "mkair-token-agent-key"
 
     # Security

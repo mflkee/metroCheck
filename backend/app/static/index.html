@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MKAIR — Очередь проверок</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 24px; margin-bottom: 20px; color: #60a5fa; }
+        h2 { font-size: 18px; margin: 20px 0 10px; color: #94a3b8; }
+        
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid #334155;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-running { background: #10b981; color: #064e3b; }
+        .status-pending { background: #f59e0b; color: #78350f; }
+        .status-paused { background: #6b7280; color: #f3f4f6; }
+        .status-completed { background: #3b82f6; color: #eff6ff; }
+        .status-failed { background: #ef4444; color: #fef2f2; }
+        .status-cancelled { background: #6b7280; color: #d1d5db; }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #334155;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+        
+        .job-row {
+            display: grid;
+            grid-template-columns: 80px 100px 80px 120px 1fr 100px;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #334155;
+        }
+        .job-row:last-child { border-bottom: none; }
+        .job-row:hover { background: #252f47; margin: 0 -20px; padding: 12px 20px; }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-secondary { background: #475569; color: white; }
+        .btn-secondary:hover { background: #334155; }
+        
+        .form-inline {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .form-inline input, .form-inline select {
+            padding: 8px 12px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 14px;
+        }
+        
+        .token-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .token-ok { background: #064e3b; color: #34d399; }
+        .token-expired { background: #450a0a; color: #f87171; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #1e293b;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; color: #60a5fa; }
+        .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+        
+        .log-entry {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            padding: 4px 0;
+            color: #94a3b8;
+        }
+        .log-entry .time { color: #64748b; margin-right: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MKAIR — Очередь проверок протоколов</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-pending">0</div>
+                <div class="stat-label">В очереди</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-running">0</div>
+                <div class="stat-label">Выполняется</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-completed">0</div>
+                <div class="stat-label">Завершено</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-token">—</div>
+                <div class="stat-label">Токен АРШИН</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Запустить проверку</h2>
+            <div class="form-inline">
+                <select id="run-year">
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                </select>
+                <select id="run-month">
+                    <option value="1">Январь</option>
+                    <option value="2">Февраль</option>
+                    <option value="3">Март</option>
+                    <option value="4">Апрель</option>
+                    <option value="5">Май</option>
+                    <option value="6">Июнь</option>
+                    <option value="7">Июль</option>
+                    <option value="8">Август</option>
+                    <option value="9">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                </select>
+                <button class="btn btn-primary" onclick="enqueueManual()">Запустить сейчас</button>
+            </div>
+            <p style="font-size: 13px; color: #64748b;">
+                Ручной запуск имеет приоритет и прервёт автоматическую проверку.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>Текущая проверка</h2>
+            <div id="running-job">
+                <div class="empty-state">Нет активных проверок</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Очередь</h2>
+            <div id="pending-jobs">
+                <div class="empty-state">Очередь пуста</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>История</h2>
+            <div id="recent-jobs">
+                <div class="empty-state">История пуста</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'mkair-secret-key';
+        const API_BASE = '/api/v1';
+
+        async function api(path, method = 'GET', body = null) {
+            const opts = {
+                method,
+                headers: {
+                    'X-API-Key': API_KEY,
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (body) opts.body = JSON.stringify(body);
+            const res = await fetch(`${API_BASE}${path}`, opts);
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(err);
+            }
+            return res.json();
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '—';
+            const d = new Date(iso);
+            return d.toLocaleString('ru-RU', { 
+                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+            });
+        }
+
+        function statusBadge(status) {
+            return `<span class="status-badge status-${status}">${status}</span>`;
+        }
+
+        async function updateQueue() {
+            try {
+                const data = await api('/jobs/status');
+                
+                // Update stats
+                document.getElementById('stat-pending').textContent = data.pending?.length || 0;
+                document.getElementById('stat-running').textContent = data.running ? 1 : 0;
+                document.getElementById('stat-completed').textContent = data.recent?.filter(j => j.status === 'completed').length || 0;
+                
+                // Token status
+                try {
+                    const token = await api('/checks/token-status');
+                    const el = document.getElementById('stat-token');
+                    if (token.status === 'ok') {
+                        const mins = Math.floor(token.expires_in / 60);
+                        el.innerHTML = `<span class="token-status token-ok">● ${mins} мин</span>`;
+                    } else {
+                        el.innerHTML = `<span class="token-status token-expired">● Нет токена</span>`;
+                    }
+                } catch (e) {
+                    document.getElementById('stat-token').textContent = '—';
+                }
+                
+                // Running job
+                const runningEl = document.getElementById('running-job');
+                if (data.running) {
+                    runningEl.innerHTML = `
+                        <div class="job-row">
+                            <div><strong>#${data.running.id}</strong></div>
+                            <div>${data.running.year}-${String(data.running.month).padStart(2,'0')}</div>
+                            <div>${statusBadge(data.running.status)}</div>
+                            <div>${data.running.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
+                            <div style="flex: 1;">
+                                <div>${data.running.progress || '...'}</div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${data.running.progress_percent || 0}%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <button class="btn btn-danger" onclick="cancelJob(${data.running.id})">Отменить</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    runningEl.innerHTML = '<div class="empty-state">Нет активных проверок</div>';
+                }
+                
+                // Pending jobs
+                const pendingEl = document.getElementById('pending-jobs');
+                if (data.pending?.length > 0) {
+                    pendingEl.innerHTML = data.pending.map(job => `
+                        <div class="job-row">
+                            <div><strong>#${job.id}</strong></div>
+                            <div>${job.year}-${String(job.month).padStart(2,'0')}</div>
+                            <div>${statusBadge(job.status)}</div>
+                            <div>${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
+                            <div>${job.progress || 'Ожидание...'}</div>
+                            <div>
+                                <button class="btn btn-secondary" onclick="pauseJob(${job.id})">Пауза</button>
+                                <button class="btn btn-danger" onclick="cancelJob(${job.id})">Отмена</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    pendingEl.innerHTML = '<div class="empty-state">Очередь пуста</div>';
+                }
+                
+                // Recent jobs
+                const recentEl = document.getElementById('recent-jobs');
+                if (data.recent?.length > 0) {
+                    recentEl.innerHTML = data.recent.map(job => `
+                        <div class="job-row">
+                            <div><strong>#${job.id}</strong></div>
+                            <div>${job.year}-${String(job.month).padStart(2,'0')}</div>
+                            <div>${statusBadge(job.status)}</div>
+                            <div>${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
+                            <div>${job.progress || '—'} ${job.error_message ? `<span style="color:#ef4444">(${job.error_message})</span>` : ''}</div>
+                            <div>${formatDate(job.completed_at || job.started_at)}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    recentEl.innerHTML = '<div class="empty-state">История пуста</div>';
+                }
+                
+            } catch (e) {
+                console.error('Update error:', e);
+            }
+        }
+
+        async function enqueueManual() {
+            const year = parseInt(document.getElementById('run-year').value);
+            const month = parseInt(document.getElementById('run-month').value);
+            try {
+                await api('/jobs/enqueue', 'POST', { year, month });
+                alert('Проверка добавлена в очередь');
+                updateQueue();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        async function cancelJob(id) {
+            if (!confirm('Отменить задачу #' + id + '?')) return;
+            try {
+                await api(`/jobs/cancel/${id}`, 'POST');
+                updateQueue();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        async function pauseJob(id) {
+            try {
+                await api(`/jobs/pause/${id}`, 'POST');
+                updateQueue();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        // Auto-update every 3 seconds
+        updateQueue();
+        setInterval(updateQueue, 3000);
+    </script>
+</body>
+</html>
