@@ -10,6 +10,25 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 
+# Global polling state for token-agent
+_token_needed_event = asyncio.Event()
+_polling_token: str | None = None
+
+
+def get_token_needed() -> bool:
+    """Check if backend is waiting for a token."""
+    return _token_needed_event.is_set()
+
+
+def deliver_polling_token(token: str) -> bool:
+    """Deliver token from polling agent."""
+    global _polling_token
+    if not _token_needed_event.is_set():
+        return False
+    _polling_token = token
+    _token_needed_event.set()
+    return True
+
 
 class ArshinClient:
     """Client for ARSHIN public API and LK API with automatic token refresh."""
@@ -35,22 +54,27 @@ class ArshinClient:
         return await self._request_new_token()
 
     async def _request_new_token(self) -> str:
-        """Poll token-agent on Зонов's PC via Netbird until token available."""
-        url = f"http://{self._zonov_ip}:8003/token/request"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            while True:
-                try:
-                    r = await client.post(
-                        url, headers={"X-API-Key": self._agent_key}
-                    )
-                    data = r.json()
-                    if data.get("token"):
-                        self._token = data["token"]
-                        self._token_expires = time.time() + 3600
-                        return self._token
-                except Exception:
-                    pass
-                await asyncio.sleep(30)
+        """Request token via polling: set flag, wait for token-agent to deliver."""
+        global _token_needed_event, _polling_token
+
+        # Reset state
+        _polling_token = None
+        _token_needed_event.set()
+
+        # Wait for token-agent to deliver token (timeout 24 hours)
+        try:
+            await asyncio.wait_for(_token_needed_event.wait(), timeout=86400)
+        except asyncio.TimeoutError:
+            _token_needed_event.clear()
+            raise RuntimeError("Timeout waiting for token from agent")
+
+        _token_needed_event.clear()
+
+        if _polling_token:
+            self._token = _polling_token
+            self._token_expires = time.time() + 3600
+            return self._token
+        raise RuntimeError("Token delivery failed")
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_calibrations(
