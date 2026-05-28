@@ -1,6 +1,8 @@
 """ARSHIN (ФГИС Росаккредитации) API client."""
 
 import asyncio
+import json
+import os
 import time
 from datetime import date
 from typing import Any
@@ -9,25 +11,6 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
-
-# Global polling state for token-agent
-_token_needed_event = asyncio.Event()
-_polling_token: str | None = None
-
-
-def get_token_needed() -> bool:
-    """Check if backend is waiting for a token."""
-    return _token_needed_event.is_set()
-
-
-def deliver_polling_token(token: str) -> bool:
-    """Deliver token from polling agent."""
-    global _polling_token
-    if not _token_needed_event.is_set():
-        return False
-    _polling_token = token
-    _token_needed_event.set()
-    return True
 
 
 class ArshinClient:
@@ -38,8 +21,6 @@ class ArshinClient:
         self.lk_base_url = "https://fgis.gost.ru/fundmetrology/cm/lk/api"
         self._token = settings.ARSHIN_BEARER_TOKEN
         self._token_expires: float = 0.0
-        self._zonov_ip = settings.ZONOV_IP
-        self._agent_key = settings.TOKEN_AGENT_KEY
 
     @property
     def bearer_token(self) -> str | None:
@@ -54,27 +35,54 @@ class ArshinClient:
         return await self._request_new_token()
 
     async def _request_new_token(self) -> str:
-        """Request token via polling: set flag, wait for token-agent to deliver."""
-        global _token_needed_event, _polling_token
+        """Read token from shared file (Synology Drive sync)."""
+        token_file = settings.TOKEN_FILE_PATH
 
-        # Reset state
-        _polling_token = None
-        _token_needed_event.set()
+        if not token_file:
+            raise RuntimeError("TOKEN_FILE_PATH not configured")
 
-        # Wait for token-agent to deliver token (timeout 24 hours)
-        try:
-            await asyncio.wait_for(_token_needed_event.wait(), timeout=86400)
-        except asyncio.TimeoutError:
-            _token_needed_event.clear()
-            raise RuntimeError("Timeout waiting for token from agent")
+        logger = __import__("logging").getLogger(__name__)
+        logger.info("Waiting for token file: %s", token_file)
 
-        _token_needed_event.clear()
+        while True:
+            if os.path.exists(token_file):
+                try:
+                    with open(token_file, "r") as f:
+                        data = json.load(f)
 
-        if _polling_token:
-            self._token = _polling_token
-            self._token_expires = time.time() + 3600
-            return self._token
-        raise RuntimeError("Token delivery failed")
+                    token = data.get("token")
+                    updated_at = data.get("updated_at", 0)
+
+                    # Check if token is fresh (not expired)
+                    age = time.time() - updated_at
+                    expires_in = data.get("expires_in", 3600)
+
+                    if age < expires_in and token:
+                        self._token = token
+                        self._token_expires = time.time() + (expires_in - age)
+
+                        # Archive file to avoid reusing
+                        archive_path = token_file + ".used"
+                        os.rename(token_file, archive_path)
+
+                        logger.info(
+                            "Token read from file, expires_in=%ds",
+                            int(expires_in - age),
+                        )
+                        return self._token
+                    else:
+                        logger.warning(
+                            "Token in file is expired (age=%ds, expires_in=%ds)",
+                            int(age),
+                            expires_in,
+                        )
+                        # Remove expired token file
+                        os.remove(token_file)
+
+                except Exception as e:
+                    logger.error("Error reading token file: %s", e)
+
+            await asyncio.sleep(10)  # Check every 10 seconds
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_calibrations(

@@ -1,7 +1,12 @@
-"""token-agent: receives ARSHIN token from Chrome Extension, serves to backend.
+"""token-agent: receives ARSHIN token from Chrome Extension, writes to shared file.
 
 Environment variables:
-  TOKEN_AGENT_FILE  - optional path to write token to file (e.g. C:/Users/Zonov/token.txt)
+  TOKEN_FILE_PATH   - path to write token JSON file (required)
+  TOKEN_AGENT_LOG   - log file path (default: token-agent.log)
+
+Example TOKEN_FILE_PATH:
+  Windows: C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json
+  Linux:   /home/zonov/synology/tokens/arshin-token.json
 """
 
 import uvicorn.protocols.http.auto
@@ -10,8 +15,7 @@ import sys
 import time
 import traceback
 import logging
-import threading
-import requests
+import json
 from typing import Optional
 
 LOG_FILE = os.environ.get("TOKEN_AGENT_LOG", "token-agent.log")
@@ -50,20 +54,29 @@ _token = None  # type: Optional[str]
 _updated_at = 0  # type: int
 
 TOKEN_TTL = 3600
-TOKEN_FILE = os.environ.get("TOKEN_AGENT_FILE", "")
+TOKEN_FILE_PATH = os.environ.get("TOKEN_FILE_PATH", "arshin-token.json")
 
 
-def _write_token_file(token):
-    if not TOKEN_FILE:
-        return
+def _write_token_file(token: str):
+    """Write token to shared file for Synology Drive sync."""
     try:
-        import json
-        with open(TOKEN_FILE, "w") as f:
-            json.dump({
-                "token": token,
-                "updated_at": int(time.time()),
-                "expires_in": TOKEN_TTL,
-            }, f)
+        # Ensure directory exists
+        dir_path = os.path.dirname(TOKEN_FILE_PATH)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
+        data = {
+            "token": token,
+            "updated_at": int(time.time()),
+            "expires_in": TOKEN_TTL,
+            "source": "chrome-extension",
+        }
+
+        with open(TOKEN_FILE_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+
+        logger.info("Token written to: %s", TOKEN_FILE_PATH)
+        logger.info("File size: %d bytes", os.path.getsize(TOKEN_FILE_PATH))
     except Exception as e:
         logger.error("Failed to write token file: %s", e)
 
@@ -72,12 +85,6 @@ class TokenCallback(BaseModel):
     token: str
     key: Optional[str] = None
     source: Optional[str] = None
-
-
-class TokenRequestResponse(BaseModel):
-    status: str
-    token: Optional[str] = None
-    expires_in: int = 0
 
 
 @app.post("/token/callback")
@@ -89,29 +96,12 @@ async def receive_token(data: TokenCallback):
     _token = raw
     _updated_at = int(time.time())
     logger.info(
-        "Token received — %s/%s: %s...",
+        "Token received - %s/%s: %s...",
         data.key or "?", data.source or "?",
         (_token or "")[:20]
     )
     _write_token_file(_token)
-    return {"status": "ok"}
-
-
-@app.post("/token/request", response_model=TokenRequestResponse)
-async def request_token():
-    global _token, _updated_at
-    if not _token:
-        return TokenRequestResponse(status="waiting")
-    age = int(time.time()) - _updated_at
-    expires_in = max(0, TOKEN_TTL - age)
-    if expires_in <= 0:
-        _token = None
-        return TokenRequestResponse(status="waiting")
-    return TokenRequestResponse(
-        status="ok",
-        token=_token,
-        expires_in=expires_in,
-    )
+    return {"status": "ok", "message": "Token saved to file"}
 
 
 @app.post("/token/discover")
@@ -126,69 +116,20 @@ async def discover_storage(data: dict):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "has_token": _token is not None}
-
-
-# ── Polling backend (исходящие соединения — работают через Netbird) ──
-
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://100.89.59.195:8002")
-BACKEND_API_KEY = os.environ.get("BACKEND_API_KEY", "mkair-secret-key")
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
-
-
-def _poll_backend():
-    """Background thread: poll backend every N seconds."""
-    def _loop():
-        logger.info("[POLL] Starting polling thread, interval=%ds", POLL_INTERVAL)
-        while True:
-            try:
-                # 1. Ask if backend needs token
-                poll_url = f"{BACKEND_URL}/api/v1/arshin/token/poll"
-                r = requests.post(
-                    poll_url,
-                    headers={"X-API-Key": BACKEND_API_KEY},
-                    timeout=10,
-                )
-                data = r.json()
-                logger.debug("[POLL] token/poll -> %s", data)
-
-                if data.get("need_token"):
-                    # 2. Backend needs token — deliver if we have it
-                    if _token:
-                        deliver_url = f"{BACKEND_URL}/api/v1/arshin/token/deliver"
-                        r2 = requests.post(
-                            deliver_url,
-                            headers={
-                                "X-API-Key": BACKEND_API_KEY,
-                                "Content-Type": "application/json",
-                            },
-                            json={"token": _token},
-                            timeout=10,
-                        )
-                        logger.info(
-                            "[POLL] Token delivered to backend -> %s",
-                            r2.json(),
-                        )
-                    else:
-                        logger.info("[POLL] Backend needs token, but we don't have one yet")
-
-            except Exception as e:
-                logger.warning("[POLL] Error: %s", e)
-
-            time.sleep(POLL_INTERVAL)
-
-    thread = threading.Thread(target=_loop, daemon=True)
-    thread.start()
-    logger.info("[POLL] Background polling thread started")
+    return {
+        "status": "ok",
+        "has_token": _token is not None,
+        "token_file": TOKEN_FILE_PATH,
+        "token_file_exists": os.path.exists(TOKEN_FILE_PATH),
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
-    import uvicorn.loops.asyncio  # force PyInstaller to bundle
+    import uvicorn.loops.asyncio
     import uvicorn.loops.auto
 
-    # Start polling before uvicorn
-    _poll_backend()
+    logger.info("Token file path: %s", TOKEN_FILE_PATH)
 
     try:
         logger.info("Starting uvicorn on %s:%d", "0.0.0.0", 8003)
