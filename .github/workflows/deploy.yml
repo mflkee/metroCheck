@@ -27,6 +27,11 @@ jobs:
           cd ~/apps/metroCheck
           docker compose up -d --build
 
+      - name: Apply database migrations
+        run: |
+          cd ~/apps/metroCheck
+          docker compose exec -T backend alembic upgrade head
+
       - name: Health check
         run: |
           for _ in {1..30}; do
