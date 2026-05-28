@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.integrations.arshin_client import ArshinClient
+from app.integrations.arshin_client import ArshinClient, get_token_needed, deliver_polling_token
 from app.services.arshin_service import ArshinService
 from app.services.task_manager import get_task_manager
 
@@ -56,6 +56,41 @@ async def token_status(
     if token:
         return {"status": "ok", "expires_in": int(client._token_expires - __import__("time").time())}
     return {"status": "expired", "expires_in": 0}
+
+
+class TokenPollResponse(BaseModel):
+    need_token: bool
+
+
+class TokenDeliverRequest(BaseModel):
+    token: str
+
+
+@router.post("/token/poll")
+async def token_poll(
+    x_api_key: str = Header(...),
+) -> TokenPollResponse:
+    """Poll endpoint for token-agent. Returns whether backend needs a token."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    needed = get_token_needed()
+    return TokenPollResponse(need_token=needed)
+
+
+@router.post("/token/deliver")
+async def token_deliver(
+    payload: TokenDeliverRequest,
+    x_api_key: str = Header(...),
+) -> dict:
+    """Deliver token from token-agent (polling mode)."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    success = deliver_polling_token(payload.token)
+    if success:
+        return {"status": "ok", "message": "Token accepted"}
+    return {"status": "waiting", "message": "Backend not waiting for token"}
 
 
 @router.post("/refresh-token", status_code=202)
