@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     ARSHIN_BEARER_TOKEN: str = ""
     ARSHIN_BASE_URL: str = "https://fgis.gost.ru/fundmetrology/eapi"
 
-    # Token-agent (ПК Зонова via Netbird)
+    # Token sync via shared file (Synology Drive / Dropbox / etc.)
+    # Path where token JSON file appears after sync from Zonov's PC
+    TOKEN_FILE_PATH: str = "/shared/tokens/arshin-token.json"
+    
+    # Legacy: Netbird settings (deprecated, kept for compatibility)
     ZONOV_IP: str = "100.89.96.31"
     TOKEN_AGENT_KEY: str = "mkair-token-agent-key"
 

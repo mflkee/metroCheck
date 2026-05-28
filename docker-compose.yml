@@ -48,10 +48,12 @@ services:
       ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
       FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
       APP_ENV: ${APP_ENV:-development}
+      TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
+      - ${TOKENS_HOST_PATH:-./tokens}:/shared/tokens:ro
     networks:
       - backend_network
     depends_on:
