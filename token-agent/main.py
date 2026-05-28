@@ -1,7 +1,7 @@
 """token-agent: receives ARSHIN token from Chrome Extension, serves to backend.
 
 Environment variables:
-  TOKEN_AGENT_FILE  — optional path to write token to file (e.g. C:\\Users\\Zonov\\token.txt)
+  TOKEN_AGENT_FILE  - optional path to write token to file (e.g. C:/Users/Zonov/token.txt)
 """
 
 import uvicorn.protocols.http.auto
@@ -10,6 +10,8 @@ import sys
 import time
 import traceback
 import logging
+import threading
+import requests
 from typing import Optional
 
 LOG_FILE = os.environ.get("TOKEN_AGENT_LOG", "token-agent.log")
@@ -136,9 +138,6 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
 
 def _poll_backend():
     """Background thread: poll backend every N seconds."""
-    import threading
-    import requests
-
     def _loop():
         logger.info("[POLL] Starting polling thread, interval=%ds", POLL_INTERVAL)
         while True:
@@ -151,7 +150,7 @@ def _poll_backend():
                     timeout=10,
                 )
                 data = r.json()
-                logger.debug("[POLL] token/poll → %s", data)
+                logger.debug("[POLL] token/poll -> %s", data)
 
                 if data.get("need_token"):
                     # 2. Backend needs token — deliver if we have it
@@ -167,7 +166,7 @@ def _poll_backend():
                             timeout=10,
                         )
                         logger.info(
-                            "[POLL] Token delivered to backend → %s",
+                            "[POLL] Token delivered to backend -> %s",
                             r2.json(),
                         )
                     else:
@@ -194,7 +193,7 @@ if __name__ == "__main__":
     try:
         logger.info("Starting uvicorn on %s:%d", "0.0.0.0", 8003)
         uvicorn.run(
-            "main:app",
+            app,
             host="0.0.0.0",
             port=8003,
             loop="asyncio",
