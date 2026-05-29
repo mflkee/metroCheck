@@ -53,7 +53,7 @@ services:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
-      - ${TOKENS_HOST_PATH:-./tokens}:/shared/tokens:ro
+      - /home/mflkee/SynologyDrive/tokens:/shared/tokens:ro
     networks:
       - backend_network
     depends_on:
