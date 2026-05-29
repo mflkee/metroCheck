@@ -19,6 +19,17 @@ class EmailService:
         self.from_email = getattr(settings, 'FROM_EMAIL', 'metrocheck-reports@example.com')
         self.to_email = getattr(settings, 'REPORT_EMAIL', '')
 
+    def _send_smtp(self, msg) -> None:
+        if self.smtp_port == 465:
+            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+                server.login(self.smtp_user, self.smtp_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_pass)
+                server.send_message(msg)
+
     async def send_check_report(
         self,
         year: int,
@@ -29,9 +40,11 @@ class EmailService:
         missing: int,
         check_run_id: int,
         report_url: Optional[str] = None,
+        recipient_email: Optional[str] = None,
     ) -> bool:
         """Send email report after check completion."""
-        if not self.to_email or not self.smtp_user:
+        to_email = recipient_email or self.to_email
+        if not to_email or not self.smtp_user:
             print("[Email] Email not configured, skipping")
             return False
 
@@ -63,36 +76,31 @@ class EmailService:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.from_email
-            msg['To'] = self.to_email
+            msg['To'] = to_email
             msg.attach(MIMEText(body, 'html', 'utf-8'))
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)
+            self._send_smtp(msg)
             
-            print(f"[Email] Report sent to {self.to_email}")
+            print(f"[Email] Report sent to {to_email}")
             return True
         except Exception as e:
             print(f"[Email] Failed to send: {e}")
             return False
 
-    async def send_alert(self, subject: str, message: str) -> bool:
+    async def send_alert(self, subject: str, message: str, recipient_email: Optional[str] = None) -> bool:
         """Send alert email."""
-        if not self.to_email:
+        to_email = recipient_email or self.to_email
+        if not to_email:
             return False
 
         try:
             msg = MIMEMultipart()
             msg['Subject'] = f"[metroChek ALERT] {subject}"
             msg['From'] = self.from_email
-            msg['To'] = self.to_email
+            msg['To'] = to_email
             msg.attach(MIMEText(message, 'plain', 'utf-8'))
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)
+            self._send_smtp(msg)
             
             return True
         except Exception as e:
