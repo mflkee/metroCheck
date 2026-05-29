@@ -1,4 +1,4 @@
-"""ProtocolScanner — сканирование PDF протоколов."""
+"""ProtocolScanner — сканирование PDF/JPG/PNG протоколов с OCR."""
 
 import hashlib
 import os
@@ -6,14 +6,19 @@ from datetime import datetime
 from typing import Any
 
 import pdfplumber
+from PIL import Image
+import pytesseract
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.protocol_file import ProtocolFile
 from app.repositories.protocol_file_repository import ProtocolFileRepository
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+SUPPORTED_EXTENSIONS = {".pdf"} | IMAGE_EXTENSIONS
+
 
 class ProtocolScanner:
-    """Scan protocol folders and extract text from PDFs."""
+    """Scan protocol folders and extract text from PDFs and images (OCR)."""
 
     def __init__(self, db: AsyncSession, protocols_base_path: str) -> None:
         self.db = db
@@ -44,7 +49,7 @@ class ProtocolScanner:
             return None
 
     async def scan(self, year: int, month: int) -> dict[str, Any]:
-        """Scan folder for PDF protocols and save to DB.
+        """Scan folder for protocol files (PDF/JPG/PNG) and save to DB.
 
         Returns:
             dict with found, saved, errors counts
@@ -66,7 +71,8 @@ class ProtocolScanner:
 
         for root, _dirs, files in os.walk(target_folder):
             for file in files:
-                if not file.lower().endswith(".pdf"):
+                ext = os.path.splitext(file)[1].lower()
+                if ext not in SUPPORTED_EXTENSIONS:
                     continue
 
                 file_path = os.path.join(root, file)
@@ -74,7 +80,6 @@ class ProtocolScanner:
                 found += 1
 
                 try:
-                    # Check if already exists by path
                     existing = await self.repo.get_by_path(relative_path)
                     if existing:
                         continue
@@ -108,29 +113,39 @@ class ProtocolScanner:
         }
 
     async def extract_text(self, protocol_file_id: int) -> dict[str, Any]:
-        """Extract text from PDF using pdfplumber."""
+        """Extract text from protocol file.
+
+        PDF → pdfplumber (text extraction)
+        JPG/PNG → Tesseract OCR
+        """
         protocol = await self.repo.get_by_id(protocol_file_id)
         if not protocol:
             return {"error": "Protocol not found"}
 
+        ext = os.path.splitext(protocol.file_path)[1].lower()
+
         try:
-            text_parts = []
-            with pdfplumber.open(protocol.file_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text_parts.append(page_text)
+            if ext in IMAGE_EXTENSIONS:
+                with Image.open(protocol.file_path) as img:
+                    full_text = pytesseract.image_to_string(img, lang="rus+eng")
+                pages = 1
+            else:
+                text_parts = []
+                with pdfplumber.open(protocol.file_path) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_parts.append(page_text)
+                full_text = "\n".join(text_parts)
+                pages = len(text_parts)
 
-            full_text = "\n".join(text_parts)
-
-            # Update status
             protocol.status = "scanned"
             await self.db.commit()
 
             return {
                 "protocol_id": protocol_file_id,
                 "text": full_text,
-                "pages": len(text_parts),
+                "pages": pages,
             }
 
         except Exception as e:
