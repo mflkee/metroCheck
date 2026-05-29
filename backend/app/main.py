@@ -17,22 +17,25 @@ async def lifespan(app: FastAPI):
     import asyncio
     from app.core.database import AsyncSessionLocal
     from app.services.job_queue_service import JobQueueService
-    from app.services.cron_service import CronService
+    from app.services.scheduler_service import SchedulerService
     
     db = AsyncSessionLocal()
     queue_service = JobQueueService(db)
-    cron_service = CronService(queue_service)
+    scheduler_service = SchedulerService(queue_service)
     
     worker_task = asyncio.create_task(queue_service.start_worker())
-    cron_task = asyncio.create_task(cron_service.start())
+    scheduler_task = asyncio.create_task(scheduler_service.start())
+    
+    # Store scheduler in app state for API access
+    app.state.scheduler = scheduler_service
     
     yield
     
     # Shutdown
     queue_service.stop_worker()
-    cron_service.stop()
+    scheduler_service.stop()
     
-    for task in (worker_task, cron_task):
+    for task in (worker_task, scheduler_task):
         task.cancel()
         try:
             await task

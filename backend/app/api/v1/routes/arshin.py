@@ -286,3 +286,189 @@ async def fetch_lk_data2(
     service = ArshinService(db)
     result = await service.fetch_lk_data2(payload.year, payload.month)
     return result
+
+
+# === Scheduler Control Endpoints ===
+
+class SchedulerModeRequest(BaseModel):
+    mode: str  # "manual" or "auto"
+
+
+class SchedulerSettingsRequest(BaseModel):
+    mode: Optional[str] = None
+    auto_time: Optional[str] = None  # "HH:MM"
+    auto_day: Optional[int] = None   # 1-31
+    month_offset: Optional[int] = None  # -12 to 0
+
+
+@router.get("/scheduler/status")
+async def scheduler_status(
+    x_api_key: str = Header(...),
+) -> dict:
+    """Get scheduler status with all settings."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    import os
+    import json
+    state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
+    if os.path.exists(state_file):
+        with open(state_file) as f:
+            state = json.load(f)
+    else:
+        state = {
+            "mode": "manual",
+            "auto_time": "09:00",
+            "auto_day": 1,
+            "month_offset": -1,
+        }
+    
+    # Calculate example
+    from datetime import datetime
+    now = datetime.utcnow()
+    offset = state.get("month_offset", -1)
+    target = now.month + offset
+    year = now.year
+    while target <= 0:
+        target += 12
+        year -= 1
+    while target > 12:
+        target -= 12
+        year += 1
+    
+    return {
+        "status": "ok",
+        "scheduler": {
+            **state,
+            "example": f"If today is {now.strftime('%d.%m.%Y')}, will check: {target:02d}.{year}",
+        },
+    }
+
+
+@router.post("/scheduler/mode")
+async def set_scheduler_mode(
+    payload: SchedulerModeRequest,
+    x_api_key: str = Header(...),
+) -> dict:
+    """Set scheduler mode: manual or auto."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    if payload.mode not in ("manual", "auto"):
+        raise HTTPException(status_code=400, detail="Mode must be 'manual' or 'auto'")
+    
+    import os
+    import json
+    state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
+    state = {}
+    if os.path.exists(state_file):
+        with open(state_file) as f:
+            state = json.load(f)
+    state["mode"] = payload.mode
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2)
+    
+    return {
+        "status": "ok",
+        "mode": payload.mode,
+        "message": f"Scheduler switched to {payload.mode} mode",
+    }
+
+
+@router.post("/scheduler/settings")
+async def update_scheduler_settings(
+    payload: SchedulerSettingsRequest,
+    x_api_key: str = Header(...),
+) -> dict:
+    """Update scheduler settings: time, day, month offset.
+    
+    Example: auto_day=10, month_offset=-2
+    → On 10th of each month, check month-2 (e.g., July→May)
+    """
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    import os
+    import json
+    state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
+    state = {}
+    if os.path.exists(state_file):
+        with open(state_file) as f:
+            state = json.load(f)
+    
+    updated = {}
+    
+    if payload.mode is not None:
+        if payload.mode not in ("manual", "auto"):
+            raise HTTPException(status_code=400, detail="Mode must be 'manual' or 'auto'")
+        state["mode"] = payload.mode
+        updated["mode"] = payload.mode
+    
+    if payload.auto_time is not None:
+        try:
+            hour, minute = map(int, payload.auto_time.split(":"))
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError
+            state["auto_time"] = payload.auto_time
+            updated["auto_time"] = payload.auto_time
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Time must be HH:MM format")
+    
+    if payload.auto_day is not None:
+        if not (1 <= payload.auto_day <= 31):
+            raise HTTPException(status_code=400, detail="Day must be 1-31")
+        state["auto_day"] = payload.auto_day
+        updated["auto_day"] = payload.auto_day
+    
+    if payload.month_offset is not None:
+        if not (-12 <= payload.month_offset <= 0):
+            raise HTTPException(status_code=400, detail="Month offset must be -12 to 0")
+        state["month_offset"] = payload.month_offset
+        updated["month_offset"] = payload.month_offset
+    
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2)
+    
+    # Calculate example
+    from datetime import datetime
+    now = datetime.utcnow()
+    offset = state.get("month_offset", -1)
+    target = now.month + offset
+    year = now.year
+    while target <= 0:
+        target += 12
+        year -= 1
+    
+    return {
+        "status": "ok",
+        "updated": updated,
+        "current_settings": state,
+        "example": f"Next run: day {state.get('auto_day', 1)} at {state.get('auto_time', '09:00')} → will check {target:02d}.{year}",
+    }
+
+
+@router.post("/run-check")
+async def run_check_manual(
+    payload: FetchLKDetailsRequest,
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Manually trigger a check for specific month.
+    
+    Works in both manual and auto modes.
+    """
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    from app.services.job_queue_service import JobQueueService
+    
+    queue = JobQueueService(db)
+    job = await queue.enqueue_manual(payload.year, payload.month, triggered_by="user")
+    
+    return {
+        "status": "ok",
+        "job_id": job.id,
+        "year": payload.year,
+        "month": payload.month,
+        "message": f"Check queued for {payload.month:02d}.{payload.year}",
+    }
