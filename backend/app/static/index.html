@@ -1008,9 +1008,7 @@
                             <div class="form-group">
                                 <label class="form-label">Запустить проверку</label>
                                 <div class="form-row">
-                                    <select class="form-control" id="run-year">
-                                        <option value="2025">2025</option>
-                                        <option value="2024">2024</option>
+                                    <select class="form-control year-select" id="run-year">
                                     </select>
                                     <select class="form-control" id="run-month">
                                         <option value="1">Январь</option>
@@ -1107,9 +1105,7 @@
                             <div class="form-group">
                                 <label class="form-label">Период проверки</label>
                                 <div class="form-row">
-                                    <select class="form-control" id="checks-run-year">
-                                        <option value="2025">2025</option>
-                                        <option value="2024">2024</option>
+                                    <select class="form-control year-select" id="checks-run-year">
                                     </select>
                                     <select class="form-control" id="checks-run-month">
                                         <option value="1">Январь</option>
@@ -1302,6 +1298,24 @@
     <script>
         const API_KEY = 'CHANGE_ME_API_KEY';
         const API_BASE = '/api';
+        const START_YEAR = 2022;
+
+        function populateYearSelects() {
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const years = [];
+            for (let y = currentYear; y >= START_YEAR; y--) {
+                years.push(y);
+            }
+            document.querySelectorAll('.year-select').forEach(sel => {
+                years.forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    sel.appendChild(opt);
+                });
+            });
+        }
 
         async function api(path, method = 'GET', body = null) {
             const opts = {
@@ -1677,6 +1691,7 @@
         }
 
         // Init
+        populateYearSelects();
         updateHealth();
         updateQueue();
         updateErrors();
