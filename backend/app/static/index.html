@@ -1324,56 +1324,59 @@
         }
 
         // Health
+        const STATUS_LABELS = {
+            'ok': { text: 'Работает', cls: 'badge-success' },
+            'expired': { text: 'Истек', cls: 'badge-error' },
+            'error': { text: 'Ошибка', cls: 'badge-error' },
+            'unreachable': { text: 'Недоступен', cls: 'badge-warning' },
+            'not_configured': { text: 'Не настроен', cls: 'badge-info' },
+            'idle': { text: 'Ожидание задач', cls: 'badge-info' },
+            'waiting': { text: 'Ожидание файла', cls: 'badge-warning' },
+        };
+
+        function setHealthStatus(elId, status, extra = '') {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            const info = STATUS_LABELS[status] || { text: status || 'Ожидание', cls: 'badge-info' };
+            el.innerHTML = `<span class="badge ${info.cls}">${info.text}${extra}</span>`;
+        }
+
         async function updateHealth() {
             try {
                 const health = await api('/health');
+                const s = health.systems || {};
                 
-                const arshinApi = health.arshin_api || {};
-                document.getElementById('health-arshin-api').innerHTML = 
-                    arshinApi.status === 'ok' 
-                        ? '<span class="badge badge-success">Доступен</span>'
-                        : `<span class="badge badge-error">${arshinApi.status || 'н/д'}</span>`;
+                setHealthStatus('health-arshin-api', s.arshin_api?.status);
                 
-                const arshinToken = health.arshin_token || {};
-                if (arshinToken.status === 'ok') {
-                    const mins = arshinToken.expires_min || 0;
-                    const cls = mins < 10 ? 'badge-error' : 'badge-success';
+                const token = s.arshin_token || {};
+                if (token.status === 'ok') {
+                    const mins = token.expires_min || 0;
                     document.getElementById('health-arshin-token').innerHTML = 
-                        `<span class="badge ${cls}">${mins} мин</span>`;
+                        `<span class="badge ${mins < 10 ? 'badge-error' : 'badge-success'}">${mins} мин</span>`;
                 } else {
-                    document.getElementById('health-arshin-token').innerHTML = 
-                        `<span class="badge badge-error">Нет токена</span>`;
+                    setHealthStatus('health-arshin-token', token.status);
                 }
                 
-                const tokenAgent = health.token_agent || {};
-                document.getElementById('health-token-agent').innerHTML = 
-                    tokenAgent.status === 'ok'
-                        ? '<span class="badge badge-success">Онлайн</span>'
-                        : `<span class="badge badge-info">${tokenAgent.status || 'н/д'}</span>`;
+                setHealthStatus('health-token-agent', s.token_agent?.status);
+                setHealthStatus('health-openrouter', s.openrouter?.status, s.openrouter?.balance ? ` $${s.openrouter.balance}` : '');
+                setHealthStatus('health-n8n', s.n8n?.status);
                 
-                const openrouter = health.openrouter || {};
-                if (openrouter.status === 'ok') {
-                    document.getElementById('health-openrouter').innerHTML = 
-                        `<span class="badge badge-success">$${openrouter.balance || '?'}</span>`;
+                const problems = Object.entries(s).filter(([_, v]) => v?.status === 'error' || v?.status === 'expired');
+                const warnings = Object.entries(s).filter(([_, v]) => v?.status === 'waiting' || v?.status === 'unreachable');
+                const badge = document.getElementById('overall-status');
+                if (problems.length === 0) {
+                    badge.className = 'badge badge-success';
+                    badge.textContent = warnings.length > 0 ? 'Есть незначительные проблемы' : 'Все системы работают';
                 } else {
-                    document.getElementById('health-openrouter').innerHTML = 
-                        `<span class="badge badge-error">${openrouter.status || 'н/д'}</span>`;
+                    badge.className = 'badge badge-error';
+                    badge.textContent = `Ошибки: ${problems.map(([k]) => k).join(', ')}`;
                 }
-                
-                const n8n = health.n8n || {};
-                document.getElementById('health-n8n').innerHTML = 
-                    n8n.status === 'ok'
-                        ? '<span class="badge badge-success">Работает</span>'
-                        : `<span class="badge badge-error">${n8n.status || 'н/д'}</span>`;
-                
-                // Overall status
-                const allOk = Object.values(health.systems || {}).every(s => s.status === 'ok' || s.status === 'not_configured');
-                const statusBadge = document.getElementById('overall-status');
-                statusBadge.className = `badge ${allOk ? 'badge-success' : 'badge-warning'}`;
-                statusBadge.textContent = allOk ? 'Все системы работают' : 'Есть проблемы';
                 
             } catch (e) {
                 console.error('Health check error:', e);
+                ['health-arshin-api','health-arshin-token','health-token-agent','health-openrouter','health-n8n'].forEach(id => {
+                    document.getElementById(id).innerHTML = '<span class="badge badge-error">Ошибка запроса</span>';
+                });
             }
         }
 
