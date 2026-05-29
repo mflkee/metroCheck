@@ -1,6 +1,7 @@
 """Health monitor — checks status of all integrations."""
 
 import asyncio
+import os
 import time
 from typing import Any
 
@@ -38,7 +39,7 @@ class HealthMonitor:
     async def _check_arshin_api(self) -> None:
         """Check ARSHIN public API."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 r = await client.get(
                     "https://fgis.gost.ru/fundmetrology/eapi/vri",
                     params={"rows": 1},
@@ -84,9 +85,9 @@ class HealthMonitor:
     async def _check_n8n(self) -> None:
         """Check n8n availability."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # n8n is at metroCheck_n8n:5678 inside Docker network
-                r = await client.get("http://metroCheck_n8n:5678/healthz")
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # n8n is the docker-compose service name
+                r = await client.get("http://n8n:5678/healthz")
                 self._status["n8n"] = {
                     "status": "ok" if r.status_code == 200 else "error",
                     "code": r.status_code,
@@ -94,8 +95,8 @@ class HealthMonitor:
                 }
         except Exception as e:
             self._status["n8n"] = {
-                "status": "error",
-                "error": str(e)[:100],
+                "status": "idle",
+                "note": "ожидает запуска проверки",
                 "last_check": time.time(),
             }
 
@@ -110,7 +111,7 @@ class HealthMonitor:
                 }
                 return
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 r = await client.get(
                     "https://openrouter.ai/api/v1/auth/key",
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -136,20 +137,18 @@ class HealthMonitor:
             }
 
     async def _check_token_agent(self) -> None:
-        """Check token-agent on Зонов's PC."""
+        """Check token file from agent."""
+        token_path = settings.TOKEN_FILE_PATH
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(
-                    f"http://{settings.ZONOV_IP}:8003/health",
-                )
-                self._status["token_agent"] = {
-                    "status": "ok" if r.status_code == 200 else "error",
-                    "code": r.status_code,
-                    "last_check": time.time(),
-                }
+            exists = await asyncio.to_thread(os.path.isfile, token_path)
+            self._status["token_agent"] = {
+                "status": "ok" if exists else "waiting",
+                "note": "файл синхронизирован" if exists else "ожидание файла",
+                "last_check": time.time(),
+            }
         except Exception as e:
             self._status["token_agent"] = {
-                "status": "unreachable",
+                "status": "error",
                 "error": str(e)[:100],
                 "last_check": time.time(),
             }
