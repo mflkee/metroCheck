@@ -49,6 +49,12 @@ services:
       FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
       APP_ENV: ${APP_ENV:-development}
       TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      FROM_EMAIL: ${FROM_EMAIL:-metrocheck-reports@example.com}
+      REPORT_EMAIL: ${REPORT_EMAIL:-}
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
