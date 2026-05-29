@@ -33,10 +33,14 @@ async def arshin_status() -> dict:
     client = ArshinClient()
     try:
         import asyncio
+        from datetime import date
+        today = date.today()
+        sample_date = date(today.year - 1 if today.month == 1 else today.year, max(1, today.month - 1), 1)
+        last_day = 28 if sample_date.month == 2 else 30
         count = await client.get_calibration_count(
             'ООО "МКАИР"',
-            __import__('datetime').date(2025, 1, 1),
-            __import__('datetime').date(2025, 1, 31),
+            sample_date,
+            date(sample_date.year, sample_date.month, last_day),
         )
         return {"status": "ok", "arshin": "available", "sample_count": count}
     except Exception as e:
