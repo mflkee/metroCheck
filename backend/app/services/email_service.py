@@ -16,7 +16,7 @@ class EmailService:
         self.smtp_port = getattr(settings, 'SMTP_PORT', 587)
         self.smtp_user = getattr(settings, 'SMTP_USER', '')
         self.smtp_pass = getattr(settings, 'SMTP_PASS', '')
-        self.from_email = getattr(settings, 'FROM_EMAIL', 'mkair-reports@example.com')
+        self.from_email = getattr(settings, 'FROM_EMAIL', 'metrocheck-reports@example.com')
         self.to_email = getattr(settings, 'REPORT_EMAIL', '')
 
     async def send_check_report(
@@ -35,7 +35,7 @@ class EmailService:
             print("[Email] Email not configured, skipping")
             return False
 
-        subject = f"MKAIR Отчет: Проверка протоколов {month:02d}.{year}"
+        subject = f"metroChek Отчет: Проверка протоколов {month:02d}.{year}"
         
         body = f"""<html>
 <body style="font-family: Arial, sans-serif; color: #333;">
@@ -53,8 +53,8 @@ class EmailService:
     {f'<p><a href="{report_url}" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Скачать полный отчет</a></p>' if report_url else ''}
     <hr>
     <p style="color: #666; font-size: 12px;">
-        MKAIR Automated Protocol Control System<br>
-        Сервер: mkair-server (100.89.59.195)
+        metroChek Automated Protocol Control System<br>
+        Сервер: metroCheck-server (100.89.59.195)
     </p>
 </body>
 </html>"""
@@ -84,7 +84,7 @@ class EmailService:
 
         try:
             msg = MIMEMultipart()
-            msg['Subject'] = f"[MKAIR ALERT] {subject}"
+            msg['Subject'] = f"[metroChek ALERT] {subject}"
             msg['From'] = self.from_email
             msg['To'] = self.to_email
             msg.attach(MIMEText(message, 'plain', 'utf-8'))

@@ -22,7 +22,7 @@ async def health_check():
     
     return {
         "status": "ok" if all_ok else "degraded",
-        "service": "mkair-backend",
+        "service": "metroCheck-backend",
         "systems": health,
     }
 
@@ -30,4 +30,4 @@ async def health_check():
 @router.get("/health/live")
 async def health_check_live():
     """Liveness probe — fast check that backend is running."""
-    return {"status": "ok", "service": "mkair-backend"}
+    return {"status": "ok", "service": "metroCheck-backend"}

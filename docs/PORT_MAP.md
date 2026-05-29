@@ -1,6 +1,6 @@
-# MKAIR Server — Port Mapping & Infrastructure
+# metroCheck Server — Port Mapping & Infrastructure
 
-## Server: mkair-server (100.89.59.195)
+## Server: metroCheck-server (100.89.59.195)
 
 ## Docker Services
 

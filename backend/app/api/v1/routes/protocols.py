@@ -35,7 +35,7 @@ async def scan_protocols(
     if x_api_key != settings.FASTAPI_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
-    base_path = payload.path or settings.MKAIR_PROTOCOLS_PATH or "/protocols"
+    base_path = payload.path or settings.METROCHECK_PROTOCOLS_PATH or "/protocols"
     scanner = ProtocolScanner(db, base_path)
     result = await scanner.scan(payload.year, payload.month)
     return result
@@ -51,7 +51,7 @@ async def extract_text(
     if x_api_key != settings.FASTAPI_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
-    base_path = settings.MKAIR_PROTOCOLS_PATH or "/protocols"
+    base_path = settings.METROCHECK_PROTOCOLS_PATH or "/protocols"
     scanner = ProtocolScanner(db, base_path)
     result = await scanner.extract_text(protocol_id)
     return result

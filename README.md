@@ -15,7 +15,7 @@
 ## Архитектура
 
 ```
-mkair-server (Тюмень)                    ПК оператора (Нижневартовск)
+metroCheck-server (Тюмень)                    ПК оператора (Нижневартовск)
 ├─ Docker Compose                        ├─ Chrome + Расширение
 │  ├─ PostgreSQL 16                      ├─ token-agent :8003
 │  ├─ Redis 7                                (FastAPI, хранит токен)

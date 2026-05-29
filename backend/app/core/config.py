@@ -24,11 +24,11 @@ class Settings(BaseSettings):
     
     # Legacy: Netbird settings (deprecated, kept for compatibility)
     ZONOV_IP: str = "100.89.96.31"
-    TOKEN_AGENT_KEY: str = "mkair-token-agent-key"
+    TOKEN_AGENT_KEY: str = "metrocheck-token-agent-key"
 
     # Security
-    FASTAPI_API_KEY: str = "mkair-secret-key"
-    SECRET_KEY: str = "mkair-jwt-secret-change-in-production"
+    FASTAPI_API_KEY: str = "metrocheck-secret-key"
+    SECRET_KEY: str = "metrocheck-jwt-secret-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
 
     # App
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Protocols path
-    MKAIR_PROTOCOLS_PATH: str = "/protocols"
+    METROCHECK_PROTOCOLS_PATH: str = "/protocols"
 
     # AI Models fallback chain
     AI_MODELS: list[str] = [
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASS: str = ""
-    FROM_EMAIL: str = "mkair-reports@example.com"
+    FROM_EMAIL: str = "metrocheck-reports@example.com"
     REPORT_EMAIL: str = ""  # Where to send reports
 
     class Config:
