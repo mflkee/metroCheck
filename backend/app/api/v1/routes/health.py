@@ -25,3 +25,9 @@ async def health_check():
         "service": "mkair-backend",
         "systems": health,
     }
+
+
+@router.get("/health/live")
+async def health_check_live():
+    """Liveness probe — fast check that backend is running."""
+    return {"status": "ok", "service": "mkair-backend"}
