@@ -68,6 +68,20 @@ services:
       retries: 3
       start_period: 40s
 
+  frontend:
+    image: nginx:alpine
+    container_name: metroCheck_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    volumes:
+      - ./backend/app/static:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - backend_network
+    depends_on:
+      - backend
+
   n8n:
     image: n8nio/n8n:latest
     container_name: metroCheck_n8n
