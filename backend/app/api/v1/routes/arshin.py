@@ -1,7 +1,7 @@
 """ARSHIN (ФГИС Росаккредитации) integration endpoints."""
 
 import asyncio
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
