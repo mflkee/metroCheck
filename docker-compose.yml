@@ -59,7 +59,7 @@ services:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
-      - /home/mflkee/SynologyDrive/tokens:/shared/tokens:ro
+      - /home/mflkee/SynologyDrive/Метрологическая лаборатория/2_Документы внутреннего происхождения/2_19 Протоколы/tokens:/shared/tokens:ro
     networks:
       - backend_network
     depends_on:
