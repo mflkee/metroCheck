@@ -1383,7 +1383,7 @@
         // Queue
         async function updateQueue() {
             try {
-                const data = await api('/jobs/status');
+                const data = await api('/v1/jobs/status');
                 
                 document.getElementById('stat-pending').textContent = data.pending?.length || 0;
                 document.getElementById('stat-running').textContent = data.running ? 1 : 0;
@@ -1477,11 +1477,11 @@
         // Errors
         async function updateErrors() {
             try {
-                const summary = await api('/checks/summary');
+                const summary = await api('/v1/checks/summary');
                 const errorsEl = document.getElementById('recent-errors');
                 
                 if (summary.latest_run && summary.latest_run.id) {
-                    const results = await api(`/checks/results/${summary.latest_run.id}`);
+                    const results = await api(`/v1/checks/results/${summary.latest_run.id}`);
                     const errors = results.errors || [];
                     
                     document.getElementById('stat-errors').textContent = errors.length;
@@ -1515,7 +1515,7 @@
         // Scheduler
         async function loadSchedulerStatus() {
             try {
-                const data = await api('/arshin/scheduler/status');
+                const data = await api('/v1/arshin/scheduler/status');
                 const sched = data.scheduler || {};
                 const mode = sched.mode || 'manual';
                 
@@ -1542,7 +1542,7 @@
         async function updateSchedulerMode() {
             const mode = document.getElementById('scheduler-mode').value;
             try {
-                await api('/arshin/scheduler/mode', 'POST', { mode });
+                await api('/v1/arshin/scheduler/mode', 'POST', { mode });
                 loadSchedulerStatus();
             } catch (e) {
                 alert('Ошибка: ' + e.message);
@@ -1565,7 +1565,7 @@
             }
             
             try {
-                await api('/arshin/scheduler/settings', 'POST', {
+                await api('/v1/arshin/scheduler/settings', 'POST', {
                     mode, auto_day: autoDay, auto_time: autoTime, month_offset: monthOffset
                 });
                 loadSchedulerStatus();
@@ -1578,7 +1578,7 @@
         // Checks section
         async function updateChecks() {
             try {
-                const data = await api('/jobs/status');
+                const data = await api('/v1/jobs/status');
                 const running = data.running;
                 const pending = data.pending || [];
                 
@@ -1635,7 +1635,7 @@
             const year = parseInt(document.getElementById('checks-run-year').value);
             const month = parseInt(document.getElementById('checks-run-month').value);
             try {
-                await api('/jobs/enqueue', 'POST', { year, month });
+                await api('/v1/jobs/enqueue', 'POST', { year, month });
                 updateChecks();
             } catch (e) {
                 alert('Ошибка: ' + e.message);
@@ -1647,7 +1647,7 @@
             const year = parseInt(document.getElementById('run-year').value);
             const month = parseInt(document.getElementById('run-month').value);
             try {
-                await api('/jobs/enqueue', 'POST', { year, month });
+                await api('/v1/jobs/enqueue', 'POST', { year, month });
                 updateQueue();
             } catch (e) {
                 alert('Ошибка: ' + e.message);
@@ -1657,7 +1657,7 @@
         async function cancelJob(id) {
             if (!confirm('Отменить задачу #' + id + '?')) return;
             try {
-                await api(`/jobs/cancel/${id}`, 'POST');
+                await api(`/v1/jobs/cancel/${id}`, 'POST');
                 updateQueue();
             } catch (e) {
                 alert('Ошибка: ' + e.message);
