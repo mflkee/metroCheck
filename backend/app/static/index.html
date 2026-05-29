@@ -315,6 +315,31 @@
         </div>
 
         <div class="card">
+            <h2>Настройка автоматической проверки</h2>
+            <div id="scheduler-status" style="margin-bottom: 12px;">
+                <span class="status-badge status-pending" id="scheduler-mode-badge">Загрузка...</span>
+                <span style="margin-left: 10px; color: #64748b; font-size: 13px;" id="scheduler-info"></span>
+            </div>
+            <div class="form-inline">
+                <label style="color: #94a3b8; font-size: 13px;">Режим:</label>
+                <select id="scheduler-mode" onchange="updateSchedulerMode()">
+                    <option value="manual">Ручной</option>
+                    <option value="auto">Автоматический</option>
+                </select>
+                <label style="color: #94a3b8; font-size: 13px;">День:</label>
+                <input type="number" id="scheduler-day" min="1" max="31" value="1" style="width: 60px;">
+                <label style="color: #94a3b8; font-size: 13px;">Время:</label>
+                <input type="time" id="scheduler-time" value="09:00">
+                <label style="color: #94a3b8; font-size: 13px;">Сдвиг мес.:</label>
+                <input type="number" id="scheduler-offset" min="-12" max="0" value="-1" style="width: 60px;">
+                <button class="btn btn-primary" onclick="saveSchedulerSettings()">Сохранить</button>
+            </div>
+            <p style="font-size: 13px; color: #64748b; margin-top: 8px;" id="scheduler-example">
+                Пример: если сегодня июль, сдвиг -2 → проверка мая
+            </p>
+        </div>
+
+        <div class="card">
             <h2>Текущая проверка</h2>
             <div id="running-job">
                 <div class="empty-state">Нет активных проверок</div>
@@ -611,14 +636,87 @@
             }
         }
 
+        // Scheduler functions
+        async function loadSchedulerStatus() {
+            try {
+                const data = await api('/arshin/scheduler/status');
+                const sched = data.scheduler || {};
+                const mode = sched.mode || 'manual';
+                
+                // Update badge
+                const badge = document.getElementById('scheduler-mode-badge');
+                badge.textContent = mode === 'auto' ? 'Автоматический' : 'Ручной';
+                badge.className = 'status-badge ' + (mode === 'auto' ? 'status-ok' : 'status-pending');
+                
+                // Update info
+                const info = document.getElementById('scheduler-info');
+                info.textContent = `${sched.auto_day || 1}-го числа в ${sched.auto_time || '09:00'}, сдвиг: ${sched.month_offset || -1} мес.`;
+                
+                // Update example
+                const example = document.getElementById('scheduler-example');
+                if (sched.example) {
+                    example.textContent = sched.example;
+                }
+                
+                // Set form values
+                document.getElementById('scheduler-mode').value = mode;
+                document.getElementById('scheduler-day').value = sched.auto_day || 1;
+                document.getElementById('scheduler-time').value = sched.auto_time || '09:00';
+                document.getElementById('scheduler-offset').value = sched.month_offset || -1;
+            } catch (e) {
+                console.error('Scheduler status error:', e);
+            }
+        }
+
+        async function updateSchedulerMode() {
+            const mode = document.getElementById('scheduler-mode').value;
+            try {
+                await api('/arshin/scheduler/mode', 'POST', { mode });
+                loadSchedulerStatus();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        async function saveSchedulerSettings() {
+            const mode = document.getElementById('scheduler-mode').value;
+            const autoDay = parseInt(document.getElementById('scheduler-day').value);
+            const autoTime = document.getElementById('scheduler-time').value;
+            const monthOffset = parseInt(document.getElementById('scheduler-offset').value);
+            
+            if (autoDay < 1 || autoDay > 31) {
+                alert('День должен быть от 1 до 31');
+                return;
+            }
+            if (monthOffset < -12 || monthOffset > 0) {
+                alert('Сдвиг месяца должен быть от -12 до 0');
+                return;
+            }
+            
+            try {
+                await api('/arshin/scheduler/settings', 'POST', {
+                    mode,
+                    auto_day: autoDay,
+                    auto_time: autoTime,
+                    month_offset: monthOffset
+                });
+                loadSchedulerStatus();
+                alert('Настройки сохранены');
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
         // Auto-update
         updateHealth();
         updateQueue();
         updateErrors();
+        loadSchedulerStatus();
         
-        setInterval(updateHealth, 10000);  // Every 10s
-        setInterval(updateQueue, 3000);    // Every 3s
-        setInterval(updateErrors, 10000);  // Every 10s
+        setInterval(updateHealth, 10000);      // Every 10s
+        setInterval(updateQueue, 3000);        // Every 3s
+        setInterval(updateErrors, 10000);      // Every 10s
+        setInterval(loadSchedulerStatus, 30000); // Every 30s
     </script>
 </body>
 </html>
