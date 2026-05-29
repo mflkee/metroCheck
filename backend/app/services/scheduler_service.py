@@ -34,6 +34,7 @@ class SchedulerService:
             "auto_time": "09:00",  # HH:MM
             "auto_day": 1,  # day of month when check runs
             "month_offset": -1,  # which month to check: -1=previous, -2=two months ago, etc.
+            "report_email": "",  # email for sending reports after check
         }
         try:
             if os.path.exists(STATE_FILE):
@@ -174,6 +175,7 @@ class SchedulerService:
             "auto_time": self._state["auto_time"],
             "auto_day": self._state["auto_day"],
             "month_offset": self._state.get("month_offset", -1),
+            "report_email": self._state.get("report_email", ""),
             "settings": {
                 "description": {
                     "auto_day": f"Day {self._state['auto_day']} of each month",
@@ -199,7 +201,7 @@ class SchedulerService:
     
     def update_settings(self, **kwargs) -> dict:
         """Update scheduler settings."""
-        allowed = {"mode", "auto_time", "auto_day", "month_offset"}
+        allowed = {"mode", "auto_time", "auto_day", "month_offset", "report_email"}
         updated = {}
         
         for key, value in kwargs.items():

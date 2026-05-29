@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import Any, Optional
 
@@ -284,6 +285,18 @@ class JobQueueService:
         """Send email report after completion."""
         checks = result.get("checks", {})
         
+        # Read report_email from scheduler state
+        report_email = None
+        try:
+            import json
+            state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
+            if os.path.exists(state_file):
+                with open(state_file) as f:
+                    state = json.load(f)
+                    report_email = state.get("report_email") or None
+        except Exception:
+            pass
+        
         await self.email.send_check_report(
             year=job.year,
             month=job.month,
@@ -293,6 +306,7 @@ class JobQueueService:
             missing=checks.get("missing", 0),
             check_run_id=job.check_run_id or 0,
             report_url=f"http://100.89.59.195:8002/api/v1/checks/results/{job.check_run_id}" if job.check_run_id else None,
+            recipient_email=report_email,
         )
         
         job.email_sent = True

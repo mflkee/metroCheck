@@ -299,6 +299,7 @@ class SchedulerSettingsRequest(BaseModel):
     auto_time: Optional[str] = None  # "HH:MM"
     auto_day: Optional[int] = None   # 1-31
     month_offset: Optional[int] = None  # -12 to 0
+    report_email: Optional[str] = None  # email for reports
 
 
 @router.get("/scheduler/status")
@@ -321,7 +322,26 @@ async def scheduler_status(
             "auto_time": "09:00",
             "auto_day": 1,
             "month_offset": -1,
+            "report_email": "",
         }
+    
+    # Calculate example
+    from datetime import datetime
+    now = datetime.utcnow()
+    offset = state.get("month_offset", -1)
+    target = now.month + offset
+    year = now.year
+    while target <= 0:
+        target += 12
+        year -= 1
+    
+    return {
+        "status": "ok",
+        "scheduler": {
+            **state,
+            "example": f"If today is {now.strftime('%d.%m.%Y')}, will check: {target:02d}.{year}",
+        },
+    }
     
     # Calculate example
     from datetime import datetime
@@ -425,6 +445,10 @@ async def update_scheduler_settings(
             raise HTTPException(status_code=400, detail="Month offset must be -12 to 0")
         state["month_offset"] = payload.month_offset
         updated["month_offset"] = payload.month_offset
+    
+    if payload.report_email is not None:
+        state["report_email"] = payload.report_email
+        updated["report_email"] = payload.report_email
     
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)

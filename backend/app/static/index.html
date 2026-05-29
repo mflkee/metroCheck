@@ -1223,6 +1223,12 @@
                                 </div>
                             </div>
                             
+                            <div class="form-group">
+                                <label class="form-label">Email для отчёта</label>
+                                <input type="email" class="form-control" id="scheduler-email" placeholder="example@mail.ru" value="">
+                                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">На этот адрес придёт Excel-отчёт после выполнения проверки</div>
+                            </div>
+                            
                             <div class="scheduler-example" id="scheduler-example">
                                 Пример: если сегодня июль, сдвиг -2 → проверка мая
                             </div>
@@ -1255,6 +1261,9 @@
                                 </p>
                                 <p>
                                     <strong style="color: var(--text-primary);">Приоритет</strong> — ручная проверка всегда имеет приоритет над автоматической и прерывает её выполнение.
+                                </p>
+                                <p>
+                                    <strong style="color: var(--text-primary);">Email-отчёт</strong> — после завершения проверки Excel-файл с результатами будет отправлен на указанный email.
                                 </p>
                             </div>
                         </div>
@@ -1534,6 +1543,7 @@
                 document.getElementById('scheduler-day').value = sched.auto_day || 1;
                 document.getElementById('scheduler-time').value = sched.auto_time || '09:00';
                 document.getElementById('scheduler-offset').value = sched.month_offset || -1;
+                document.getElementById('scheduler-email').value = sched.report_email || '';
             } catch (e) {
                 console.error('Scheduler status error:', e);
             }
@@ -1554,6 +1564,7 @@
             const autoDay = parseInt(document.getElementById('scheduler-day').value);
             const autoTime = document.getElementById('scheduler-time').value;
             const monthOffset = parseInt(document.getElementById('scheduler-offset').value);
+            const reportEmail = document.getElementById('scheduler-email').value.trim();
             
             if (autoDay < 1 || autoDay > 31) {
                 alert('День должен быть от 1 до 31');
@@ -1566,7 +1577,8 @@
             
             try {
                 await api('/v1/arshin/scheduler/settings', 'POST', {
-                    mode, auto_day: autoDay, auto_time: autoTime, month_offset: monthOffset
+                    mode, auto_day: autoDay, auto_time: autoTime,
+                    month_offset: monthOffset, report_email: reportEmail
                 });
                 loadSchedulerStatus();
                 alert('Настройки сохранены');
