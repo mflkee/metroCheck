@@ -43,8 +43,8 @@ class EmailService:
         recipient_email: Optional[str] = None,
     ) -> bool:
         """Send email report after check completion."""
-        to_email = recipient_email or self.to_email
-        if not to_email or not self.smtp_user:
+        to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
+        if not to_emails or not self.smtp_user:
             print("[Email] Email not configured, skipping")
             return False
 
@@ -76,12 +76,15 @@ class EmailService:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.from_email
-            msg['To'] = to_email
-            msg.attach(MIMEText(body, 'html', 'utf-8'))
-
-            self._send_smtp(msg)
+            for to_email in to_emails:
+                msg_copy = MIMEMultipart('alternative')
+                msg_copy['Subject'] = subject
+                msg_copy['From'] = self.from_email
+                msg_copy['To'] = to_email
+                msg_copy.attach(MIMEText(body, 'html', 'utf-8'))
+                self._send_smtp(msg_copy)
             
-            print(f"[Email] Report sent to {to_email}")
+            print(f"[Email] Report sent to {', '.join(to_emails)}")
             return True
         except Exception as e:
             print(f"[Email] Failed to send: {e}")
@@ -89,18 +92,18 @@ class EmailService:
 
     async def send_alert(self, subject: str, message: str, recipient_email: Optional[str] = None) -> bool:
         """Send alert email."""
-        to_email = recipient_email or self.to_email
-        if not to_email:
+        to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
+        if not to_emails:
             return False
 
         try:
-            msg = MIMEMultipart()
-            msg['Subject'] = f"[metroChek ALERT] {subject}"
-            msg['From'] = self.from_email
-            msg['To'] = to_email
-            msg.attach(MIMEText(message, 'plain', 'utf-8'))
-
-            self._send_smtp(msg)
+            for to_email in to_emails:
+                msg = MIMEMultipart()
+                msg['Subject'] = f"[metroChek ALERT] {subject}"
+                msg['From'] = self.from_email
+                msg['To'] = to_email
+                msg.attach(MIMEText(message, 'plain', 'utf-8'))
+                self._send_smtp(msg)
             
             return True
         except Exception as e:
