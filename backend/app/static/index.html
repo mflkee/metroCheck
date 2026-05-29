@@ -4,368 +4,1290 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>metroChek — Контроль протоколов поверки</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a1f2e;
+            --bg-card-hover: #1f2637;
+            --border-color: #2a3441;
+            --border-color-hover: #374151;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #3b82f6;
+            --accent-primary-hover: #2563eb;
+            --accent-secondary: #8b5cf6;
+            --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #06b6d4;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+            --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f172a;
-            color: #e2e8f0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             line-height: 1.6;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        h1 { font-size: 24px; margin-bottom: 8px; color: #60a5fa; }
-        .subtitle { color: #64748b; font-size: 14px; margin-bottom: 20px; }
-        h2 { font-size: 16px; margin: 20px 0 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
-        
-        .card {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 16px;
-            border: 1px solid #334155;
+
+        /* Background decoration */
+        .bg-decoration {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
         }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
+
+        .bg-decoration::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.03) 0%, transparent 50%);
+            animation: bgFloat 20s ease-in-out infinite;
+        }
+
+        @keyframes bgFloat {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(-2%, 2%) rotate(1deg); }
+            66% { transform: translate(2%, -1%) rotate(-1deg); }
+        }
+
+        /* Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            padding: 24px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--accent-gradient);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .logo-text {
+            font-size: 20px;
+            font-weight: 700;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-subtitle {
             font-size: 11px;
-            font-weight: 600;
+            color: var(--text-muted);
+            margin-top: 2px;
+            letter-spacing: 0.5px;
             text-transform: uppercase;
         }
-        .status-ok { background: #064e3b; color: #34d399; }
-        .status-error { background: #450a0a; color: #f87171; }
-        .status-warning { background: #422006; color: #fbbf24; }
-        .status-running { background: #064e3b; color: #34d399; }
-        .status-pending { background: #422006; color: #fbbf24; }
-        .status-expired { background: #450a0a; color: #f87171; }
-        .status-unreachable { background: #1e1b4b; color: #a5b4fc; }
-        
-        .progress-bar {
-            width: 100%;
-            height: 12px;
-            background: #334155;
-            border-radius: 6px;
-            overflow: hidden;
-            margin: 8px 0;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            transition: width 0.5s ease;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 8px;
-            font-size: 10px;
-            font-weight: 700;
-            color: white;
-        }
-        
-        .job-row {
-            display: grid;
-            grid-template-columns: 60px 90px 80px 100px 1fr 120px;
-            gap: 12px;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #334155;
-        }
-        .job-row:last-child { border-bottom: none; }
-        .job-row:hover { background: #252f47; margin: 0 -20px; padding: 12px 20px; }
-        
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .btn-primary { background: #3b82f6; color: white; }
-        .btn-primary:hover { background: #2563eb; }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; }
-        .btn-secondary { background: #475569; color: white; }
-        .btn-secondary:hover { background: #334155; }
-        
-        .form-inline {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-        .form-inline input, .form-inline select {
-            padding: 8px 12px;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            background: #1e293b;
-            color: #e2e8f0;
-            font-size: 14px;
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .stat-card {
-            background: #1e293b;
-            padding: 16px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid #334155;
-        }
-        .stat-value { font-size: 24px; font-weight: 700; color: #60a5fa; }
-        .stat-label { font-size: 11px; color: #64748b; margin-top: 4px; text-transform: uppercase; }
-        .stat-value.error { color: #ef4444; }
-        .stat-value.warning { color: #fbbf24; }
-        .stat-value.success { color: #34d399; }
-        
-        .health-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-        }
-        .health-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px;
-            background: #252f47;
-            border-radius: 8px;
-        }
-        .health-icon { font-size: 20px; }
-        .health-info { flex: 1; }
-        .health-name { font-size: 13px; color: #94a3b8; }
-        .health-detail { font-size: 12px; color: #64748b; }
-        
-        .device-progress {
-            font-size: 13px;
-            color: #94a3b8;
-            margin-top: 4px;
-        }
-        .device-current {
-            font-size: 12px;
-            color: #60a5fa;
-            margin-top: 2px;
-            font-family: monospace;
-        }
-        
-        .error-list {
-            max-height: 300px;
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 16px 12px;
             overflow-y: auto;
         }
-        .error-item {
-            padding: 10px;
-            background: #451a1a;
-            border-left: 3px solid #ef4444;
+
+        .nav-section {
+            margin-bottom: 24px;
+        }
+
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 0 12px;
             margin-bottom: 8px;
-            border-radius: 0 6px 6px 0;
-            font-size: 13px;
         }
-        .error-type { color: #f87171; font-weight: 600; }
-        .error-msg { color: #fca5a5; }
-        .warning-item {
-            background: #422006;
-            border-left-color: #fbbf24;
-        }
-        .warning-type { color: #fbbf24; }
-        .warning-msg { color: #fcd34d; }
-        
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #64748b;
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
             font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 2px;
+            text-decoration: none;
         }
-        
-        .mode-indicator {
-            display: inline-flex;
+
+        .nav-item:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background: var(--accent-gradient);
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+
+        .nav-item.active:hover {
+            opacity: 0.9;
+        }
+
+        .nav-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .server-status {
+            display: flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 16px;
-            background: #1e293b;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            font-size: 14px;
+            font-size: 12px;
+            color: var(--text-muted);
         }
-        .mode-indicator.active {
-            border-color: #10b981;
-            background: #064e3b;
-        }
-        .mode-indicator.waiting {
-            border-color: #f59e0b;
-            background: #422006;
-        }
-        .pulse {
+
+        .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #10b981;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
             animation: pulse 2s infinite;
         }
+
+        .status-dot.error {
+            background: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: 260px;
+            padding: 32px;
+            max-width: calc(100% - 260px);
+        }
+
+        /* Header */
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .page-subtitle {
+            font-size: 16px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: var(--accent-gradient);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-color-hover);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .stat-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .stat-icon.success { background: rgba(16, 185, 129, 0.1); }
+        .stat-icon.warning { background: rgba(245, 158, 11, 0.1); }
+        .stat-icon.error { background: rgba(239, 68, 68, 0.1); }
+        .stat-icon.info { background: rgba(6, 182, 212, 0.1); }
+
+        .stat-trend {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 20px;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: var(--text-primary);
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1200px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--border-color-hover);
+            box-shadow: var(--shadow-md);
+        }
+
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-icon {
+            font-size: 20px;
+        }
+
+        .card-body {
+            padding: 24px;
+        }
+
+        .card-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
+        select.form-control {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            color: white;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+            border-color: var(--border-color-hover);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-sm {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .btn-lg {
+            padding: 14px 28px;
+            font-size: 15px;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .badge-error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--error);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .badge-info {
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--info);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        /* Health Grid */
+        .health-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .health-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+
+        .health-item:hover {
+            border-color: var(--border-color-hover);
+            background: var(--bg-card-hover);
+        }
+
+        .health-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            background: rgba(59, 130, 246, 0.1);
+            flex-shrink: 0;
+        }
+
+        .health-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .health-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .health-detail {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Job List */
+        .job-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .job-item {
+            display: grid;
+            grid-template-columns: 50px 80px 90px 1fr 100px;
+            gap: 12px;
+            align-items: center;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .job-item:hover {
+            border-color: var(--border-color);
+            background: var(--bg-card-hover);
+        }
+
+        .job-id {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            font-family: 'Courier New', monospace;
+        }
+
+        .job-date {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .job-type {
+            font-size: 12px;
+        }
+
+        .job-progress {
+            flex: 1;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-card);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-gradient);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2));
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .job-actions {
+            display: flex;
+            gap: 6px;
+            justify-content: flex-end;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+        }
+
+        /* Error List */
+        .error-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .error-item {
+            padding: 14px 16px;
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 3px solid var(--error);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            transition: all 0.2s ease;
+        }
+
+        .error-item:hover {
+            background: rgba(239, 68, 68, 0.08);
+        }
+
+        .error-type {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--error);
+            margin-bottom: 4px;
+        }
+
+        .error-msg {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .warning-item {
+            background: rgba(245, 158, 11, 0.05);
+            border-left-color: var(--warning);
+        }
+
+        .warning-item:hover {
+            background: rgba(245, 158, 11, 0.08);
+        }
+
+        .warning-type {
+            color: var(--warning);
+        }
+
+        /* Scheduler */
+        .scheduler-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+        }
+
+        .scheduler-example {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            border: 1px dashed var(--border-color);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--border-color-hover);
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .main-content {
+                margin-left: 0;
+                max-width: 100%;
+                padding: 20px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .job-item {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <div>
-                <h1>metroChek — Контроль протоколов поверки</h1>
-                <div class="subtitle">Автоматическая проверка соответствия АРШИН ↔ Протоколы</div>
-            </div>
-            <div id="mode-indicator" class="mode-indicator">
-                <span id="mode-pulse" class="pulse" style="display: none;"></span>
-                <span id="mode-text">Автоматический режим</span>
-            </div>
-        </div>
-
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-value" id="stat-pending">0</div>
-                <div class="stat-label">В очереди</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="stat-running">0</div>
-                <div class="stat-label">Выполняется</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="stat-devices">—</div>
-                <div class="stat-label">Приборов проверено</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="stat-errors">0</div>
-                <div class="stat-label">Ошибок найдено</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Статус системы</h2>
-            <div class="health-grid" id="health-grid">
-                <div class="health-item">
-                    <span class="health-icon">🌐</span>
-                    <div class="health-info">
-                        <div class="health-name">АРШИН API</div>
-                        <div class="health-detail" id="health-arshin-api">Проверка...</div>
-                    </div>
-                </div>
-                <div class="health-item">
-                    <span class="health-icon">🔑</span>
-                    <div class="health-info">
-                        <div class="health-name">Токен АРШИН</div>
-                        <div class="health-detail" id="health-arshin-token">Проверка...</div>
-                    </div>
-                </div>
-                <div class="health-item">
-                    <span class="health-icon">🤖</span>
-                    <div class="health-info">
-                        <div class="health-name">Token Agent</div>
-                        <div class="health-detail" id="health-token-agent">Проверка...</div>
-                    </div>
-                </div>
-                <div class="health-item">
-                    <span class="health-icon">⚡</span>
-                    <div class="health-info">
-                        <div class="health-name">OpenRouter</div>
-                        <div class="health-detail" id="health-openrouter">Проверка...</div>
-                    </div>
-                </div>
-                <div class="health-item">
-                    <span class="health-icon">🔗</span>
-                    <div class="health-info">
-                        <div class="health-name">n8n Workflows</div>
-                        <div class="health-detail" id="health-n8n">Проверка...</div>
+    <div class="bg-decoration"></div>
+    
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">&#128269;</div>
+                    <div>
+                        <div class="logo-text">metroChek</div>
+                        <div class="logo-subtitle">Protocol Control</div>
                     </div>
                 </div>
             </div>
-        </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Основное</div>
+                    <a href="#" class="nav-item active" onclick="showSection('dashboard'); this.classList.add('active')">
+                        <span class="nav-icon">&#128202;</span>
+                        <span>Дашборд</span>
+                    </a>
+                    <a href="#" class="nav-item" onclick="showSection('checks'); this.classList.add('active')">
+                        <span class="nav-icon">&#9989;</span>
+                        <span>Проверки</span>
+                    </a>
+                    <a href="#" class="nav-item" onclick="showSection('history'); this.classList.add('active')">
+                        <span class="nav-icon">&#128220;</span>
+                        <span>История</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Настройки</div>
+                    <a href="#" class="nav-item" onclick="showSection('scheduler'); this.classList.add('active')">
+                        <span class="nav-icon">&#9201;</span>
+                        <span>Планировщик</span>
+                    </a>
+                    <a href="http://100.89.59.195:5681/" target="_blank" class="nav-item">
+                        <span class="nav-icon">&#9881;</span>
+                        <span>n8n Workflows</span>
+                    </a>
+                </div>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="server-status">
+                    <div class="status-dot" id="server-status-dot"></div>
+                    <span id="server-status-text">Сервер онлайн</span>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <div id="section-dashboard">
+                <div class="page-header">
+                    <h1 class="page-title">Дашборд</h1>
+                    <p class="page-subtitle">Обзор системы контроля протоколов поверки</p>
+                </div>
+                
+                <!-- Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card fade-in">
+                        <div class="stat-header">
+                            <div class="stat-icon">&#128336;</div>
+                            <div class="stat-trend" style="background: rgba(6, 182, 212, 0.1); color: var(--info);">В очереди</div>
+                        </div>
+                        <div class="stat-value" id="stat-pending">0</div>
+                        <div class="stat-label">Ожидающих проверок</div>
+                    </div>
+                    
+                    <div class="stat-card fade-in delay-1">
+                        <div class="stat-header">
+                            <div class="stat-icon success">&#9989;</div>
+                            <div class="stat-trend" style="background: rgba(16, 185, 129, 0.1); color: var(--success);">Активно</div>
+                        </div>
+                        <div class="stat-value" id="stat-running">0</div>
+                        <div class="stat-label">Выполняется сейчас</div>
+                    </div>
+                    
+                    <div class="stat-card fade-in delay-2">
+                        <div class="stat-header">
+                            <div class="stat-icon info">&#128187;</div>
+                            <div class="stat-trend" style="background: rgba(139, 92, 246, 0.1); color: var(--accent-secondary);">Всего</div>
+                        </div>
+                        <div class="stat-value" id="stat-devices">—</div>
+                        <div class="stat-label">Приборов проверено</div>
+                    </div>
+                    
+                    <div class="stat-card fade-in delay-3">
+                        <div class="stat-header">
+                            <div class="stat-icon error">&#9888;</div>
+                            <div class="stat-trend" style="background: rgba(239, 68, 68, 0.1); color: var(--error);">Найдено</div>
+                        </div>
+                        <div class="stat-value" id="stat-errors">0</div>
+                        <div class="stat-label">Ошибок в протоколах</div>
+                    </div>
+                </div>
+                
+                <!-- Health & Quick Actions -->
+                <div class="content-grid">
+                    <div class="card fade-in">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#127760;</span>
+                                Статус системы
+                            </div>
+                            <span class="badge badge-success" id="overall-status">Все системы работают</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="health-grid" id="health-grid">
+                                <div class="health-item">
+                                    <div class="health-icon">&#127760;</div>
+                                    <div class="health-info">
+                                        <div class="health-name">АРШИН API</div>
+                                        <div class="health-detail" id="health-arshin-api">Проверка...</div>
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-icon">&#128273;</div>
+                                    <div class="health-info">
+                                        <div class="health-name">Токен АРШИН</div>
+                                        <div class="health-detail" id="health-arshin-token">Проверка...</div>
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-icon">&#129302;</div>
+                                    <div class="health-info">
+                                        <div class="health-name">Token Agent</div>
+                                        <div class="health-detail" id="health-token-agent">Проверка...</div>
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-icon">&#9889;</div>
+                                    <div class="health-info">
+                                        <div class="health-name">OpenRouter</div>
+                                        <div class="health-detail" id="health-openrouter">Проверка...</div>
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-icon">&#128279;</div>
+                                    <div class="health-info">
+                                        <div class="health-name">n8n Workflows</div>
+                                        <div class="health-detail" id="health-n8n">Проверка...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card fade-in delay-1">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#128640;</span>
+                                Быстрые действия
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Запустить проверку</label>
+                                <div class="form-row">
+                                    <select class="form-control" id="run-year">
+                                        <option value="2025">2025</option>
+                                        <option value="2024">2024</option>
+                                    </select>
+                                    <select class="form-control" id="run-month">
+                                        <option value="1">Январь</option>
+                                        <option value="2">Февраль</option>
+                                        <option value="3">Март</option>
+                                        <option value="4">Апрель</option>
+                                        <option value="5">Май</option>
+                                        <option value="6">Июнь</option>
+                                        <option value="7">Июль</option>
+                                        <option value="8">Август</option>
+                                        <option value="9">Сентябрь</option>
+                                        <option value="10">Октябрь</option>
+                                        <option value="11">Ноябрь</option>
+                                        <option value="12">Декабрь</option>
+                                    </select>
+                                    <button class="btn btn-primary" onclick="enqueueManual()">
+                                        <span>&#9654;</span> Запустить
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group" style="margin-top: 24px;">
+                                <label class="form-label">Текущая проверка</label>
+                                <div id="running-job">
+                                    <div class="empty-state">
+                                        <div class="empty-state-icon">&#128269;</div>
+                                        <div class="empty-state-title">Нет активных проверок</div>
+                                        <div class="empty-state-text">Выберите месяц и год для запуска</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Queue & Errors -->
+                <div class="content-grid">
+                    <div class="card fade-in">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#128204;</span>
+                                Очередь задач
+                            </div>
+                            <span class="badge badge-info" id="queue-count">0 задач</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="pending-jobs">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">&#128230;</div>
+                                    <div class="empty-state-title">Очередь пуста</div>
+                                    <div class="empty-state-text">Нет ожидающих задач</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card fade-in delay-1">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#9888;</span>
+                                Последние ошибки
+                            </div>
+                            <span class="badge badge-error" id="errors-count">0 ошибок</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="recent-errors">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">&#9989;</div>
+                                    <div class="empty-state-title">Ошибок не найдено</div>
+                                    <div class="empty-state-text">Все протоколы в порядке</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Checks Section -->
+            <div id="section-checks" style="display: none;">
+                <div class="page-header">
+                    <h1 class="page-title">Проверки</h1>
+                    <p class="page-subtitle">Управление проверками протоколов поверки</p>
+                </div>
+                
+                <div class="content-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#128640;</span>
+                                Запустить проверку
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Период проверки</label>
+                                <div class="form-row">
+                                    <select class="form-control" id="checks-run-year">
+                                        <option value="2025">2025</option>
+                                        <option value="2024">2024</option>
+                                    </select>
+                                    <select class="form-control" id="checks-run-month">
+                                        <option value="1">Январь</option>
+                                        <option value="2">Февраль</option>
+                                        <option value="3">Март</option>
+                                        <option value="4">Апрель</option>
+                                        <option value="5">Май</option>
+                                        <option value="6">Июнь</option>
+                                        <option value="7">Июль</option>
+                                        <option value="8">Август</option>
+                                        <option value="9">Сентябрь</option>
+                                        <option value="10">Октябрь</option>
+                                        <option value="11">Ноябрь</option>
+                                        <option value="12">Декабрь</option>
+                                    </select>
+                                    <button class="btn btn-primary" onclick="enqueueManualChecks()">
+                                        <span>&#9654;</span> Запустить сейчас
+                                    </button>
+                                </div>
+                            </div>
+                            <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">
+                                Ручная проверка имеет наивысший приоритет и прерывает автоматическую.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#9200;</span>
+                                Текущий статус
+                            </div>
+                            <span class="badge badge-success" id="checks-mode">Загрузка...</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="checks-status">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">&#128269;</div>
+                                    <div class="empty-state-title">Нет активных проверок</div>
+                                    <div class="empty-state-text">Запустите проверку выбрав месяц и год</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">&#128204;</span>
+                            Очередь проверок
+                        </div>
+                        <span class="badge badge-info" id="checks-queue-count">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="checks-queue">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">&#128230;</div>
+                                <div class="empty-state-title">Очередь пуста</div>
+                                <div class="empty-state-text">Нет ожидающих проверок</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-        <div class="card">
-            <h2>Запустить проверку</h2>
-            <div class="form-inline">
-                <select id="run-year">
-                    <option value="2025">2025</option>
-                    <option value="2024">2024</option>
-                </select>
-                <select id="run-month">
-                    <option value="1">Январь</option>
-                    <option value="2">Февраль</option>
-                    <option value="3">Март</option>
-                    <option value="4">Апрель</option>
-                    <option value="5">Май</option>
-                    <option value="6">Июнь</option>
-                    <option value="7">Июль</option>
-                    <option value="8">Август</option>
-                    <option value="9">Сентябрь</option>
-                    <option value="10">Октябрь</option>
-                    <option value="11">Ноябрь</option>
-                    <option value="12">Декабрь</option>
-                </select>
-                <button class="btn btn-primary" onclick="enqueueManual()">Запустить сейчас</button>
+            <!-- Scheduler Section -->
+            <div id="section-scheduler" style="display: none;">
+                <div class="page-header">
+                    <h1 class="page-title">Планировщик</h1>
+                    <p class="page-subtitle">Настройка автоматической проверки протоколов</p>
+                </div>
+                
+                <div class="content-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#9201;</span>
+                                Настройки автопроверки
+                            </div>
+                            <span class="badge badge-info" id="scheduler-mode-badge">Загрузка...</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="scheduler-info">
+                                <div>
+                                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Текущий режим</div>
+                                    <div style="font-size: 13px; color: var(--text-muted);" id="scheduler-info">—</div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Режим работы</label>
+                                <select class="form-control" id="scheduler-mode" onchange="updateSchedulerMode()">
+                                    <option value="manual">Ручной (проверка по запросу)</option>
+                                    <option value="auto">Автоматический (по расписанию)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">День месяца</label>
+                                    <input type="number" class="form-control" id="scheduler-day" min="1" max="31" value="1">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Время</label>
+                                    <input type="time" class="form-control" id="scheduler-time" value="09:00">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Сдвиг мес.</label>
+                                    <input type="number" class="form-control" id="scheduler-offset" min="-12" max="0" value="-1">
+                                </div>
+                            </div>
+                            
+                            <div class="scheduler-example" id="scheduler-example">
+                                Пример: если сегодня июль, сдвиг -2 → проверка мая
+                            </div>
+                            
+                            <div style="margin-top: 20px;">
+                                <button class="btn btn-primary" onclick="saveSchedulerSettings()">
+                                    <span>&#128190;</span> Сохранить настройки
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <span class="card-icon">&#128161;</span>
+                                Информация
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="font-size: 14px; line-height: 1.8; color: var(--text-secondary);">
+                                <p style="margin-bottom: 16px;">
+                                    <strong style="color: var(--text-primary);">Автоматический режим</strong> — система автоматически запускает проверку протоколов по заданному расписанию.
+                                </p>
+                                <p style="margin-bottom: 16px;">
+                                    <strong style="color: var(--text-primary);">Ручной режим</strong> — проверки запускаются только по вашему запросу через интерфейс или API.
+                                </p>
+                                <p style="margin-bottom: 16px;">
+                                    <strong style="color: var(--text-primary);">Сдвиг месяца</strong> — позволяет проверять протоколы за прошлые месяцы. Например, сдвиг -2 в июле проверит май.
+                                </p>
+                                <p>
+                                    <strong style="color: var(--text-primary);">Приоритет</strong> — ручная проверка всегда имеет приоритет над автоматической и прерывает её выполнение.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <p style="font-size: 13px; color: #64748b;">
-                Ручной запуск имеет приоритет. Автоматическая проверка приостановится и возобновится после завершения.
-            </p>
-        </div>
-
-        <div class="card">
-            <h2>Настройка автоматической проверки</h2>
-            <div id="scheduler-status" style="margin-bottom: 12px;">
-                <span class="status-badge status-pending" id="scheduler-mode-badge">Загрузка...</span>
-                <span style="margin-left: 10px; color: #64748b; font-size: 13px;" id="scheduler-info"></span>
+            
+            <!-- History Section -->
+            <div id="section-history" style="display: none;">
+                <div class="page-header">
+                    <h1 class="page-title">История</h1>
+                    <p class="page-subtitle">Журнал выполненных проверок протоколов</p>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">&#128220;</span>
+                            Все проверки
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="recent-jobs">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">&#128218;</div>
+                                <div class="empty-state-title">История пуста</div>
+                                <div class="empty-state-text">Здесь будут отображаться завершенные проверки</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="form-inline">
-                <label style="color: #94a3b8; font-size: 13px;">Режим:</label>
-                <select id="scheduler-mode" onchange="updateSchedulerMode()">
-                    <option value="manual">Ручной</option>
-                    <option value="auto">Автоматический</option>
-                </select>
-                <label style="color: #94a3b8; font-size: 13px;">День:</label>
-                <input type="number" id="scheduler-day" min="1" max="31" value="1" style="width: 60px;">
-                <label style="color: #94a3b8; font-size: 13px;">Время:</label>
-                <input type="time" id="scheduler-time" value="09:00">
-                <label style="color: #94a3b8; font-size: 13px;">Сдвиг мес.:</label>
-                <input type="number" id="scheduler-offset" min="-12" max="0" value="-1" style="width: 60px;">
-                <button class="btn btn-primary" onclick="saveSchedulerSettings()">Сохранить</button>
-            </div>
-            <p style="font-size: 13px; color: #64748b; margin-top: 8px;" id="scheduler-example">
-                Пример: если сегодня июль, сдвиг -2 → проверка мая
-            </p>
-        </div>
-
-        <div class="card">
-            <h2>Текущая проверка</h2>
-            <div id="running-job">
-                <div class="empty-state">Нет активных проверок</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Последние ошибки</h2>
-            <div id="recent-errors">
-                <div class="empty-state">Ошибок пока нет</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>Очередь</h2>
-            <div id="pending-jobs">
-                <div class="empty-state">Очередь пуста</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>История</h2>
-            <div id="recent-jobs">
-                <div class="empty-state">История пуста</div>
-            </div>
-        </div>
+        </main>
     </div>
 
     <script>
@@ -389,110 +1311,80 @@
             return res.json();
         }
 
+        function showSection(section) {
+            document.querySelectorAll('[id^="section-"]').forEach(el => el.style.display = 'none');
+            document.getElementById(`section-${section}`).style.display = 'block';
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        }
+
         function formatDate(iso) {
             if (!iso) return '—';
             const d = new Date(iso);
-            return d.toLocaleString('ru-RU', { 
-                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-            });
+            return d.toLocaleString('ru-RU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
 
-        function formatDuration(seconds) {
-            if (!seconds) return '—';
-            const mins = Math.floor(seconds / 60);
-            const hours = Math.floor(mins / 60);
-            if (hours > 0) return `${hours}ч ${mins % 60}мин`;
-            return `${mins}мин`;
-        }
-
-        function statusBadge(status) {
-            return `<span class="status-badge status-${status}">${status}</span>`;
-        }
-
+        // Health
         async function updateHealth() {
             try {
                 const health = await api('/health');
                 
-                // ARSHIN API
                 const arshinApi = health.arshin_api || {};
                 document.getElementById('health-arshin-api').innerHTML = 
                     arshinApi.status === 'ok' 
-                        ? '<span class="status-badge status-ok">Доступен</span>'
-                        : `<span class="status-badge status-error">${arshinApi.status || 'н/д'}</span>`;
+                        ? '<span class="badge badge-success">Доступен</span>'
+                        : `<span class="badge badge-error">${arshinApi.status || 'н/д'}</span>`;
                 
-                // ARSHIN Token
                 const arshinToken = health.arshin_token || {};
                 if (arshinToken.status === 'ok') {
                     const mins = arshinToken.expires_min || 0;
-                    const color = mins < 10 ? 'status-expired' : 'status-ok';
+                    const cls = mins < 10 ? 'badge-error' : 'badge-success';
                     document.getElementById('health-arshin-token').innerHTML = 
-                        `<span class="status-badge ${color}">${mins} мин</span>`;
+                        `<span class="badge ${cls}">${mins} мин</span>`;
                 } else {
                     document.getElementById('health-arshin-token').innerHTML = 
-                        `<span class="status-badge status-expired">Нет токена</span>`;
+                        `<span class="badge badge-error">Нет токена</span>`;
                 }
                 
-                // Token Agent
                 const tokenAgent = health.token_agent || {};
                 document.getElementById('health-token-agent').innerHTML = 
                     tokenAgent.status === 'ok'
-                        ? '<span class="status-badge status-ok">Онлайн</span>'
-                        : `<span class="status-badge status-unreachable">${tokenAgent.status || 'н/д'}</span>`;
+                        ? '<span class="badge badge-success">Онлайн</span>'
+                        : `<span class="badge badge-info">${tokenAgent.status || 'н/д'}</span>`;
                 
-                // OpenRouter
                 const openrouter = health.openrouter || {};
                 if (openrouter.status === 'ok') {
                     document.getElementById('health-openrouter').innerHTML = 
-                        `<span class="status-badge status-ok">$${openrouter.balance || '?'}</span>`;
+                        `<span class="badge badge-success">$${openrouter.balance || '?'}</span>`;
                 } else {
                     document.getElementById('health-openrouter').innerHTML = 
-                        `<span class="status-badge status-error">${openrouter.status || 'н/д'}</span>`;
+                        `<span class="badge badge-error">${openrouter.status || 'н/д'}</span>`;
                 }
                 
-                // n8n
                 const n8n = health.n8n || {};
                 document.getElementById('health-n8n').innerHTML = 
                     n8n.status === 'ok'
-                        ? '<span class="status-badge status-ok">Работает</span>'
-                        : `<span class="status-badge status-error">${n8n.status || 'н/д'}</span>`;
+                        ? '<span class="badge badge-success">Работает</span>'
+                        : `<span class="badge badge-error">${n8n.status || 'н/д'}</span>`;
+                
+                // Overall status
+                const allOk = Object.values(health.systems || {}).every(s => s.status === 'ok' || s.status === 'not_configured');
+                const statusBadge = document.getElementById('overall-status');
+                statusBadge.className = `badge ${allOk ? 'badge-success' : 'badge-warning'}`;
+                statusBadge.textContent = allOk ? 'Все системы работают' : 'Есть проблемы';
                 
             } catch (e) {
                 console.error('Health check error:', e);
             }
         }
 
+        // Queue
         async function updateQueue() {
             try {
                 const data = await api('/jobs/status');
                 
-                // Update stats
                 document.getElementById('stat-pending').textContent = data.pending?.length || 0;
                 document.getElementById('stat-running').textContent = data.running ? 1 : 0;
-                
-                // Mode indicator
-                const modeEl = document.getElementById('mode-indicator');
-                const modeText = document.getElementById('mode-text');
-                const modePulse = document.getElementById('mode-pulse');
-                
-                if (data.running) {
-                    if (data.running.job_type === 'manual') {
-                        modeEl.className = 'mode-indicator active';
-                        modeText.textContent = 'Ручная проверка';
-                        modePulse.style.display = 'inline-block';
-                    } else {
-                        modeEl.className = 'mode-indicator active';
-                        modeText.textContent = 'Автоматическая проверка';
-                        modePulse.style.display = 'inline-block';
-                    }
-                } else if (data.pending?.length > 0) {
-                    modeEl.className = 'mode-indicator waiting';
-                    modeText.textContent = 'Ожидание запуска';
-                    modePulse.style.display = 'none';
-                } else {
-                    modeEl.className = 'mode-indicator';
-                    modeText.textContent = 'Автоматический режим';
-                    modePulse.style.display = 'none';
-                }
+                document.getElementById('queue-count').textContent = `${data.pending?.length || 0} задач`;
                 
                 // Running job
                 const runningEl = document.getElementById('running-job');
@@ -500,71 +1392,78 @@
                     const progress = data.running.progress_percent || 0;
                     const total = data.running.total_devices || 0;
                     const processed = data.running.processed_devices || 0;
-                    const current = data.running.current_device || '';
                     
-                    document.getElementById('stat-devices').textContent = total > 0 
-                        ? `${processed}/${total}` 
-                        : '—';
+                    document.getElementById('stat-devices').textContent = total > 0 ? `${processed}/${total}` : '—';
                     
                     runningEl.innerHTML = `
-                        <div class="job-row">
-                            <div><strong>#${data.running.id}</strong></div>
-                            <div>${data.running.year}-${String(data.running.month).padStart(2,'0')}</div>
-                            <div>${statusBadge(data.running.status)}</div>
-                            <div>${data.running.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
-                            <div style="flex: 1;">
-                                <div>${data.running.progress || '...'}</div>
-                                ${current ? `<div class="device-current">${current}</div>` : ''}
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width: ${progress}%">${progress}%</div>
+                        <div class="job-list">
+                            <div class="job-item">
+                                <div class="job-id">#${data.running.id}</div>
+                                <div class="job-date">${data.running.year}-${String(data.running.month).padStart(2,'0')}</div>
+                                <div class="job-type"><span class="badge ${data.running.job_type === 'manual' ? 'badge-info' : 'badge-success'}">${data.running.job_type === 'manual' ? 'Ручная' : 'Авто'}</span></div>
+                                <div class="job-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${progress}%"></div>
+                                    </div>
+                                    <div class="progress-text">${data.running.progress || '...'} ${progress > 0 ? `(${progress}%)` : ''}</div>
                                 </div>
-                                ${total > 0 ? `<div class="device-progress">Приборов: ${processed} / ${total}</div>` : ''}
-                            </div>
-                            <div>
-                                <button class="btn btn-danger" onclick="cancelJob(${data.running.id})">Отменить</button>
+                                <div class="job-actions">
+                                    <button class="btn btn-danger btn-sm" onclick="cancelJob(${data.running.id})">Отменить</button>
+                                </div>
                             </div>
                         </div>
                     `;
                 } else {
-                    runningEl.innerHTML = '<div class="empty-state">Нет активных проверок</div>';
+                    runningEl.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">&#128269;</div>
+                            <div class="empty-state-title">Нет активных проверок</div>
+                            <div class="empty-state-text">Выберите месяц и год для запуска</div>
+                        </div>
+                    `;
                     document.getElementById('stat-devices').textContent = '—';
                 }
                 
                 // Pending jobs
                 const pendingEl = document.getElementById('pending-jobs');
                 if (data.pending?.length > 0) {
-                    pendingEl.innerHTML = data.pending.map(job => `
-                        <div class="job-row">
-                            <div><strong>#${job.id}</strong></div>
-                            <div>${job.year}-${String(job.month).padStart(2,'0')}</div>
-                            <div>${statusBadge(job.status)}</div>
-                            <div>${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
-                            <div>${job.progress || 'Ожидание...'}</div>
-                            <div>
-                                <button class="btn btn-secondary" onclick="pauseJob(${job.id})">Пауза</button>
-                                <button class="btn btn-danger" onclick="cancelJob(${job.id})">Отмена</button>
+                    pendingEl.innerHTML = `<div class="job-list">${data.pending.map(job => `
+                        <div class="job-item">
+                            <div class="job-id">#${job.id}</div>
+                            <div class="job-date">${job.year}-${String(job.month).padStart(2,'0')}</div>
+                            <div class="job-type"><span class="badge badge-warning">${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</span></div>
+                            <div class="job-progress">
+                                <div class="progress-text">${job.progress || 'Ожидание...'}</div>
+                            </div>
+                            <div class="job-actions">
+                                <button class="btn btn-danger btn-sm" onclick="cancelJob(${job.id})">Отмена</button>
                             </div>
                         </div>
-                    `).join('');
+                    `).join('')}</div>`;
                 } else {
-                    pendingEl.innerHTML = '<div class="empty-state">Очередь пуста</div>';
+                    pendingEl.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">&#128230;</div>
+                            <div class="empty-state-title">Очередь пуста</div>
+                            <div class="empty-state-text">Нет ожидающих задач</div>
+                        </div>
+                    `;
                 }
                 
                 // Recent jobs
                 const recentEl = document.getElementById('recent-jobs');
                 if (data.recent?.length > 0) {
-                    recentEl.innerHTML = data.recent.map(job => `
-                        <div class="job-row">
-                            <div><strong>#${job.id}</strong></div>
-                            <div>${job.year}-${String(job.month).padStart(2,'0')}</div>
-                            <div>${statusBadge(job.status)}</div>
-                            <div>${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</div>
-                            <div>${job.progress || '—'} ${job.error_message ? `<span style="color:#ef4444">(${job.error_message})</span>` : ''}</div>
-                            <div>${formatDate(job.completed_at || job.started_at)}</div>
+                    recentEl.innerHTML = `<div class="job-list">${data.recent.map(job => `
+                        <div class="job-item">
+                            <div class="job-id">#${job.id}</div>
+                            <div class="job-date">${job.year}-${String(job.month).padStart(2,'0')}</div>
+                            <div class="job-type"><span class="badge ${job.status === 'completed' ? 'badge-success' : job.status === 'failed' ? 'badge-error' : 'badge-warning'}">${job.status}</span></div>
+                            <div class="job-progress">
+                                <div class="progress-text">${job.progress || '—'} ${job.error_message ? `<span style="color: var(--error)">(${job.error_message})</span>` : ''}</div>
+                            </div>
+                            <div class="job-date">${formatDate(job.completed_at || job.started_at)}</div>
                         </div>
-                    `).join('');
-                } else {
-                    recentEl.innerHTML = '<div class="empty-state">История пуста</div>';
+                    `).join('')}</div>`;
                 }
                 
             } catch (e) {
@@ -572,9 +1471,9 @@
             }
         }
 
+        // Errors
         async function updateErrors() {
             try {
-                // Get latest check run errors
                 const summary = await api('/checks/summary');
                 const errorsEl = document.getElementById('recent-errors');
                 
@@ -583,22 +1482,26 @@
                     const errors = results.errors || [];
                     
                     document.getElementById('stat-errors').textContent = errors.length;
+                    document.getElementById('errors-count').textContent = `${errors.length} ошибок`;
                     
                     if (errors.length > 0) {
-                        errorsEl.innerHTML = errors.slice(0, 10).map(e => {
+                        errorsEl.innerHTML = `<div class="error-list">${errors.slice(0, 10).map(e => {
                             const isWarning = e.status === 'warning';
                             return `
                                 <div class="error-item ${isWarning ? 'warning-item' : ''}">
                                     <div class="${isWarning ? 'warning-type' : 'error-type'}">${e.check_type}</div>
-                                    <div class="${isWarning ? 'warning-msg' : 'error-msg'}">${e.comment}</div>
+                                    <div class="error-msg">${e.comment}</div>
                                 </div>
                             `;
-                        }).join('');
-                        if (errors.length > 10) {
-                            errorsEl.innerHTML += `<div style="text-align: center; padding: 10px; color: #64748b;">+${errors.length - 10} ошибок</div>`;
-                        }
+                        }).join('')}${errors.length > 10 ? `<div style="text-align: center; padding: 10px; color: var(--text-muted);">+${errors.length - 10} ошибок</div>` : ''}</div>`;
                     } else {
-                        errorsEl.innerHTML = '<div class="empty-state">Ошибок не найдено ✓</div>';
+                        errorsEl.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">&#9989;</div>
+                                <div class="empty-state-title">Ошибок не найдено</div>
+                                <div class="empty-state-text">Все протоколы в порядке</div>
+                            </div>
+                        `;
                     }
                 }
             } catch (e) {
@@ -606,59 +1509,24 @@
             }
         }
 
-        async function enqueueManual() {
-            const year = parseInt(document.getElementById('run-year').value);
-            const month = parseInt(document.getElementById('run-month').value);
-            try {
-                await api('/jobs/enqueue', 'POST', { year, month });
-                updateQueue();
-            } catch (e) {
-                alert('Ошибка: ' + e.message);
-            }
-        }
-
-        async function cancelJob(id) {
-            if (!confirm('Отменить задачу #' + id + '?')) return;
-            try {
-                await api(`/jobs/cancel/${id}`, 'POST');
-                updateQueue();
-            } catch (e) {
-                alert('Ошибка: ' + e.message);
-            }
-        }
-
-        async function pauseJob(id) {
-            try {
-                await api(`/jobs/pause/${id}`, 'POST');
-                updateQueue();
-            } catch (e) {
-                alert('Ошибка: ' + e.message);
-            }
-        }
-
-        // Scheduler functions
+        // Scheduler
         async function loadSchedulerStatus() {
             try {
                 const data = await api('/arshin/scheduler/status');
                 const sched = data.scheduler || {};
                 const mode = sched.mode || 'manual';
                 
-                // Update badge
                 const badge = document.getElementById('scheduler-mode-badge');
                 badge.textContent = mode === 'auto' ? 'Автоматический' : 'Ручной';
-                badge.className = 'status-badge ' + (mode === 'auto' ? 'status-ok' : 'status-pending');
+                badge.className = 'badge ' + (mode === 'auto' ? 'badge-success' : 'badge-info');
                 
-                // Update info
-                const info = document.getElementById('scheduler-info');
-                info.textContent = `${sched.auto_day || 1}-го числа в ${sched.auto_time || '09:00'}, сдвиг: ${sched.month_offset || -1} мес.`;
+                document.getElementById('scheduler-info').textContent = 
+                    `${sched.auto_day || 1}-го числа в ${sched.auto_time || '09:00'}, сдвиг: ${sched.month_offset || -1} мес.`;
                 
-                // Update example
-                const example = document.getElementById('scheduler-example');
                 if (sched.example) {
-                    example.textContent = sched.example;
+                    document.getElementById('scheduler-example').textContent = sched.example;
                 }
                 
-                // Set form values
                 document.getElementById('scheduler-mode').value = mode;
                 document.getElementById('scheduler-day').value = sched.auto_day || 1;
                 document.getElementById('scheduler-time').value = sched.auto_time || '09:00';
@@ -695,10 +1563,7 @@
             
             try {
                 await api('/arshin/scheduler/settings', 'POST', {
-                    mode,
-                    auto_day: autoDay,
-                    auto_time: autoTime,
-                    month_offset: monthOffset
+                    mode, auto_day: autoDay, auto_time: autoTime, month_offset: monthOffset
                 });
                 loadSchedulerStatus();
                 alert('Настройки сохранены');
@@ -707,16 +1572,107 @@
             }
         }
 
-        // Auto-update
+        // Checks section
+        async function updateChecks() {
+            try {
+                const data = await api('/jobs/status');
+                const running = data.running;
+                const pending = data.pending || [];
+                
+                document.getElementById('checks-queue-count').textContent = pending.length;
+                
+                if (running) {
+                    const progress = running.progress_percent || 0;
+                    document.getElementById('checks-status').innerHTML = `
+                        <div class="job-list">
+                            <div class="job-item" style="grid-template-columns: 50px 80px 90px 1fr;">
+                                <div class="job-id">#${running.id}</div>
+                                <div class="job-date">${running.year}-${String(running.month).padStart(2,'0')}</div>
+                                <div class="job-type"><span class="badge ${running.job_type === 'manual' ? 'badge-info' : 'badge-success'}">${running.job_type === 'manual' ? 'Ручная' : 'Авто'}</span></div>
+                                <div class="job-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${progress}%"></div>
+                                    </div>
+                                    <div class="progress-text">${running.progress || '...'} ${progress > 0 ? `(${progress}%)` : ''}</div>
+                                    ${running.current_device ? `<div style="font-size: 11px; color: var(--accent-primary); margin-top: 4px;">&#128187; ${running.current_device}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('checks-status').innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">&#128269;</div>
+                            <div class="empty-state-title">Нет активных проверок</div>
+                            <div class="empty-state-text">Запустите проверку выбрав месяц и год</div>
+                        </div>
+                    `;
+                }
+                
+                if (pending.length > 0) {
+                    document.getElementById('checks-queue').innerHTML = `<div class="job-list">${pending.map(job => `
+                        <div class="job-item" style="grid-template-columns: 50px 80px 90px 1fr 100px;">
+                            <div class="job-id">#${job.id}</div>
+                            <div class="job-date">${job.year}-${String(job.month).padStart(2,'0')}</div>
+                            <div class="job-type"><span class="badge badge-warning">${job.job_type === 'manual' ? 'Ручная' : 'Авто'}</span></div>
+                            <div class="job-progress"><div class="progress-text">${job.progress || 'Ожидание...'}</div></div>
+                            <div class="job-actions"><button class="btn btn-danger btn-sm" onclick="cancelJob(${job.id})">Отмена</button></div>
+                        </div>
+                    `).join('')}</div>`;
+                }
+                
+                document.getElementById('checks-mode').textContent = running ? 'Выполняется' : 'Ожидание';
+                document.getElementById('checks-mode').className = `badge ${running ? 'badge-success' : 'badge-info'}`;
+            } catch (e) {
+                console.error('Checks update error:', e);
+            }
+        }
+        
+        async function enqueueManualChecks() {
+            const year = parseInt(document.getElementById('checks-run-year').value);
+            const month = parseInt(document.getElementById('checks-run-month').value);
+            try {
+                await api('/jobs/enqueue', 'POST', { year, month });
+                updateChecks();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        // Actions
+        async function enqueueManual() {
+            const year = parseInt(document.getElementById('run-year').value);
+            const month = parseInt(document.getElementById('run-month').value);
+            try {
+                await api('/jobs/enqueue', 'POST', { year, month });
+                updateQueue();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        async function cancelJob(id) {
+            if (!confirm('Отменить задачу #' + id + '?')) return;
+            try {
+                await api(`/jobs/cancel/${id}`, 'POST');
+                updateQueue();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+        }
+
+        // Init
         updateHealth();
         updateQueue();
         updateErrors();
         loadSchedulerStatus();
+        updateChecks();
         
-        setInterval(updateHealth, 10000);      // Every 10s
-        setInterval(updateQueue, 3000);        // Every 3s
-        setInterval(updateErrors, 10000);      // Every 10s
-        setInterval(loadSchedulerStatus, 30000); // Every 30s
+        setInterval(updateHealth, 10000);
+        setInterval(updateQueue, 3000);
+        setInterval(updateErrors, 10000);
+        setInterval(loadSchedulerStatus, 30000);
+        setInterval(updateChecks, 5000);
     </script>
 </body>
 </html>
