@@ -108,12 +108,12 @@ services:
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-mkair}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-mkair}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-mkair_secret}
-      MKAIR_PROTOCOLS_PATH: ${MKAIR_PROTOCOLS_PATH:-/protocols}
+      METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
     ports:
       - "${N8N_PORT:-5681}:5678"
     volumes:
       - n8n_data:/home/node/.n8n
-      - ${PROTOCOLS_HOST_PATH:-./protocols}:${MKAIR_PROTOCOLS_PATH:-/protocols}:ro
+      - ${PROTOCOLS_HOST_PATH:-./protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
     networks:
       - backend_network
       - mkair_network

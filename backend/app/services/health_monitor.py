@@ -85,8 +85,8 @@ class HealthMonitor:
         """Check n8n availability."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # n8n is at mkair_n8n:5678 inside Docker network
-                r = await client.get("http://mkair_n8n:5678/healthz")
+                # n8n is at metroCheck_n8n:5678 inside Docker network
+                r = await client.get("http://metroCheck_n8n:5678/healthz")
                 self._status["n8n"] = {
                     "status": "ok" if r.status_code == 200 else "error",
                     "code": r.status_code,

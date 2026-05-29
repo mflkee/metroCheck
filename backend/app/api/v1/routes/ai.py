@@ -146,8 +146,8 @@ async def ai_extract(
                     headers={
                         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                         "Content-Type": "application/json",
-                        "HTTP-Referer": "https://mkair.ru",
-                        "X-Title": "MKAIR Protocol Control",
+                        "HTTP-Referer": "https://metrocheck.ru",
+                        "X-Title": "metroChek Protocol Control",
                     },
                     json={
                         "model": model,

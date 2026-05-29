@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MKAIR — Контроль протоколов поверки</title>
+    <title>metroChek — Контроль протоколов поверки</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -217,7 +217,7 @@
     <div class="container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <div>
-                <h1>MKAIR — Контроль протоколов поверки</h1>
+                <h1>metroChek — Контроль протоколов поверки</h1>
                 <div class="subtitle">Автоматическая проверка соответствия АРШИН ↔ Протоколы</div>
             </div>
             <div id="mode-indicator" class="mode-indicator">
@@ -344,7 +344,7 @@
     </div>
 
     <script>
-        const API_KEY = 'mkair-secret-key';
+        const API_KEY = 'CHANGE_ME_API_KEY';
         const API_BASE = '/api/v1';
 
         async function api(path, method = 'GET', body = null) {
