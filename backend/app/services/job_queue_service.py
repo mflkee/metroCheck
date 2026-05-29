@@ -76,6 +76,11 @@ class JobQueueService:
                 await self._process_next_job()
             except Exception as e:
                 print(f"[JobQueue] Worker error: {e}")
+                # Rollback on error to avoid "transaction aborted"
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
             await asyncio.sleep(5)
 
     def stop_worker(self) -> None:
@@ -117,9 +122,22 @@ class JobQueueService:
             job.status = "failed"
             job.error_message = str(e)
             job.progress = f"Failed: {e}"
+            # Rollback on error
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
         finally:
             job.completed_at = datetime.utcnow()
-            await self.db.commit()
+            try:
+                await self.db.commit()
+            except Exception:
+                # If commit fails, try rollback + commit
+                try:
+                    await self.db.rollback()
+                    await self.db.commit()
+                except Exception:
+                    pass
 
     async def _execute_job(self, job: Job) -> dict[str, Any]:
         """Execute a single check job with per-device tracking."""
