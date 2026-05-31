@@ -49,6 +49,7 @@ services:
       FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
       APP_ENV: ${APP_ENV:-development}
       TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
+      METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -59,7 +60,9 @@ services:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
-      - /home/mflkee/SynologyDrive/Метрологическая лаборатория/2_Документы внутреннего происхождения/2_19 Протоколы/tokens:/shared/tokens:ro
+      - /tmp/tokens:/shared/tokens:ro
+      - ${PROTOCOLS_HOST_PATH:-./protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
+      - /home/mflkee/reports:/reports
     networks:
       - backend_network
     depends_on:

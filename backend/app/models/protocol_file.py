@@ -23,4 +23,5 @@ class ProtocolFile(Base):
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer)
     sha256_hash: Mapped[Optional[str]] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending / scanned / error
+    raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

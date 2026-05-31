@@ -1,5 +1,6 @@
 """ProtocolScanner — сканирование PDF/JPG/PNG протоколов с OCR."""
 
+import asyncio
 import hashlib
 import os
 from datetime import datetime
@@ -112,26 +113,18 @@ class ProtocolScanner:
             "path": target_folder,
         }
 
-    async def extract_text(self, protocol_file_id: int) -> dict[str, Any]:
-        """Extract text from protocol file.
-
-        PDF → pdfplumber (text extraction)
-        JPG/PNG → Tesseract OCR
-        """
-        protocol = await self.repo.get_by_id(protocol_file_id)
-        if not protocol:
-            return {"error": "Protocol not found"}
-
-        ext = os.path.splitext(protocol.file_path)[1].lower()
+    def extract_text_sync(self, file_path: str) -> dict[str, Any]:
+        """Pure synchronous text extraction from file (no DB, no async)."""
+        ext = os.path.splitext(file_path)[1].lower()
 
         try:
             if ext in IMAGE_EXTENSIONS:
-                with Image.open(protocol.file_path) as img:
+                with Image.open(file_path) as img:
                     full_text = pytesseract.image_to_string(img, lang="rus+eng")
                 pages = 1
             else:
                 text_parts = []
-                with pdfplumber.open(protocol.file_path) as pdf:
+                with pdfplumber.open(file_path) as pdf:
                     for page in pdf.pages:
                         page_text = page.extract_text()
                         if page_text:
@@ -139,16 +132,35 @@ class ProtocolScanner:
                 full_text = "\n".join(text_parts)
                 pages = len(text_parts)
 
-            protocol.status = "scanned"
-            await self.db.commit()
-
             return {
-                "protocol_id": protocol_file_id,
                 "text": full_text,
                 "pages": pages,
+                "error": None,
             }
 
         except Exception as e:
+            return {"error": str(e), "text": "", "pages": 0}
+
+    async def extract_text(self, protocol_file_id: int) -> dict[str, Any]:
+        """Extract text from protocol file (runs in thread to avoid blocking)."""
+        protocol = await self.repo.get_by_id(protocol_file_id)
+        if not protocol:
+            return {"error": "Protocol not found"}
+
+        # Run blocking I/O in a thread
+        result = await asyncio.to_thread(self.extract_text_sync, protocol.file_path)
+        
+        if result.get("error"):
             protocol.status = "error"
-            await self.db.commit()
-            return {"error": str(e), "protocol_id": protocol_file_id}
+        else:
+            protocol.status = "scanned"
+            protocol.raw_text = result["text"][:10000]  # Store first 10k chars
+        
+        await self.db.commit()
+        
+        return {
+            "protocol_id": protocol_file_id,
+            "text": result.get("text", ""),
+            "pages": result.get("pages", 0),
+            **({"error": result["error"]} if result.get("error") else {}),
+        }

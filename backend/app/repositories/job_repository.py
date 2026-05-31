@@ -68,6 +68,8 @@ class JobRepository:
         total_devices: Optional[int] = None,
         processed_devices: Optional[int] = None,
         current_device: Optional[str] = None,
+        phase_stats: Optional[str] = None,
+        current_phase: Optional[str] = None,
     ) -> None:
         job = await self.get_by_id(job_id)
         if job:
@@ -86,6 +88,10 @@ class JobRepository:
                 job.processed_devices = processed_devices
             if current_device:
                 job.current_device = current_device
+            if phase_stats is not None:
+                job.phase_stats = phase_stats
+            if current_phase is not None:
+                job.current_phase = current_phase
             await self.db.commit()
 
     async def list_all(self, limit: int = 50) -> list[Job]:

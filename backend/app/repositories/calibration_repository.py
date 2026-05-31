@@ -38,14 +38,22 @@ class CalibrationRepository:
                 except ValueError:
                     return None
 
+        def bool_or_none(val):
+            if val is None:
+                return None
+            return bool(val)
+
         if existing:
             existing.mi_number = (data.get("mi_number") or "").strip()
             existing.mit_number = data.get("mit_number")
             existing.mit_title = data.get("mit_title")
+            existing.mit_notation = data.get("mit_notation")
+            existing.mi_modification = data.get("mi_modification")
             existing.verification_date = parse_date(data.get("verification_date"))
             existing.valid_date = parse_date(data.get("valid_date"))
             existing.result_docnum = data.get("result_docnum")
             existing.result = data.get("result")
+            existing.applicability = bool_or_none(data.get("applicability"))
             existing.org_title = data.get("org_title", 'ООО "МКАИР"')
             existing.year = year
             existing.month = month
@@ -56,10 +64,13 @@ class CalibrationRepository:
                 mi_number=(data.get("mi_number") or "").strip(),
                 mit_number=data.get("mit_number"),
                 mit_title=data.get("mit_title"),
+                mit_notation=data.get("mit_notation"),
+                mi_modification=data.get("mi_modification"),
                 verification_date=parse_date(data.get("verification_date")),
                 valid_date=parse_date(data.get("valid_date")),
                 result_docnum=data.get("result_docnum"),
                 result=data.get("result"),
+                applicability=bool_or_none(data.get("applicability")),
                 org_title=data.get("org_title", 'ООО "МКАИР"'),
                 year=year,
                 month=month,
@@ -99,11 +110,20 @@ class CalibrationRepository:
         )
         return list(result.scalars().all())
 
-    async def get_by_serial(self, serial_number: str) -> Calibration | None:
-        """Get calibration by serial number."""
-        result = await self.db.execute(
-            select(Calibration).where(Calibration.mi_number == serial_number)
-        )
+    async def get_by_serial(self, serial_number: str, year: int | None = None, month: int | None = None) -> Calibration | None:
+        """Get calibration by serial number.
+        
+        Args:
+            serial_number: Serial number to search
+            year: Optional year filter
+            month: Optional month filter
+        """
+        query = select(Calibration).where(Calibration.mi_number == serial_number)
+        if year is not None:
+            query = query.where(Calibration.year == year)
+        if month is not None:
+            query = query.where(Calibration.month == month)
+        result = await self.db.execute(query.limit(1))
         return result.scalar_one_or_none()
 
     async def update_lk_details(self, cal_id: int, detail: dict[str, Any]) -> None:

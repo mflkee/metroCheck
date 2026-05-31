@@ -7,6 +7,7 @@ from app.models.check_result import CheckResult
 from app.models.check_run import CheckRun
 from app.models.ai_request import AIRequest
 from app.models.job import Job
+from app.models.calibration_cache import CalibrationCache
 
 __all__ = [
     "Base",
@@ -18,4 +19,5 @@ __all__ = [
     "CheckRun",
     "AIRequest",
     "Job",
+    "CalibrationCache",
 ]
