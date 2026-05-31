@@ -25,6 +25,16 @@ class ReportService:
         self.run_repo = CheckRunRepository(db)
         self.proto_repo = ProtocolDataRepository(db)
 
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Normalize text for comparison: lowercase, remove extra spaces."""
+        if not text:
+            return ""
+        text = text.lower().strip()
+        # Remove trailing punctuation
+        text = text.rstrip(".,;:")
+        return text
+
     async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports") -> dict[str, Any]:
         """Generate interim Excel report with full comparison layout.
 
@@ -183,7 +193,7 @@ class ReportService:
         """Fill Protocols sheet."""
         headers = [
             "№", "№ протокола", "Наименование", "Тип", "Серийный номер",
-            "MIT номер", "Год выпуска", "Владелец", "Дата поверки",
+            "MIT номер", "Методика", "Год выпуска", "Владелец", "Дата поверки",
             "Поверитель", "Температура, °C", "Влажность, %", "Давление, кПа", "Результат"
         ]
         self._write_headers(ws, headers, "ED7D31")
@@ -200,7 +210,8 @@ class ReportService:
             row = [
                 idx, proto.protocol_number or "", proto.device_name or "",
                 proto.device_type or "", proto.serial_number or "",
-                proto.mit_number or "", proto.manufacture_year or "",
+                proto.mit_number or "", proto.verification_method or "",
+                proto.manufacture_year or "",
                 proto.owner or "",
                 proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
                 proto.verifier or "", fmt_num(proto.temperature),
@@ -209,7 +220,7 @@ class ReportService:
             ]
             self._write_data_row(ws, row, idx, "FCE4D6")
 
-        self._set_column_widths(ws, [5, 20, 20, 15, 15, 12, 12, 20, 12, 20, 10, 10, 10, 12])
+        self._set_column_widths(ws, [5, 20, 20, 15, 15, 12, 25, 12, 20, 12, 20, 10, 10, 10, 12])
 
     def _fill_interim_comparison_sheet(self, ws, calibrations, protocols) -> None:
         """Fill interim comparison sheet (Public API vs Protocols only, no LK data)."""
@@ -313,7 +324,7 @@ class ReportService:
         # Section 3: Protocol
         proto_headers = [
             "№ протокола", "Наименование", "Тип", "Серийный номер",
-            "MIT номер", "Год выпуска", "Владелец", "Дата поверки",
+            "MIT номер", "Методика", "Год выпуска", "Владелец", "Дата поверки",
             "Поверитель", "Температура, °C", "Влажность, %", "Давление, кПа", "Результат"
         ]
 
@@ -431,6 +442,7 @@ class ReportService:
                 proto.device_type if proto else "",
                 proto.serial_number if proto else "",
                 proto.mit_number if proto else "",
+                proto.verification_method if proto else "",
                 proto.manufacture_year if proto else "",
                 proto.owner if proto else "",
                 proto.verification_date.strftime("%d.%m.%Y") if proto and proto.verification_date else "",
@@ -451,6 +463,18 @@ class ReportService:
                 if proto_date != cal_date:
                     mismatches.append(f"Дата: {cal_date} vs {proto_date}")
 
+            # Compare device names (with normalization)
+            if proto and proto.device_name and cal.mit_title:
+                norm_proto = self._normalize_text(proto.device_name)
+                norm_cal = self._normalize_text(cal.mit_title)
+                # Simple check: if one contains the other or they share significant words
+                if norm_proto not in norm_cal and norm_cal not in norm_proto:
+                    # Check for at least 3 matching words
+                    proto_words = set(norm_proto.split())
+                    cal_words = set(norm_cal.split())
+                    if len(proto_words & cal_words) < 2:
+                        mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
+
             # Compare verifiers (LK vs Protocol)
             if proto and proto.verifier and cal.verifier:
                 if proto.verifier != cal.verifier:
@@ -465,6 +489,14 @@ class ReportService:
             if proto and proto.serial_number and serial:
                 if proto.serial_number.strip() != serial:
                     mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
+
+            # Compare verification methods
+            if proto and proto.verification_method and cal.mit_number:
+                # Extract MP number from protocol method
+                proto_mp = proto.verification_method.strip()
+                # Check if mit_number is contained in verification_method or vice versa
+                if proto_mp not in cal.mit_number and cal.mit_number not in proto_mp:
+                    mismatches.append(f"Методика: {cal.mit_number} vs {proto_mp}")
 
             # Check if protocol missing
             if not proto:
@@ -504,7 +536,7 @@ class ReportService:
         widths = [
             5, 15, 12, 30, 20, 18, 15, 14, 14, 25, 12,
             20, 16, 14, 14,
-            20, 25, 18, 15, 12, 12, 25, 14, 20, 16, 14, 14, 12,
+            20, 25, 18, 15, 12, 25, 12, 25, 14, 20, 16, 14, 14, 12,
             18, 40
         ]
         self._set_column_widths(ws, widths)

@@ -258,6 +258,7 @@ class JobQueueService:
                     data = ProtocolData(
                         protocol_file_id=proto.id,
                         protocol_number=extracted_data.get('protocol_number'),
+                        device_name=extracted_data.get('device_name'),
                         device_type=extracted_data.get('device_type'),
                         serial_number=extracted_data.get('serial_number'),
                         mit_number=extracted_data.get('mit_number'),
@@ -269,6 +270,7 @@ class JobQueueService:
                         humidity=extracted_data.get('humidity'),
                         pressure=extracted_data.get('pressure'),
                         result=extracted_data.get('result'),
+                        verification_method=extracted_data.get('verification_method'),
                         raw_text=text[:10000],
                         status="manual_review",
                         model_used="regex",
@@ -430,6 +432,16 @@ class JobQueueService:
         device_name_match = re.search(r'наименование\s+средства\s+измерений[:\s]+([^\n]+)', text, re.IGNORECASE)
         if device_name_match:
             result['device_name'] = device_name_match.group(1).strip()
+        
+        # 3.5 Verification method (методика поверки)
+        method_match = re.search(r'Методика\s+поверки\s+([МП]\s+[\d-]+)', text, re.IGNORECASE)
+        if method_match:
+            result['verification_method'] = method_match.group(1).strip()
+        else:
+            # Fallback: try to find any MP pattern
+            mp_match = re.search(r'(?:^|\s)(МП\s+[\d-]+)', text, re.IGNORECASE)
+            if mp_match:
+                result['verification_method'] = mp_match.group(1).strip()
         
         # 4. Device type/modification
         type_match = re.search(r'тип[,:]?\s+модификация.*?[:\n]([^\n]+)', text, re.IGNORECASE)
