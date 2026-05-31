@@ -1,6 +1,7 @@
 """ARSHIN (ФГИС Росаккредитации) API client."""
 
 import asyncio
+import base64
 import json
 import os
 import time
@@ -21,6 +22,28 @@ class ArshinClient:
         self.lk_base_url = "https://fgis.gost.ru/fundmetrology/cm/lk/api"
         self._token = settings.ARSHIN_BEARER_TOKEN
         self._token_expires: float = 0.0
+
+    @staticmethod
+    def _jwt_expires_in(token: str, default: int = 3600) -> int:
+        """Decode JWT payload to get real expiration time."""
+        try:
+            parts = token.split(".")
+            if len(parts) < 2:
+                return default
+            payload = parts[1]
+            # base64url → base64
+            payload = payload.replace("-", "+").replace("_", "/")
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += "=" * padding
+            decoded = json.loads(base64.b64decode(payload))
+            exp = decoded.get("exp")
+            if exp is None:
+                return default
+            remaining = int(exp - time.time())
+            return max(remaining, 0)
+        except Exception:
+            return default
 
     @property
     def bearer_token(self) -> str | None:
@@ -53,13 +76,14 @@ class ArshinClient:
                     token = data.get("token")
                     updated_at = data.get("updated_at", 0)
 
+                    expires_in = self._jwt_expires_in(token)
+
                     # Check if token is fresh (not expired)
                     age = time.time() - updated_at
-                    expires_in = data.get("expires_in", 3600)
 
-                    if age < expires_in and token:
+                    if token and (age < expires_in or expires_in > 0):
                         self._token = token
-                        self._token_expires = time.time() + (expires_in - age)
+                        self._token_expires = time.time() + expires_in
 
                         # Archive file to avoid reusing
                         archive_path = token_file + ".used"
@@ -67,7 +91,7 @@ class ArshinClient:
 
                         logger.info(
                             "Token read from file, expires_in=%ds",
-                            int(expires_in - age),
+                            expires_in,
                         )
                         return self._token
                     else:
@@ -88,16 +112,15 @@ class ArshinClient:
     async def search_calibrations(
         self,
         org_title: str,
-        verification_date_start: date,
-        verification_date_end: date,
+        *,
+        year: int,
         start: int = 0,
         rows: int = 100,
     ) -> dict[str, Any]:
-        """Search calibrations by organization and date range."""
-        params = {
+        """Search calibrations by organization and year."""
+        params: dict[str, Any] = {
             "org_title": org_title,
-            "verification_date_start": verification_date_start.strftime("%Y-%m-%d"),
-            "verification_date_end": verification_date_end.strftime("%Y-%m-%d"),
+            "year": year,
             "rows": rows,
         }
         if start > 0:
@@ -107,18 +130,17 @@ class ArshinClient:
             response.raise_for_status()
             return response.json()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(1), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_calibration_count(
         self,
         org_title: str,
-        verification_date_start: date,
-        verification_date_end: date,
+        *,
+        year: int,
     ) -> int:
         """Get total count of calibrations for pagination."""
         params = {
             "org_title": org_title,
-            "verification_date_start": verification_date_start.strftime("%Y-%m-%d"),
-            "verification_date_end": verification_date_end.strftime("%Y-%m-%d"),
+            "year": year,
             "rows": 1,
         }
         async with httpx.AsyncClient(timeout=30.0) as client:

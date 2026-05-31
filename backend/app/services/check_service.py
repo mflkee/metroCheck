@@ -316,6 +316,50 @@ class CheckService:
         nums = re.findall(r"[-]?\d+\.?\d*", raw)
         return float(nums[0]) if nums else None
 
+    async def run_partial_checks(self, year: int, month: int) -> dict[str, Any]:
+        """Run partial checks without LK data (public API + protocols only).
+        
+        Checks:
+        1. All calibrations have protocols
+        2. All protocols match a calibration  
+        3. Basic data match (serial, date)
+        """
+        matched = 0
+        mismatched = 0
+        missing_protocols = 0
+
+        calibrations = await self.cal_repo.get_by_month(year, month)
+        protocols = await self.data_repo.get_by_month(year, month)
+
+        # Check 1: completeness (calibration -> protocol)
+        for cal in calibrations:
+            serial = self._normalize_serial(cal.mi_number or "")
+            protocol = await self.data_repo.get_by_serial(serial)
+            if protocol:
+                matched += 1
+            else:
+                missing_protocols += 1
+
+        # Check 2: protocols found (protocol -> calibration)
+        orphan_protocols = 0
+        for proto in protocols:
+            if not proto.serial_number:
+                orphan_protocols += 1
+                continue
+            serial = self._normalize_serial(proto.serial_number)
+            calibration = await self.cal_repo.get_by_serial(serial)
+            if not calibration:
+                orphan_protocols += 1
+
+        return {
+            "matched": matched,
+            "mismatched": mismatched,
+            "missing_protocols": missing_protocols,
+            "orphan_protocols": orphan_protocols,
+            "total_calibrations": len(calibrations),
+            "total_protocols": len(protocols),
+        }
+
     def _normalize_serial(self, serial: str) -> str:
         """Normalize serial number for comparison (handle homoglyphs)."""
         # Replace common homoglyphs

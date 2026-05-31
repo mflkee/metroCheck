@@ -1,6 +1,9 @@
 """Health monitor — checks status of all integrations."""
 
 import asyncio
+import base64
+import json
+import logging
 import os
 import time
 from typing import Any
@@ -8,7 +11,8 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
-from app.integrations.arshin_client import ArshinClient
+
+logger = logging.getLogger(__name__)
 
 
 class HealthMonitor:
@@ -32,9 +36,72 @@ class HealthMonitor:
             self._check_n8n(),
             self._check_openrouter(),
             self._check_token_agent(),
+            self._check_current_job(),
         )
         self._last_update = time.time()
         return self._status
+
+    async def _check_current_job(self) -> None:
+        """Check current running job status."""
+        try:
+            from app.core.database import AsyncSessionLocal
+            from app.repositories.job_repository import JobRepository
+            from sqlalchemy import select
+            from app.models.job import Job
+
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(Job).where(Job.status == "running").limit(1)
+                )
+                job = result.scalar_one_or_none()
+
+                if job:
+                    import json
+                    phase_stats = {}
+                    if job.phase_stats:
+                        try:
+                            phase_stats = json.loads(job.phase_stats)
+                        except Exception:
+                            pass
+
+                    self._status["current_job"] = {
+                        "status": "running",
+                        "year": job.year,
+                        "month": job.month,
+                        "phase": job.current_phase or "unknown",
+                        "progress": job.progress,
+                        "progress_percent": job.progress_percent,
+                        "total_devices": job.total_devices,
+                        "processed_devices": job.processed_devices,
+                        "phase_stats": phase_stats,
+                        "waiting_for_token": job.waiting_for_token,
+                    }
+                else:
+                    # Check pending jobs
+                    result = await db.execute(
+                        select(Job).where(Job.status.in_(["pending", "paused"]))
+                        .order_by(Job.priority.desc(), Job.created_at.asc())
+                        .limit(1)
+                    )
+                    pending = result.scalar_one_or_none()
+                    if pending:
+                        self._status["current_job"] = {
+                            "status": "pending",
+                            "year": pending.year,
+                            "month": pending.month,
+                            "priority": pending.priority,
+                            "message": f"Ожидает запуска: {pending.month:02d}.{pending.year}",
+                        }
+                    else:
+                        self._status["current_job"] = {
+                            "status": "idle",
+                            "message": "Нет активных задач",
+                        }
+        except Exception as e:
+            self._status["current_job"] = {
+                "status": "error",
+                "error": str(e)[:100],
+            }
 
     async def _check_arshin_api(self) -> None:
         """Check ARSHIN public API."""
@@ -57,12 +124,49 @@ class HealthMonitor:
             }
 
     async def _check_arshin_token(self) -> None:
-        """Check ARSHIN Bearer token."""
+        """Check ARSHIN Bearer token from file."""
+        token_path = settings.TOKEN_FILE_PATH
         try:
-            client = ArshinClient()
-            token = client.bearer_token
-            if token:
-                expires_in = max(0, int(client._token_expires - time.time()))
+            if not os.path.isfile(token_path):
+                self._status["arshin_token"] = {
+                    "status": "waiting",
+                    "note": "файл не найден",
+                    "expires_in": 0,
+                    "last_check": time.time(),
+                }
+                return
+
+            def _read_token():
+                with open(token_path, "r") as f:
+                    return json.load(f)
+
+            def _jwt_expires_in(raw: str, default: int = 3600) -> int:
+                try:
+                    parts = raw.split(".")
+                    if len(parts) < 2:
+                        return default
+                    payload = parts[1]
+                    # base64url → base64
+                    payload = payload.replace("-", "+").replace("_", "/")
+                    padding = 4 - len(payload) % 4
+                    if padding != 4:
+                        payload += "=" * padding
+                    decoded = json.loads(base64.b64decode(payload))
+                    exp = decoded.get("exp")
+                    if exp is None:
+                        return default
+                    remaining = int(exp - time.time())
+                    return max(remaining, 0)
+                except Exception:
+                    return default
+
+            data = await asyncio.to_thread(_read_token)
+            token = data.get("token")
+            updated_at = data.get("updated_at", 0)
+            expires_in = _jwt_expires_in(token)
+            age = time.time() - updated_at
+
+            if token and expires_in > 0:
                 self._status["arshin_token"] = {
                     "status": "ok",
                     "expires_in": expires_in,
@@ -73,12 +177,13 @@ class HealthMonitor:
                 self._status["arshin_token"] = {
                     "status": "expired",
                     "expires_in": 0,
+                    "note": f"возраст токена {int(age)}с, expires_in {expires_in}с" if token else "токен отсутствует",
                     "last_check": time.time(),
                 }
         except Exception as e:
             self._status["arshin_token"] = {
                 "status": "error",
-                "error": str(e),
+                "error": str(e)[:200],
                 "last_check": time.time(),
             }
 

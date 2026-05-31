@@ -35,12 +35,10 @@ async def arshin_status() -> dict:
         import asyncio
         from datetime import date
         today = date.today()
-        sample_date = date(today.year - 1 if today.month == 1 else today.year, max(1, today.month - 1), 1)
-        last_day = 28 if sample_date.month == 2 else 30
+        sample_year = today.year - 1 if today.month == 1 else today.year
         count = await client.get_calibration_count(
             'ООО "МКАИР"',
-            sample_date,
-            date(sample_date.year, sample_date.month, last_day),
+            year=sample_year,
         )
         return {"status": "ok", "arshin": "available", "sample_count": count}
     except Exception as e:
@@ -472,6 +470,34 @@ async def update_scheduler_settings(
         "updated": updated,
         "current_settings": state,
         "example": f"Next run: day {state.get('auto_day', 1)} at {state.get('auto_time', '09:00')} → will check {target:02d}.{year}",
+    }
+
+
+@router.get("/queue/status")
+async def queue_status(
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get detailed queue status with phase statistics."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    from app.services.job_queue_service import JobQueueService
+    import json
+
+    queue = JobQueueService(db)
+    status = await queue.get_queue_status()
+
+    # Parse phase_stats for running job
+    if status.get("running") and status["running"].get("phase_stats"):
+        try:
+            status["running"]["phase_stats"] = json.loads(status["running"]["phase_stats"])
+        except Exception:
+            pass
+
+    return {
+        "status": "ok",
+        "queue": status,
     }
 
 

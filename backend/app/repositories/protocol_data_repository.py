@@ -15,7 +15,7 @@ class ProtocolDataRepository:
     async def get_by_serial(self, serial_number: str) -> ProtocolData | None:
         """Get protocol data by serial number (exact match)."""
         result = await self.db.execute(
-            select(ProtocolData).where(ProtocolData.serial_number == serial_number)
+            select(ProtocolData).where(ProtocolData.serial_number == serial_number).limit(1)
         )
         return result.scalar_one_or_none()
 
