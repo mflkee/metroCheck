@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -469,11 +470,18 @@ class ReportService:
                 norm_cal = self._normalize_text(cal.mit_title)
                 # Simple check: if one contains the other or they share significant words
                 if norm_proto not in norm_cal and norm_cal not in norm_proto:
-                    # Check for at least 3 matching words
-                    proto_words = set(norm_proto.split())
-                    cal_words = set(norm_cal.split())
-                    if len(proto_words & cal_words) < 2:
+                    # Check for at least 1 matching significant word (3+ chars)
+                    proto_words = {w for w in norm_proto.split() if len(w) >= 3}
+                    cal_words = {w for w in norm_cal.split() if len(w) >= 3}
+                    if len(proto_words & cal_words) < 1:
                         mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
+
+            # Compare verification methods (protocol only, ARSHIN public doesn't have this field)
+            # We only check if protocol has method but it doesn't match expected pattern
+            if proto and proto.verification_method:
+                # Just validate format: should start with MP and contain numbers
+                if not re.match(r'^[ММ][ПП]\s+[\d-]+', proto.verification_method):
+                    mismatches.append(f"Методика некорректна: {proto.verification_method}")
 
             # Compare verifiers (LK vs Protocol)
             if proto and proto.verifier and cal.verifier:
@@ -489,14 +497,6 @@ class ReportService:
             if proto and proto.serial_number and serial:
                 if proto.serial_number.strip() != serial:
                     mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
-
-            # Compare verification methods
-            if proto and proto.verification_method and cal.mit_number:
-                # Extract MP number from protocol method
-                proto_mp = proto.verification_method.strip()
-                # Check if mit_number is contained in verification_method or vice versa
-                if proto_mp not in cal.mit_number and cal.mit_number not in proto_mp:
-                    mismatches.append(f"Методика: {cal.mit_number} vs {proto_mp}")
 
             # Check if protocol missing
             if not proto:
