@@ -46,3 +46,11 @@ Thumbs.db
 # Nested git repos (accidental submodules)
 data/**/.git/
 **/.git/modules/
+
+# Reports and temp files
+*.xlsx
+.~lock.*
+/tmp/
+
+# Local development reports
+reports/*.xlsx
