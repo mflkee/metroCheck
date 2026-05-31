@@ -443,6 +443,21 @@ class JobQueueService:
             if mp_match:
                 result['verification_method'] = mp_match.group(1).strip()
         
+        # 3.6 Measurement range (диапазон измерений)
+        range_patterns = [
+            r'Диапазон\s+измерений[:\s]+([^\n]+)',
+            r'Диапазон[:\s]+([^\n]+)',
+            r'от\s+(\d+[,.]?\d*)\s+до\s+(\d+[,.]?\d*)\s+([^\n]+)',
+        ]
+        for pattern in range_patterns:
+            range_match = re.search(pattern, text, re.IGNORECASE)
+            if range_match:
+                if len(range_match.groups()) == 3:
+                    result['measurement_range'] = f"({range_match.group(1)} - {range_match.group(2)}) {range_match.group(3).strip()}"
+                else:
+                    result['measurement_range'] = range_match.group(1).strip()
+                break
+        
         # 4. Device type/modification
         type_match = re.search(r'тип[,:]?\s+модификация.*?[:\n]([^\n]+)', text, re.IGNORECASE)
         if type_match:
