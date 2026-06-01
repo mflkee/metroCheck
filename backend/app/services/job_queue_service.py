@@ -77,7 +77,13 @@ class JobQueueService:
         self._stop_event.clear()
         while not self._stop_event.is_set():
             try:
-                await self._process_next_job()
+                processed = await self._process_next_job()
+                # Sleep between polls to avoid hammering the database
+                if not processed:
+                    await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                print("[JobQueue] Job cancelled, continuing...")
+                await asyncio.sleep(3)
             except Exception as e:
                 print(f"[JobQueue] Worker error: {e}")
                 # Rollback on error to avoid "transaction aborted"
@@ -85,7 +91,7 @@ class JobQueueService:
                     await self.db.rollback()
                 except Exception:
                     pass
-            await asyncio.sleep(5)
+                await asyncio.sleep(5)
 
     def stop_worker(self) -> None:
         """Signal worker to stop."""
@@ -93,22 +99,29 @@ class JobQueueService:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
-    async def _process_next_job(self) -> None:
-        """Pick and run the next highest priority job."""
+    async def _process_next_job(self) -> bool:
+        """Pick and run the next highest priority job.
+
+        Returns True if a job was processed, False otherwise.
+        """
         running = await self.repo.get_running()
         if running:
-            return
+            return False
 
         job = await self.repo.get_next_pending()
         if not job:
-            return
+            return False
 
         job.status = "running"
         job.started_at = datetime.utcnow()
         await self.db.commit()
 
+        task = asyncio.create_task(self._execute_job(job))
+        self._current_task = task
+
         try:
-            result = await self._execute_job(job)
+            result = await task
+            self._current_task = None
             job.status = "completed"
             job.result_json = json.dumps(result)
             job.progress = "Completed"
@@ -120,15 +133,17 @@ class JobQueueService:
             
             # Send email report
             await self._send_report(job, result)
-            return
+            return True
             
         except asyncio.CancelledError:
+            self._current_task = None
             job.status = "cancelled"
             job.progress = "Cancelled"
             job.completed_at = datetime.utcnow()
             await self.db.commit()
             raise
         except Exception as e:
+            self._current_task = None
             job.status = "failed"
             job.error_message = str(e)
             job.progress = f"Failed: {e}"
@@ -141,6 +156,13 @@ class JobQueueService:
                     await self.db.commit()
                 except Exception:
                     pass
+            return True
+
+    async def _check_cancelled(self, job_id: int) -> None:
+        """Check if job was cancelled externally and raise CancelledError."""
+        job = await self.repo.get_by_id(job_id)
+        if job and job.status == "cancelled":
+            raise asyncio.CancelledError()
 
     async def _execute_job(self, job: Job) -> dict[str, Any]:
         """Execute a single check job with token-independent phases first.
@@ -157,6 +179,8 @@ class JobQueueService:
         """
         tm = get_task_manager()
         task_id = await tm.create(f"job_{job.id}_{job.year}_{job.month}")
+        
+        await self._check_cancelled(job.id)
         
         from app.services.arshin_service import ArshinService
         from app.services.protocol_scanner import ProtocolScanner
@@ -184,9 +208,15 @@ class JobQueueService:
         await self._set_phase(job, "public_api", f"Загружено {cal_result['saved']} поверок", 20, stats, total_devices=total_devices)
 
         # ── Phase 2: Protocol Scan ────────────────────────────────────────
-        await self._set_phase(job, "protocol_scan", "Сканирование папки протоколов...", 25, stats)
+        await self._set_phase(job, "protocol_scan", "Подсчёт файлов...", 24, stats)
+        await self._check_cancelled(job.id)
         
-        scan_result = await scanner.scan(job.year, job.month)
+        async def _on_scan_progress(done: int, total: int) -> None:
+            pct = min(25 + int(done / max(total, 1) * 5), 29)
+            msg = f"Сканирование: {done}/{total} файлов..."
+            await self._set_phase(job, "protocol_scan", msg, pct, stats)
+        
+        scan_result = await scanner.scan(job.year, job.month, progress_callback=_on_scan_progress)
         stats["protocol_scan"] = {
             "found": scan_result.get('found', 0),
             "saved": scan_result.get('saved', 0),
@@ -197,108 +227,153 @@ class JobQueueService:
 
         # ── Phase 3: Protocol OCR ─────────────────────────────────────────
         await self._set_phase(job, "protocol_ocr", "Извлечение текста из протоколов...", 35, stats)
+        await self._check_cancelled(job.id)
         
         protocols = await proto_repo.get_by_month(job.year, job.month)
         extracted_count = 0
         ocr_errors = 0
-        total = len(protocols)
+        # Only process files that haven't been scanned yet
+        needs_ocr = [p for p in protocols if p.status != "scanned"]
+        total = len(needs_ocr)
+        skipped = len(protocols) - total
         
-        # Process protocols sequentially (avoid DB connection conflicts)
-        for idx, proto in enumerate(protocols):
+        for idx, proto in enumerate(needs_ocr):
             try:
-                await scanner.extract_text(proto.id)
+                await asyncio.wait_for(scanner.extract_text(proto.id), timeout=120.0)
                 extracted_count += 1
+            except asyncio.TimeoutError:
+                ocr_errors += 1
+                logger.warning("OCR timeout for protocol %s", proto.id)
             except Exception as e:
                 ocr_errors += 1
                 logger.warning("OCR failed for protocol %s: %s", proto.id, e)
             
             # Update progress every 5 files
             if idx % 5 == 0 or idx == total - 1:
-                pct = 35 + int((idx + 1) / total * 15)
+                pct = 35 + int((idx + 1) / max(total, 1) * 15)
                 await self._set_phase(job, "protocol_ocr", f"OCR: {idx + 1}/{total}...", min(pct, 50), stats)
         
         stats["protocol_ocr"] = {
             "total": total,
             "extracted": extracted_count,
             "errors": ocr_errors,
+            "skipped": skipped,
             "status": "completed",
         }
-        await self._set_phase(job, "protocol_ocr", f"OCR завершено: {extracted_count}/{total}", 50, stats)
+        await self._set_phase(job, "protocol_ocr", f"OCR: {extracted_count}/{total} обработано", 50, stats)
 
-        # ── Phase 4: Extract basic data (fast regex) ───────────────────────
-        await self._set_phase(job, "data_extract", "Извлечение данных из протоколов...", 50, stats)
-        
+        # ── Phase 4: Extract data via AI ────────────────────────────────
+        await self._set_phase(job, "data_extract", "Извлечение данных из протоколов через AI...", 50, stats)
+        await self._check_cancelled(job.id)
+
         from app.repositories.protocol_data_repository import ProtocolDataRepository
-        import re
-        
+        from app.services.smart_extractor import get_smart_extractor
+
         from app.models.protocol_data import ProtocolData
-        
+
+        proto_data_repo = ProtocolDataRepository(self.db)
+        extraction_service = get_smart_extractor()
         extracted = 0
         extract_errors = 0
-        
+
         # Re-fetch protocols to get updated status after OCR
         protocols = await proto_repo.get_by_month(job.year, job.month)
-        
+
         # Get protocols that have been scanned but not yet have data
         scanned_protocols = [p for p in protocols if p.status == "scanned"]
-        
+
         for idx, proto in enumerate(scanned_protocols):
             try:
-                # Use raw_text from protocol_file (already extracted during OCR)
                 text = proto.raw_text or ""
                 if not text or len(text) < 50:
                     extract_errors += 1
                     continue
-                
-                # Extract all protocol data with regex (fast, no AI needed)
-                extracted_data = self._extract_protocol_data(text)
-                
+
+                # Use multi-pass extraction with validation
+                ai_result = await extraction_service.extract(text)
+                extracted_data = ai_result.get("content") or {}
+
                 if extracted_data.get('serial_number'):
-                    # Create protocol_data object with all extracted fields
-                    data = ProtocolData(
-                        protocol_file_id=proto.id,
+                    verification_date = None
+                    vd = extracted_data.get('verification_date')
+                    if vd:
+                        try:
+                            from datetime import datetime
+                            verification_date = datetime.strptime(vd, '%Y-%m-%d').date()
+                        except (ValueError, TypeError):
+                            pass
+
+                    temperature = extracted_data.get('temperature')
+                    if temperature is not None:
+                        temperature = float(str(temperature).replace(',', '.').split()[0].replace('°C', '').replace('C', ''))
+
+                    humidity = extracted_data.get('humidity')
+                    if humidity is not None:
+                        humidity = float(str(humidity).replace('%', '').replace(',', '.').split()[0])
+
+                    pressure = extracted_data.get('pressure')
+                    if pressure is not None:
+                        pressure = float(str(pressure).replace(',', '.').split()[0])
+
+                    manufacture_year = extracted_data.get('manufacture_year')
+                    if manufacture_year is not None:
+                        try:
+                            manufacture_year = int(manufacture_year)
+                        except (ValueError, TypeError):
+                            manufacture_year = None
+
+                    fields = dict(
                         protocol_number=extracted_data.get('protocol_number'),
                         device_name=extracted_data.get('device_name'),
                         device_type=extracted_data.get('device_type'),
                         serial_number=extracted_data.get('serial_number'),
                         mit_number=extracted_data.get('mit_number'),
-                        manufacture_year=extracted_data.get('manufacture_year'),
+                        manufacture_year=manufacture_year,
                         owner=extracted_data.get('owner'),
-                        verification_date=extracted_data.get('verification_date'),
+                        verification_date=verification_date,
                         verifier=extracted_data.get('verifier'),
-                        temperature=extracted_data.get('temperature'),
-                        humidity=extracted_data.get('humidity'),
-                        pressure=extracted_data.get('pressure'),
+                        temperature=temperature,
+                        humidity=humidity,
+                        pressure=pressure,
                         result=extracted_data.get('result'),
                         verification_method=extracted_data.get('verification_method'),
+                        measurement_range=extracted_data.get('measurement_range'),
                         raw_text=text[:10000],
-                        status="manual_review",
-                        model_used="regex",
+                        status=ai_result.get("status", "manual_review"),
+                        model_used=ai_result.get("model", "unknown"),
+                        confidence=ai_result.get("confidence", 0.0),
                     )
-                    self.db.add(data)
-                    extracted += 1
+                    existing = await proto_data_repo.get_by_protocol_file_id(proto.id)
+                    if existing:
+                        for key, value in fields.items():
+                            setattr(existing, key, value)
+                        extracted += 1
+                    else:
+                        data = ProtocolData(protocol_file_id=proto.id, **fields)
+                        self.db.add(data)
+                        extracted += 1
                 else:
                     extract_errors += 1
-                    
+
             except Exception as e:
                 extract_errors += 1
-                logger.warning("Data extraction failed for protocol %s: %s", proto.id, e)
-            
-            # Update progress
+                logger.warning("AI extraction failed for protocol %s: %s", proto.id, e)
+
             if idx % 2 == 0 or idx == len(scanned_protocols) - 1:
                 pct = 50 + int((idx + 1) / max(len(scanned_protocols), 1) * 5)
-                await self._set_phase(job, "data_extract", f"Обработано: {idx + 1}/{len(scanned_protocols)} протоколов...", min(pct, 55), stats)
-        
+                await self._set_phase(job, "data_extract", f"AI: {idx + 1}/{len(scanned_protocols)} протоколов...", min(pct, 55), stats)
+
         stats["data_extract"] = {
             "total": len(scanned_protocols),
             "extracted": extracted,
             "errors": extract_errors,
             "status": "completed",
         }
-        await self._set_phase(job, "data_extract", f"Извлечено: {extracted}/{len(scanned_protocols)}", 55, stats)
+        await self._set_phase(job, "data_extract", f"AI извлeчeно: {extracted}/{len(scanned_protocols)}", 55, stats)
 
         # ── Phase 5: Partial Checks (no token) ────────────────────────────
         await self._set_phase(job, "partial_check", "Частичная проверка (public API + протоколы)...", 55, stats)
+        await self._check_cancelled(job.id)
         
         partial_result = await check_service.run_partial_checks(job.year, job.month)
         stats["partial_check"] = {
@@ -310,6 +385,7 @@ class JobQueueService:
         await self._set_phase(job, "partial_check", f"Частичная проверка: {partial_result.get('matched', 0)} совпадений", 57, stats)
 
         # ── Phase 5: Wait for token ───────────────────────────────────────
+        await self._check_cancelled(job.id)
         client = ArshinClient()
         if not client.bearer_token:
             await self._set_phase(job, "wait_token", "Ожидание токена ЛК АРШИН...", 55, stats)
@@ -320,6 +396,7 @@ class JobQueueService:
 
         # ── Phase 6: LK API ───────────────────────────────────────────────
         await self._set_phase(job, "lk_api", "Загрузка данных из ЛК АРШИН...", 60, stats)
+        await self._check_cancelled(job.id)
         
         lk_result = await arshin_service.fetch_lk_details(job.year, job.month)
         stats["lk_details"] = {
@@ -343,6 +420,7 @@ class JobQueueService:
 
         # ── Phase 7: Full Checks ──────────────────────────────────────────
         await self._set_phase(job, "full_check", "Полная проверка с данными ЛК...", 85, stats)
+        await self._check_cancelled(job.id)
         
         check_result = await check_service.run_checks(job.year, job.month)
         if check_result.get("run_id"):
@@ -358,6 +436,7 @@ class JobQueueService:
 
         # ── Phase 8: Report ───────────────────────────────────────────────
         await self._set_phase(job, "report", "Формирование отчета...", 98, stats)
+        await self._check_cancelled(job.id)
         
         final_result = {
             "public_api": cal_result,
@@ -397,155 +476,12 @@ class JobQueueService:
             processed_devices=processed_devices if processed_devices is not None else job.processed_devices,
         )
 
-    @staticmethod
-    def _extract_protocol_data(text: str) -> dict:
-        """Extract all relevant data from protocol text using regex."""
-        import re
-        
-        result = {}
-        
-        # 1. Serial number - specific patterns first
-        serial_patterns = [
-            r'заводской\s+номер[:\s]+(\S+)',  # "Заводской номер: 21148561"
-            r'серийный\s+номер[:\s]+(\S+)',  # "Серийный номер: 21148561"
-            r'зав\.\s*№\s*(\S+)',  # "зав. № 21148561"
-            r'№\s*(\d{3,})',  # "№ 21148561" (at least 3 digits)
-        ]
-        
-        for pattern in serial_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                serial = match.group(1).strip()
-                serial = re.sub(r'[.,;]$', '', serial)
-                # Exclude common false positives
-                false_positives = {'записи', 'аккредитации', 'аттестации', 'реестре', 'действительно'}
-                if len(serial) >= 3 and serial.lower() not in false_positives:
-                    result['serial_number'] = serial
-                    break
-        
-        # 2. Protocol number
-        proto_match = re.search(r'протокол\s+поверки\s+№\s*([\d/]+)', text, re.IGNORECASE)
-        if proto_match:
-            result['protocol_number'] = proto_match.group(1).strip()
-        
-        # 3. Device name
-        device_name_match = re.search(r'наименование\s+средства\s+измерений[:\s]+([^\n]+)', text, re.IGNORECASE)
-        if device_name_match:
-            result['device_name'] = device_name_match.group(1).strip()
-        
-        # 3.5 Verification method (методика поверки)
-        method_match = re.search(r'Методика\s+поверки\s+([МП]\s+[\d-]+)', text, re.IGNORECASE)
-        if method_match:
-            result['verification_method'] = method_match.group(1).strip()
-        else:
-            # Fallback: try to find any MP pattern
-            mp_match = re.search(r'(?:^|\s)(МП\s+[\d-]+)', text, re.IGNORECASE)
-            if mp_match:
-                result['verification_method'] = mp_match.group(1).strip()
-        
-        # 3.6 Measurement range (диапазон измерений)
-        range_patterns = [
-            r'Диапазон\s+измерений[:\s]+([^\n]+)',
-            r'Диапазон[:\s]+([^\n]+)',
-            r'от\s+(\d+[,.]?\d*)\s+до\s+(\d+[,.]?\d*)\s+([^\n]+)',
-        ]
-        for pattern in range_patterns:
-            range_match = re.search(pattern, text, re.IGNORECASE)
-            if range_match:
-                if len(range_match.groups()) == 3:
-                    result['measurement_range'] = f"({range_match.group(1)} - {range_match.group(2)}) {range_match.group(3).strip()}"
-                else:
-                    result['measurement_range'] = range_match.group(1).strip()
-                break
-        
-        # 4. Device type/modification
-        type_match = re.search(r'тип[,:]?\s+модификация.*?[:\n]([^\n]+)', text, re.IGNORECASE)
-        if type_match:
-            result['device_type'] = type_match.group(1).strip()
-        
-        # 4. MIT number
-        mit_match = re.search(r'номер\s+в\s+государственном\s+реестре\s+си[:\s]+(\S+)', text, re.IGNORECASE)
-        if mit_match:
-            result['mit_number'] = mit_match.group(1).strip()
-        
-        # 5. Verification date
-        date_patterns = [
-            r'протокол\s+поверки\s+№\s+\S+\s+от\s+(\d{2}\.\d{2}\.\d{4})',
-            r'дата\s+поверки[:\s]+(\d{2}\.\d{2}\.\d{4})',
-        ]
-        for pattern in date_patterns:
-            date_match = re.search(pattern, text, re.IGNORECASE)
-            if date_match:
-                try:
-                    from datetime import datetime
-                    result['verification_date'] = datetime.strptime(date_match.group(1), '%d.%m.%Y').date()
-                    break
-                except ValueError:
-                    pass
-        
-        # 6. Manufacture year
-        year_match = re.search(r'год\s+выпуска[:\s]+(\d{4})', text, re.IGNORECASE)
-        if year_match:
-            result['manufacture_year'] = int(year_match.group(1))
-        
-        # 7. Owner
-        owner_match = re.search(r'владелец\s+средства\s+измерений[:\n]([^\n]+)', text, re.IGNORECASE)
-        if owner_match:
-            result['owner'] = owner_match.group(1).strip()
-        
-        # 8. Verifier (поверитель)
-        # Handle cases with signature lines between label and name
-        verifier_patterns = [
-            # Pattern 1: Поверитель: Name (on same or next line)
-            r'поверитель[:_\s]*\n?[_\s]*([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.?)',
-            # Pattern 2: Look for Ф.И.О label after Поверитель
-            r'поверитель.*?Ф\.И\.О\s*\n?[_\s]*([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.?)',
-            # Pattern 3: Direct line after Поверитель (with underscores/signatures)
-            r'поверитель[:\s]*\n[_\s]+\n?([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.?)',
-            # Pattern 4: Simple pattern
-            r'поверитель[:\s]+([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.?)',
-            # Pattern 5: Name with signature placeholder
-            r'поверитель[:_\s]+([А-ЯЁ][а-яё]+)',
-        ]
-        for pattern in verifier_patterns:
-            verifier_match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-            if verifier_match:
-                verifier = verifier_match.group(1).strip()
-                # Clean up underscores and whitespace
-                verifier = re.sub(r'[_\s]+$', '', verifier)
-                if len(verifier) >= 3:
-                    result['verifier'] = verifier
-                    break
-        
-        # 9. Temperature
-        temp_match = re.search(r'температура\s+окружающего\s+воздуха[^\d]*(\d+[.,]?\d*)', text, re.IGNORECASE)
-        if temp_match:
-            result['temperature'] = float(temp_match.group(1).replace(',', '.'))
-        
-        # 9. Humidity
-        hum_match = re.search(r'относительная\s+влажность[^\d]*(\d+[.,]?\d*)', text, re.IGNORECASE)
-        if hum_match:
-            result['humidity'] = float(hum_match.group(1).replace(',', '.'))
-        
-        # 10. Pressure
-        press_match = re.search(r'атмосферное\s+давление[^\d]*(\d+[.,]?\d*)', text, re.IGNORECASE)
-        if press_match:
-            result['pressure'] = float(press_match.group(1).replace(',', '.'))
-        
-        # 11. Result
-        if 'пригоден' in text.lower() or 'соответствует' in text.lower():
-            result['result'] = 'пригоден'
-        elif 'непригоден' in text.lower():
-            result['result'] = 'непригоден'
-        
-        return result
-
     async def _wait_for_token(self, job: Job, client: ArshinClient) -> None:
         """Wait for token and update job status."""
         await self.repo.update_status(
             job.id,
             status="running",
-            progress="Токен истёк! Ожидание нового токена от Зонова...",
+            progress="Токен ЛК Аршин истек",
             progress_percent=job.progress_percent,
         )
         job.waiting_for_token = True
@@ -570,12 +506,11 @@ class JobQueueService:
         # Read report_email from scheduler state
         report_email = None
         try:
-            import json
-            state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
-            if os.path.exists(state_file):
-                with open(state_file) as f:
-                    state = json.load(f)
-                    report_email = state.get("report_email") or None
+            from app.repositories.email_repository import EmailRepository
+            repo = EmailRepository(self.db)
+            entries = await repo.get_all()
+            if entries:
+                report_email = ", ".join(e.email for e in entries)
         except Exception:
             pass
         
@@ -594,16 +529,27 @@ class JobQueueService:
         job.email_sent = True
         await self.db.commit()
 
-    async def cancel_job(self, job_id: int) -> bool:
+    async def cancel_job(self, job_id: int, db: Optional[AsyncSession] = None) -> bool:
         """Cancel a pending or running job."""
-        job = await self.repo.get_by_id(job_id)
+        from app.repositories.job_repository import JobRepository
+        repo = JobRepository(db or self.db)
+        job = await repo.get_by_id(job_id)
         if not job:
             return False
         
-        if job.status == "running" and self._current_task:
-            self._current_task.cancel()
+        if job.status == "running":
+            if self._current_task:
+                self._current_task.cancel()
+            job.status = "cancelled"
+            job.progress = "Cancelled"
+            job.completed_at = datetime.utcnow()
+            await (db or self.db).commit()
+            return True
         
-        return await self.repo.cancel_job(job_id)
+        if job.status == "pending":
+            return await repo.cancel_job(job_id)
+        
+        return False
 
     async def pause_job(self, job_id: int) -> bool:
         """Pause a pending job."""
@@ -654,8 +600,20 @@ class JobQueueService:
         }
 
 
-_queue_service: Optional[JobQueueService] = None
+_queue_service_instance: Optional[JobQueueService] = None
 
 
-def get_queue_service(db: AsyncSession) -> JobQueueService:
-    return JobQueueService(db)
+def get_queue_service(db: Optional[AsyncSession] = None) -> JobQueueService:
+    global _queue_service_instance
+    if _queue_service_instance is not None:
+        return _queue_service_instance
+    if db is None:
+        raise RuntimeError("Queue service not initialized. Call init_queue_service(db) first.")
+    _queue_service_instance = JobQueueService(db)
+    return _queue_service_instance
+
+
+def init_queue_service(db: AsyncSession) -> JobQueueService:
+    global _queue_service_instance
+    _queue_service_instance = JobQueueService(db)
+    return _queue_service_instance

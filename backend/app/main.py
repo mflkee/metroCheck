@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -19,11 +20,23 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     import asyncio
     from app.core.database import AsyncSessionLocal
-    from app.services.job_queue_service import JobQueueService
+    from app.services.job_queue_service import init_queue_service
     from app.services.scheduler_service import SchedulerService
     
     db = AsyncSessionLocal()
-    queue_service = JobQueueService(db)
+    
+    # Recover orphaned jobs after restart
+    from app.models.job import Job
+    from sqlalchemy import select
+    async with db.begin():
+        result = await db.execute(select(Job).where(Job.status == "running"))
+        for job in result.scalars().all():
+            job.status = "failed"
+            job.progress = "Прервано перезапуском сервера"
+            job.progress_percent = 0
+            logger.info("Recovered orphaned job #%s", job.id)
+    
+    queue_service = init_queue_service(db)
     scheduler_service = SchedulerService(queue_service)
     
     worker_task = asyncio.create_task(queue_service.start_worker())

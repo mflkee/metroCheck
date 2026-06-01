@@ -4,6 +4,7 @@ from app.repositories.check_result_repository import CheckResultRepository
 from app.repositories.check_run_repository import CheckRunRepository
 from app.repositories.protocol_data_repository import ProtocolDataRepository
 from app.repositories.protocol_file_repository import ProtocolFileRepository
+from app.repositories.email_repository import EmailRepository
 
 __all__ = [
     "AIRequestRepository",
@@ -12,4 +13,5 @@ __all__ = [
     "CheckRunRepository",
     "ProtocolDataRepository",
     "ProtocolFileRepository",
+    "EmailRepository",
 ]

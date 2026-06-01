@@ -1,0 +1,45 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-staging:
+    runs-on: [self-hosted, mkair]
+    environment: staging
+    steps:
+      - name: Checkout staging code
+        run: |
+          cd ~/apps/metroCheck
+          git fetch origin
+          git reset --hard origin/main
+
+      - name: Build & deploy staging
+        run: |
+          cd ~/apps/metroCheck
+          docker compose -f docker-compose.staging.yml up -d --build
+
+      - name: Apply staging migrations
+        run: |
+          cd ~/apps/metroCheck
+          docker compose -f docker-compose.staging.yml exec -T backend alembic upgrade head
+
+      - name: Staging health check
+        run: |
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:9002/health >/dev/null 2>&1; then
+              echo "Staging backend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Staging backend failed to become ready within 30s"
+          exit 1
+
+      - name: Show staging status
+        if: always()
+        run: |
+          cd ~/apps/metroCheck
+          docker compose -f docker-compose.staging.yml ps

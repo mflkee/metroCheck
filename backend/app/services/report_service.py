@@ -40,16 +40,19 @@ class ReportService:
         """Extract measurement range from protocol text."""
         if not text:
             return ""
-        # Pattern 1: Диапазон измерений в рабочих условиях: от 4 до 400 м³/ч
-        match = re.search(r'Диапазон\s+измерений[^:]*:\s*([^\n]+)', text, re.IGNORECASE)
+        # Pattern: find "Диапазон измерений" then "от X до Y" within 300 chars
+        # Handles multi-line PDF layout (e.g., "Диапазон измерений в рабочих\n3\nот 4 до 400 м³/ч\nусловиях:")
+        match = re.search(
+            r'Диапазон\s+измерений.{0,300}?от\s+([\d.,]+)\s+до\s+([\d.,]+)\s+([^\n]{1,30})',
+            text, re.IGNORECASE | re.DOTALL
+        )
         if match:
-            return match.group(1).strip()[:60]
-        # Pattern 2: Диапазон: от 0 до 1,6 МПа
-        match = re.search(r'Диапазон[:\s]+([^\n]+)', text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()[:60]
-        # Pattern 3: от 4 до 400 м³/ч (standalone)
-        match = re.search(r'от\s+([\d.,]+)\s+до\s+([\d.,]+)\s+([^\n]{1,30})', text, re.IGNORECASE)
+            return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
+        # Fallback: standalone "от X до Y"
+        match = re.search(
+            r'от\s+([\d.,]+)\s+до\s+([\d.,]+)\s+([^\n]{1,30})',
+            text, re.IGNORECASE
+        )
         if match:
             return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
         return ""
@@ -163,20 +166,20 @@ class ReportService:
             if p.serial_number:
                 proto_by_serial[p.serial_number.strip()] = p
 
+        compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "MIT", "Наименование", "Обозначение", "Мод.", "Серийник",
                           "Дата", "Действует до", "№ док-та", "Результат", "Диапазон"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Тип", "Серийник",
                          "MIT", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P", "Диапазон", "Результат"]
-        compare_headers = ["Статус", "Расхождения"]
-        all_headers = public_headers + lk_headers + proto_headers + compare_headers
+        all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
         group_titles = [
+            ("Сравнение", "5B9BD5", len(compare_headers)),
             ("Публичный АРШИН", "4472C4", len(public_headers)),
             ("ЛК АРШИН", "70AD47", len(lk_headers)),
             ("Протокол", "ED7D31", len(proto_headers)),
-            ("Сравнение", "5B9BD5", len(compare_headers))
         ]
 
         from openpyxl.utils import get_column_letter
@@ -195,13 +198,16 @@ class ReportService:
             col_start = col_end + 1
         ws.row_dimensions[1].height = 25
 
+        compare_offset = 0
+        public_offset = len(compare_headers)
+        lk_offset = public_offset + len(public_headers)
+        proto_offset = lk_offset + len(lk_headers)
+
         header_fills = {
-            "4472C4": list(range(len(public_headers))),
-            "70AD47": list(range(len(public_headers), len(public_headers) + len(lk_headers))),
-            "ED7D31": list(range(len(public_headers) + len(lk_headers),
-                                 len(public_headers) + len(lk_headers) + len(proto_headers))),
-            "5B9BD5": list(range(len(public_headers) + len(lk_headers) + len(proto_headers),
-                                 len(all_headers)))
+            "5B9BD5": list(range(compare_offset, public_offset)),
+            "4472C4": list(range(public_offset, lk_offset)),
+            "70AD47": list(range(lk_offset, proto_offset)),
+            "ED7D31": list(range(proto_offset, proto_offset + len(proto_headers))),
         }
 
         for col_idx, header in enumerate(all_headers, 1):
@@ -217,6 +223,9 @@ class ReportService:
         ws.row_dimensions[2].height = 30
         last_col = get_column_letter(len(all_headers))
         ws.auto_filter.ref = f"A2:{last_col}2"
+
+        STATUS_COL = 1
+        COMMENTS_COL = 2
 
         for idx, cal in enumerate(calibrations, 1):
             serial = (cal.mi_number or "").strip()
@@ -250,13 +259,19 @@ class ReportService:
             arshin_range = lk_conditions.get("range", "") if cal.conditions else ""
 
             row_data = [
+                # compare columns (status + comments) filled later
+                "",
+                "",
+                # public headers
                 idx, cal.vri_id, cal.mit_number, cal.mit_title, cal.mit_notation,
                 cal.mi_modification, cal.mi_number,
                 cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
                 cal.result_docnum, result_text, arshin_range or "—",
+                # lk headers
                 cal.verifier or "", fmt_num(lk_conditions.get("temperature")),
                 fmt_num(lk_conditions.get("humidity")), fmt_num(lk_conditions.get("pressure")),
+                # proto headers
                 proto.protocol_number if proto else "НЕТ ПРОТОКОЛА",
                 proto.device_name if proto else "",
                 proto.device_type if proto else "",
@@ -275,6 +290,7 @@ class ReportService:
             ]
 
             mismatches = []
+            info_notes = []
 
             if proto and proto.verification_date and cal.verification_date:
                 proto_date = proto.verification_date.strftime("%d.%m.%Y")
@@ -291,9 +307,9 @@ class ReportService:
                     if len(proto_words & cal_words) < 1:
                         mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
 
+            # Methodology — ARSHIN has no direct field, show as info note if present
             if proto and proto.verification_method:
-                if not re.match(r'^[ММ][ПП]\s+[\d-]+', proto.verification_method):
-                    mismatches.append(f"Методика: {proto.verification_method}")
+                info_notes.append(f"Методика: {proto.verification_method}")
 
             if proto and proto.verifier and cal.verifier:
                 if proto.verifier != cal.verifier:
@@ -309,12 +325,11 @@ class ReportService:
 
             # Compare ranges (soft check)
             if proto and proto_range and arshin_range:
-                # If both exist and different → mismatch
-                if proto_range.lower() != arshin_range.lower():
-                    mismatches.append(f"Диапазон: {arshin_range} vs {proto_range}")
-            elif proto and proto_range and not arshin_range:
-                # Protocol has range but ARSHIN doesn't → warning in report only
-                mismatches.append(f"Диапазон отсутствует в АРШИН: {proto_range}")
+                if arshin_range not in ('—', ''):
+                    if proto_range.lower() != arshin_range.lower():
+                        mismatches.append(f"Диапазон: {arshin_range} vs {proto_range}")
+            elif proto and proto_range and (not arshin_range or arshin_range in ('—', '')):
+                info_notes.append(f"Диапазон в АРШИН отсутствует (в протоколе: {proto_range})")
 
             if not proto:
                 mismatches.append("ПРОТОКОЛ ОТСУТСТВУЕТ")
@@ -323,31 +338,45 @@ class ReportService:
                 status = "❌"
                 status_color = "FFC7CE"
                 status_font_color = "9C0006"
+            elif info_notes:
+                status = "?"
+                status_color = "FFF2CC"
+                status_font_color = "806000"
             else:
                 status = "✓"
                 status_color = "C6EFCE"
                 status_font_color = "006100"
 
-            row_data.append(status)
-            row_data.append("; ".join(mismatches) if mismatches else "")
+            row_data[STATUS_COL - 1] = status
+            comments = "; ".join(mismatches) if mismatches else ""
+            if info_notes:
+                if comments:
+                    comments += " | " + "; ".join(info_notes)
+                else:
+                    comments = "; ".join(info_notes)
+            row_data[COMMENTS_COL - 1] = comments
 
             for col_idx, value in enumerate(row_data, 1):
                 cell = ws.cell(row=idx + 2, column=col_idx, value=value)
                 cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
                                    top=Side(style='thin'), bottom=Side(style='thin'))
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                if col_idx == len(row_data) - 1:
+                if col_idx == STATUS_COL:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
-                    cell.font = Font(bold=True, color=status_font_color, size=10)
-                elif col_idx == len(row_data) and mismatches:
-                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                    cell.font = Font(color="9C0006", size=9)
+                    cell.font = Font(bold=True, color=status_font_color, size=12)
+                elif col_idx == COMMENTS_COL and (mismatches or info_notes):
+                    if mismatches:
+                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                        cell.font = Font(color="9C0006", size=9)
+                    else:
+                        cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                        cell.font = Font(color="806000", size=9)
 
         widths = [
+            5, 38,  # Статус, Расхождения
             4, 14, 11, 22, 16, 14, 13, 12, 12, 20, 10, 16,
             16, 7, 7, 8,
             14, 20, 14, 13, 11, 18, 6, 18, 12, 16, 7, 7, 8, 16, 10,
-            6, 35
         ]
         self._set_column_widths(ws, widths)
         for row in range(3, len(calibrations) + 3):

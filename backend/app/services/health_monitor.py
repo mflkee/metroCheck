@@ -22,7 +22,6 @@ class HealthMonitor:
         self._status: dict[str, Any] = {
             "arshin_api": {"status": "unknown", "last_check": 0},
             "arshin_token": {"status": "unknown", "expires_in": 0, "last_check": 0},
-            "n8n": {"status": "unknown", "last_check": 0},
             "openrouter": {"status": "unknown", "last_check": 0},
             "token_agent": {"status": "unknown", "last_check": 0},
         }
@@ -33,7 +32,6 @@ class HealthMonitor:
         await asyncio.gather(
             self._check_arshin_api(),
             self._check_arshin_token(),
-            self._check_n8n(),
             self._check_openrouter(),
             self._check_token_agent(),
             self._check_current_job(),
@@ -184,24 +182,6 @@ class HealthMonitor:
             self._status["arshin_token"] = {
                 "status": "error",
                 "error": str(e)[:200],
-                "last_check": time.time(),
-            }
-
-    async def _check_n8n(self) -> None:
-        """Check n8n availability."""
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                # n8n is the docker-compose service name
-                r = await client.get("http://n8n:5678/healthz")
-                self._status["n8n"] = {
-                    "status": "ok" if r.status_code == 200 else "error",
-                    "code": r.status_code,
-                    "last_check": time.time(),
-                }
-        except Exception as e:
-            self._status["n8n"] = {
-                "status": "idle",
-                "note": "ожидает запуска проверки",
                 "last_check": time.time(),
             }
 

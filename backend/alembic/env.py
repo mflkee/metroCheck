@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.core.config import settings
 from app.models.base import Base
+from app.models import *  # noqa: F401, F403 — register all models for autogenerate
 
 # this is the Alembic Config object
 config = context.config
