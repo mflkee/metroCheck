@@ -10,7 +10,6 @@
 | **Backend API** | metroCheck_backend | 8000 | 8002 | http://100.89.59.195:8002 | FastAPI + API endpoints |
 | **PostgreSQL** | metroCheck_postgres | 5432 | 5434 | localhost only | База данных |
 | **Redis** | metroCheck_redis | 6379 | 6382 | localhost only | Очередь и кэш |
-| **n8n** | metroCheck_n8n | 5678 | 5681 | http://100.89.59.195:5681 | Воркфлоу автоматизации |
 
 ## API Endpoints (Backend :8002)
 
@@ -67,7 +66,6 @@ mkair-server (Тюмень)
 |------|---------|--------|
 | 8080 | Frontend | LAN + VPN |
 | 8002 | Backend API | LAN + VPN |
-| 5681 | n8n | LAN + VPN |
 | 5434 | PostgreSQL | localhost only |
 | 6382 | Redis | localhost only |
 

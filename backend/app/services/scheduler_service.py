@@ -178,9 +178,9 @@ class SchedulerService:
             "report_email": self._state.get("report_email", ""),
             "settings": {
                 "description": {
-                    "auto_day": f"Day {self._state['auto_day']} of each month",
-                    "auto_time": f"At {self._state['auto_time']}",
-                    "month_offset": f"Check month: current {self._state.get('month_offset', -1)} = {self._get_example_month()}",
+                    "auto_day": f"{self._state['auto_day']}-го числа каждого месяца",
+                    "auto_time": f"В {self._state['auto_time']} МСК",
+                    "month_offset": f"Проверка месяца: сдвиг {self._state.get('month_offset', -1)} = {self._get_example_month()}",
                 }
             }
         }
@@ -201,7 +201,7 @@ class SchedulerService:
     
     def update_settings(self, **kwargs) -> dict:
         """Update scheduler settings."""
-        allowed = {"mode", "auto_time", "auto_day", "month_offset", "report_email"}
+        allowed = {"mode", "auto_time", "auto_day", "month_offset"}
         updated = {}
         
         for key, value in kwargs.items():

@@ -338,6 +338,15 @@ class CheckService:
             if protocol:
                 matched += 1
             else:
+                # Try MIT number + date as fallback
+                if cal.mit_number:
+                    import re
+                    mit_clean = re.sub(r'[^A-Za-z0-9-]', '', cal.mit_number).strip()
+                    if mit_clean:
+                        protocol = await self.data_repo.get_by_mit_number(mit_clean, year, month)
+                        if protocol:
+                            matched += 1
+                            continue
                 missing_protocols += 1
 
         # Check 2: protocols found (protocol -> calibration)
@@ -361,8 +370,8 @@ class CheckService:
         }
 
     def _normalize_serial(self, serial: str) -> str:
-        """Normalize serial number for comparison (handle homoglyphs)."""
-        # Replace common homoglyphs
+        """Normalize serial number for comparison (handle homoglyphs, garbage)."""
+        import re
         replacements = {
             "А": "A", "В": "B", "С": "C", "Е": "E",
             "Н": "H", "К": "K", "М": "M", "О": "O",
@@ -372,6 +381,8 @@ class CheckService:
         normalized = serial
         for old, new in replacements.items():
             normalized = normalized.replace(old, new)
+        normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
+        normalized = normalized.lstrip('0')
         return normalized.upper().strip()
 
     async def _count_calibrations(self, year: int, month: int) -> int:

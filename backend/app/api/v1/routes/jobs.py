@@ -90,7 +90,7 @@ async def cancel_job(
         raise HTTPException(status_code=403, detail="Invalid API key")
 
     service = get_queue_service(db)
-    success = await service.cancel_job(job_id)
+    success = await service.cancel_job(job_id, db=db)
     if not success:
         raise HTTPException(status_code=400, detail="Job not found or cannot be cancelled")
 

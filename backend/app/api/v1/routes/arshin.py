@@ -150,7 +150,7 @@ async def _fetch_lk_task(task_id: str, year: int, month: int) -> None:
             await tm.update(
                 task_id,
                 status="waiting_token",
-                progress="ARSHIN token expired. Waiting for Зонов to login via Госуслуги...",
+                progress="Токен ЛК Аршин истек",
             )
             token = await client._request_new_token()
             await tm.update(
@@ -193,7 +193,7 @@ async def _fetch_data2_task(task_id: str, year: int, month: int) -> None:
             await tm.update(
                 task_id,
                 status="waiting_token",
-                progress="ARSHIN token expired. Waiting for Зонов to login via Госуслуги...",
+                progress="Токен ЛК Аршин истек",
             )
             token = await client._request_new_token()
             await tm.update(
@@ -336,24 +336,6 @@ async def scheduler_status(
     while target <= 0:
         target += 12
         year -= 1
-    
-    return {
-        "status": "ok",
-        "scheduler": {
-            **state,
-            "example": f"If today is {now.strftime('%d.%m.%Y')}, will check: {target:02d}.{year}",
-        },
-    }
-    
-    # Calculate example
-    from datetime import datetime
-    now = datetime.utcnow()
-    offset = state.get("month_offset", -1)
-    target = now.month + offset
-    year = now.year
-    while target <= 0:
-        target += 12
-        year -= 1
     while target > 12:
         target -= 12
         year += 1
@@ -362,7 +344,7 @@ async def scheduler_status(
         "status": "ok",
         "scheduler": {
             **state,
-            "example": f"If today is {now.strftime('%d.%m.%Y')}, will check: {target:02d}.{year}",
+            "example": f"Сегодня {now.strftime('%d.%m.%Y')}, будет проверка: {target:02d}.{year}",
         },
     }
 
@@ -469,7 +451,7 @@ async def update_scheduler_settings(
         "status": "ok",
         "updated": updated,
         "current_settings": state,
-        "example": f"Next run: day {state.get('auto_day', 1)} at {state.get('auto_time', '09:00')} → will check {target:02d}.{year}",
+        "example": f"Следующий запуск: {state.get('auto_day', 1)}-го в {state.get('auto_time', '09:00')} МСК → проверка {target:02d}.{year}",
     }
 
 
@@ -526,3 +508,53 @@ async def run_check_manual(
         "month": payload.month,
         "message": f"Check queued for {payload.month:02d}.{payload.year}",
     }
+
+
+class AddEmailRequest(BaseModel):
+    email: str
+
+
+@router.get("/scheduler/emails")
+async def list_emails(
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    from app.repositories.email_repository import EmailRepository
+    repo = EmailRepository(db)
+    entries = await repo.get_all()
+    return {"status": "ok", "emails": [{"id": e.id, "email": e.email} for e in entries]}
+
+
+@router.post("/scheduler/emails")
+async def add_email(
+    payload: AddEmailRequest,
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    from app.repositories.email_repository import EmailRepository
+    repo = EmailRepository(db)
+    existing = await repo.get_by_email(payload.email)
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already exists")
+    entry = await repo.create(payload.email)
+    return {"status": "ok", "id": entry.id, "email": entry.email}
+
+
+@router.delete("/scheduler/emails/{email_id}")
+async def delete_email(
+    email_id: int,
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    from app.repositories.email_repository import EmailRepository
+    repo = EmailRepository(db)
+    deleted = await repo.delete(email_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return {"status": "ok"}

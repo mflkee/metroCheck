@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional, Callable
 
 import pdfplumber
 from PIL import Image
@@ -49,8 +49,16 @@ class ProtocolScanner:
         except Exception:
             return None
 
-    async def scan(self, year: int, month: int) -> dict[str, Any]:
+    async def scan(
+        self, year: int, month: int,
+        progress_callback: Optional[Callable] = None,
+    ) -> dict[str, Any]:
         """Scan folder for protocol files (PDF/JPG/PNG) and save to DB.
+
+        Args:
+            year: year to scan
+            month: month to scan
+            progress_callback: async callable(done, total) for progress
 
         Returns:
             dict with found, saved, errors counts
@@ -65,6 +73,13 @@ class ProtocolScanner:
                 "path": target_folder,
                 "message": "Folder does not exist",
             }
+
+        # Quick pre-scan to count total files
+        total = 0
+        for _root, _dirs, files in os.walk(target_folder):
+            for file in files:
+                if os.path.splitext(file)[1].lower() in SUPPORTED_EXTENSIONS:
+                    total += 1
 
         found = 0
         saved = 0
@@ -83,6 +98,8 @@ class ProtocolScanner:
                 try:
                     existing = await self.repo.get_by_path(relative_path)
                     if existing:
+                        if progress_callback:
+                            await progress_callback(found, total)
                         continue
 
                     size = os.path.getsize(file_path)
@@ -105,6 +122,9 @@ class ProtocolScanner:
 
                 except Exception:
                     errors += 1
+
+                if progress_callback:
+                    await progress_callback(found, total)
 
         return {
             "found": found,

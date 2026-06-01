@@ -1,14 +1,18 @@
-name: Deploy metroCheck to Production
+name: Promote to Production
 
 on:
-  push:
-    branches: [release/*]
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to promote staging to production'
+        required: true
+        default: ''
 
 jobs:
-  deploy:
+  promote:
     runs-on: [self-hosted, mkair]
     environment: production
+    if: github.event.inputs.confirm == 'deploy'
     steps:
       - name: Ensure repo exists or clone
         run: |
@@ -21,7 +25,7 @@ jobs:
         run: |
           cd ~/apps/metroCheck
           git fetch origin
-          git reset --hard origin/${{ github.ref_name }}
+          git reset --hard origin/main
 
       - name: Backup production database
         run: |
@@ -33,24 +37,24 @@ jobs:
           cd ~/apps/metroCheck
           docker compose up -d --build
 
-      - name: Apply database migrations
+      - name: Apply production migrations
         run: |
           cd ~/apps/metroCheck
           docker compose exec -T backend alembic upgrade head
 
-      - name: Health check
+      - name: Production health check
         run: |
           for _ in {1..30}; do
             if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then
-              echo "Backend is ready"
+              echo "Production backend is ready"
               exit 0
             fi
             sleep 1
           done
-          echo "Backend failed to become ready within 30s"
+          echo "Production backend failed to become ready within 30s"
           exit 1
 
-      - name: Show status
+      - name: Show production status
         if: always()
         run: |
           cd ~/apps/metroCheck
