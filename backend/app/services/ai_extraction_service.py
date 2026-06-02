@@ -13,31 +13,53 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = [
-    "nvidia/nemotron-3-super-120b-a12b:free",  # Free, tested working
-    "openai/gpt-4o-mini",             # Paid fallback
+    "moonshotai/kimi-k2.6:free",       # Free, strong at Russian text
+    "nvidia/nemotron-3-super-120b-a12b:free",  # Free fallback
+    "openai/gpt-4o-mini",              # Paid fallback
 ]
 
 EXTRACTION_SYSTEM_PROMPT = (
-    "Extract data from a Russian calibration protocol into JSON.\n\n"
-    "STRICT RULES:\n"
-    "1. Return ONLY a JSON object — no markdown, no explanations, no comments\n"
-    "2. If a field is missing in the text, use null\n"
-    "3. Do NOT repeat or summarize the input text\n"
-    "4. Do NOT add fields not listed below\n"
-    "5.verification_date must be YYYY-MM-DD format\n"
-    "6. result must be exactly 'suitable' or 'unsuitable' ( lowercase )\n\n"
-    "Example:\n"
+    "Ты — специалист по извлечению данных из протоколов поверки средств измерений (СИ) РФ. "
+    "Извлеки ВСЕ возможные поля из текста протокола и верни ТОЛЬКО JSON-объект.\n\n"
+    "=== СТРОГИЕ ПРАВИЛА ===\n"
+    "1. Верни ТОЛЬКО JSON — без markdown, без объяснений, без комментариев\n"
+    "2. Если поле не найдено в тексте — используй null (не пустую строку)\n"
+    "3. НЕ повторяй исходный текст\n"
+    "4. НЕ добавляй поля, которых нет в списке ниже\n"
+    "5. Дата verification_date ТОЛЬКО в формате YYYY-MM-DD\n"
+    "6. Результат result ТОЛЬКО 'suitable' (пригодно) или 'unsuitable' (непригодно)\n"
+    "7. Все строковые значения бери из текста протокола как есть, без изменений\n\n"
+    "=== ГДЕ ИСКАТЬ ПОЛЯ В ПРОТОКОЛЕ ===\n"
+    "- protocol_number: после 'ПРОТОКОЛ ПОВЕРКИ №' (например '01/001/24')\n"
+    "- device_name: после 'Наименование средства измерений:' (например 'счетчик газа')\n"
+    "- device_type: после 'Тип, модификация средства измерений:' (например 'КТМ600 РУС')\n"
+    "- serial_number: после 'Заводской номер' или '№' устройства (например '21148561')\n"
+    "- mit_number: номер по Государственному реестру СИ РФ, обычно после 'реестру СИ РФ' (например '62301-15')\n"
+    "- manufacture_year: после 'Год выпуска:' или 'Год изготовления:' (число, например 2021)\n"
+    "- owner: после 'Принадлежит:', 'Владелец:' или 'Принадлежащее' (например 'ООО ИНК')\n"
+    "- verification_date: после 'Дата поверки:' или 'от' у протокола (YYYY-MM-DD)\n"
+    "- verifier: ФИО поверителя, после 'Поверитель:' (например 'Чупин А.А.')\n"
+    "- temperature: после 'Температура окружающей среды' (число с °C, например 22.8)\n"
+    "- humidity: после 'Относительная влажность' (число с %, например 39.0)\n"
+    "- pressure: после 'Атмосферное давление' (число, например 100.9)\n"
+    "- pressure_units: единицы давления (обычно 'кПа' или 'kPa')\n"
+    "- result: после 'Результат поверки' — 'пригодно'→'suitable', 'непригодно'→'unsuitable'\n"
+    "- verification_method: после 'Методика поверки' или 'Метод поверки' (например 'МП 0302-13-2015')\n"
+    "- measurement_range: после 'Диапазон измерений' или пределы (например '(4-400) м³/ч')\n\n"
+    "=== ПРИМЕР ===\n"
     '{"protocol_number":"01/001/24","device_name":"счетчик газа",'
     '"device_type":"КТМ600 РУС","serial_number":"21148561",'
     '"mit_number":"62301-15","manufacture_year":2021,'
     '"owner":"ООО ИНК","verification_date":"2024-01-11",'
     '"verifier":"Чупин А.А.","temperature":22.8,"humidity":39.0,'
-    '"pressure":100.9,"pressure_units":"kPa","result":"suitable",'
+    '"pressure":100.9,"pressure_units":"кПа","result":"suitable",'
     '"verification_method":"МП 0302-13-2015","measurement_range":"(4-400) м³/ч"}\n\n'
-    "Fields: protocol_number, device_name, device_type, serial_number, "
+    "=== ПОЛЯ ДЛЯ ИЗВЛЕЧЕНИЯ ===\n"
+    "protocol_number, device_name, device_type, serial_number, "
     "mit_number, manufacture_year, owner, verification_date, verifier, "
     "temperature, humidity, pressure, pressure_units, result, "
-    "verification_method, measurement_range"
+    "verification_method, measurement_range\n\n"
+    "ВАЖНО: Извлеки МАКСИМУМ полей из текста. Если значение не найдено — используй null."
 )
 
 
@@ -153,7 +175,7 @@ class AIExtractionService:
         self,
         text: str,
         models: list[str] | None = None,
-        max_tokens: int = 600,
+        max_tokens: int = 1200,
         temperature: float = 0.0,
     ) -> dict[str, Any]:
         """Extract protocol data from text using AI.
