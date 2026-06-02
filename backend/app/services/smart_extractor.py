@@ -150,7 +150,11 @@ class SmartExtractor:
         logger.info("Regex extracted %d fields", len(regex_data))
         
         # Phase 2: AI extraction for missing fields and complex data
-        ai_result = await self.ai_service.extract(text)
+        try:
+            ai_result = await asyncio.wait_for(self.ai_service.extract(text), timeout=90.0)
+        except asyncio.TimeoutError:
+            logger.error("AI extraction timed out after 90s")
+            ai_result = {"content": None, "model": None, "status": "manual_review", "cost": 0.0, "attempts": 0, "usage": None}
         ai_data = ai_result.get("content") or {}
         
         # Phase 3: Merge — regex wins for precision, AI fills gaps
