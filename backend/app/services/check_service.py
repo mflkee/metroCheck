@@ -332,12 +332,22 @@ class CheckService:
         protocols = await self.data_repo.get_by_month(year, month)
 
         # Check 1: completeness (calibration -> protocol)
+        all_proto_serials = [self._normalize_serial(p.serial_number or "") for p in protocols if p.serial_number]
+        
         for cal in calibrations:
             serial = self._normalize_serial(cal.mi_number or "")
             protocol = await self.data_repo.get_by_serial(serial)
             if protocol:
                 matched += 1
             else:
+                # Try fuzzy match (handles R vs P, I vs 1, etc.)
+                fuzzy_serial = self._fuzzy_match_serial(serial, all_proto_serials)
+                if fuzzy_serial:
+                    protocol = await self.data_repo.get_by_serial(fuzzy_serial)
+                    if protocol:
+                        matched += 1
+                        continue
+                
                 # Try MIT number + date as fallback
                 if cal.mit_number:
                     import re
@@ -351,12 +361,19 @@ class CheckService:
 
         # Check 2: protocols found (protocol -> calibration)
         orphan_protocols = 0
+        all_cal_serials = [self._normalize_serial(c.mi_number or "") for c in calibrations if c.mi_number]
+        
         for proto in protocols:
             if not proto.serial_number:
                 orphan_protocols += 1
                 continue
             serial = self._normalize_serial(proto.serial_number)
             calibration = await self.cal_repo.get_by_serial(serial)
+            if not calibration:
+                # Try fuzzy match
+                fuzzy_serial = self._fuzzy_match_serial(serial, all_cal_serials)
+                if fuzzy_serial:
+                    calibration = await self.cal_repo.get_by_serial(fuzzy_serial)
             if not calibration:
                 orphan_protocols += 1
 
@@ -384,6 +401,26 @@ class CheckService:
         normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
         normalized = normalized.lstrip('0')
         return normalized.upper().strip()
+
+    def _fuzzy_match_serial(self, serial: str, candidates: list[str]) -> str | None:
+        """Fuzzy match serial number against candidates (1 char difference allowed)."""
+        if not serial or len(serial) < 3:
+            return None
+        for candidate in candidates:
+            if not candidate or len(candidate) < 3:
+                continue
+            # Exact match
+            if serial == candidate:
+                return candidate
+            # Same length, 1 char difference (handles R vs P, I vs 1, etc.)
+            if len(serial) == len(candidate):
+                diff = sum(1 for a, b in zip(serial, candidate) if a != b)
+                if diff == 1:
+                    return candidate
+            # One is prefix of another (e.g., R01194 vs Р01194 after normalization)
+            if serial.startswith(candidate) or candidate.startswith(serial):
+                return candidate
+        return None
 
     async def _count_calibrations(self, year: int, month: int) -> int:
         from sqlalchemy import func, select

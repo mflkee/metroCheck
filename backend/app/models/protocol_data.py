@@ -31,6 +31,7 @@ class ProtocolData(Base):
     pressure_units: Mapped[Optional[str]] = mapped_column(String(50))
     result: Mapped[Optional[str]] = mapped_column(String(50))  # suitable / unsuitable
     verification_method: Mapped[Optional[str]] = mapped_column(Text)
+    measurement_range: Mapped[Optional[str]] = mapped_column(String(255))
     raw_text: Mapped[Optional[str]] = mapped_column(Text)
     model_used: Mapped[str] = mapped_column(String(100))
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
