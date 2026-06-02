@@ -82,10 +82,10 @@ class JobQueueService:
                 if not processed:
                     await asyncio.sleep(10)
             except asyncio.CancelledError:
-                print("[JobQueue] Job cancelled, continuing...")
+                logger.warning("Job cancelled, continuing...")
                 await asyncio.sleep(3)
             except Exception as e:
-                print(f"[JobQueue] Worker error: {e}")
+                logger.error("Worker error: %s", e)
                 # Rollback on error to avoid "transaction aborted"
                 try:
                     await self.db.rollback()
