@@ -285,16 +285,20 @@ class JobQueueService:
 
         # Get protocols that have been scanned but not yet have data
         scanned_protocols = [p for p in protocols if p.status == "scanned"]
+        logger.info("[DEBUG] data_extract: %d scanned protocols", len(scanned_protocols))
 
         for idx, proto in enumerate(scanned_protocols):
             try:
                 text = proto.raw_text or ""
                 if not text or len(text) < 50:
+                    logger.info("[DEBUG] Protocol %s: text too short (%d), skipping", proto.id, len(text))
                     extract_errors += 1
                     continue
 
+                logger.info("[DEBUG] Protocol %s: starting extraction", proto.id)
                 # Use multi-pass extraction with validation
                 ai_result = await extraction_service.extract(text)
+                logger.info("[DEBUG] Protocol %s: extraction done, status=%s", proto.id, ai_result.get("status"))
                 extracted_data = ai_result.get("content") or {}
 
                 if extracted_data.get('serial_number'):
@@ -363,23 +367,32 @@ class JobQueueService:
                 extract_errors += 1
                 logger.warning("AI extraction failed for protocol %s: %s", proto.id, e)
 
+            logger.info("[DEBUG] Protocol %s: before _set_phase in loop", proto.id)
             if idx % 2 == 0 or idx == len(scanned_protocols) - 1:
                 pct = 50 + int((idx + 1) / max(len(scanned_protocols), 1) * 5)
                 await self._set_phase(job, "data_extract", f"AI: {idx + 1}/{len(scanned_protocols)} протоколов...", min(pct, 55), stats)
+            logger.info("[DEBUG] Protocol %s: after _set_phase in loop", proto.id)
 
+        logger.info("[DEBUG] data_extract loop done, extracted=%d, errors=%d", extracted, extract_errors)
         stats["data_extract"] = {
             "total": len(scanned_protocols),
             "extracted": extracted,
             "errors": extract_errors,
             "status": "completed",
         }
+        logger.info("[DEBUG] Before final data_extract _set_phase")
         await self._set_phase(job, "data_extract", f"AI извлeчeно: {extracted}/{len(scanned_protocols)}", 55, stats)
+        logger.info("[DEBUG] After final data_extract _set_phase")
 
         # ── Phase 5: Partial Checks (no token) ────────────────────────────
+        logger.info("[DEBUG] Before partial_check _set_phase")
         await self._set_phase(job, "partial_check", "Частичная проверка (public API + протоколы)...", 55, stats)
+        logger.info("[DEBUG] After partial_check _set_phase")
         await self._check_cancelled(job.id)
         
+        logger.info("[DEBUG] Before run_partial_checks")
         partial_result = await check_service.run_partial_checks(job.year, job.month)
+        logger.info("[DEBUG] After run_partial_checks: %s", partial_result)
         stats["partial_check"] = {
             "matched": partial_result.get('matched', 0),
             "mismatched": partial_result.get('mismatched', 0),
