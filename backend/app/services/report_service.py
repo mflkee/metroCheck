@@ -92,7 +92,7 @@ class ReportService:
         }
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
-        headers = ["№", "VRI ID", "MIT", "Наименование", "Обозначение", "Мод.", "Серийник",
+        headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Серийник",
                    "Дата", "Действует до", "№ док-та", "Результат", "Диапазон"]
         self._write_headers(ws, headers, "4472C4")
 
@@ -134,7 +134,7 @@ class ReportService:
 
     def _fill_protocol_sheet(self, ws, protocols) -> None:
         headers = ["№", "№ протокола", "Наименование", "Тип", "Серийник",
-                   "MIT", "Методика", "Год", "Владелец", "Дата",
+                   "№ОТ", "Методика", "Год", "Владелец", "Дата",
                    "Поверитель", "t, °C", "φ, %", "P, кПа", "Диапазон", "Результат"]
         self._write_headers(ws, headers, "ED7D31")
 
@@ -167,11 +167,11 @@ class ReportService:
                 proto_by_serial[p.serial_number.strip()] = p
 
         compare_headers = ["Статус", "Расхождения"]
-        public_headers = ["№", "VRI ID", "MIT", "Наименование", "Обозначение", "Мод.", "Серийник",
+        public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Серийник",
                           "Дата", "Действует до", "№ док-та", "Результат", "Диапазон"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Тип", "Серийник",
-                         "MIT", "Методика", "Год", "Владелец", "Дата",
+                         "№ОТ", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P", "Диапазон", "Результат"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
