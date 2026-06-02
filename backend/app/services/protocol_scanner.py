@@ -122,6 +122,10 @@ class ProtocolScanner:
 
                 except Exception:
                     errors += 1
+                    try:
+                        await self.db.rollback()
+                    except Exception:
+                        pass
 
                 if progress_callback:
                     await progress_callback(found, total)
