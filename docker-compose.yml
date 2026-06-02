@@ -60,7 +60,7 @@ services:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
-      - /tmp/tokens:/shared/tokens:ro
+      - /home/mflkee/SynologyDrive/tokens:/shared/tokens
       - ${PROTOCOLS_HOST_PATH:-./protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
       - /home/mflkee/reports:/reports
     networks:

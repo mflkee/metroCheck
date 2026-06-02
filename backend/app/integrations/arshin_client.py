@@ -86,8 +86,12 @@ class ArshinClient:
                         self._token_expires = time.time() + expires_in
 
                         # Archive file to avoid reusing
-                        archive_path = token_file + ".used"
-                        os.rename(token_file, archive_path)
+                        # Gracefully handle read-only filesystem (e.g. Docker :ro volume)
+                        try:
+                            archive_path = token_file + ".used"
+                            os.rename(token_file, archive_path)
+                        except OSError:
+                            pass
 
                         logger.info(
                             "Token read from file, expires_in=%ds",
@@ -101,7 +105,10 @@ class ArshinClient:
                             expires_in,
                         )
                         # Remove expired token file
-                        os.remove(token_file)
+                        try:
+                            os.remove(token_file)
+                        except OSError:
+                            pass
 
                 except Exception as e:
                     logger.error("Error reading token file: %s", e)
