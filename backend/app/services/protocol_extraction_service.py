@@ -115,8 +115,8 @@ class ProtocolExtractionService:
             return None
         
         try:
-            # Use free models for retry
-            models = ["openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"]
+            # Use free model for retry
+            models = ["nvidia/nemotron-3-super-120b-a12b:free"]
             
             for model in models:
                 try:
