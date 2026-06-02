@@ -13,9 +13,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = [
-    "openai/gpt-oss-120b:free",      # Best free model (11/12 success)
-    "google/gemma-4-31b-it:free",     # Second free option (1/12 success)
-    "openai/gpt-4o-mini",             # Paid fallback
+    "openai/gpt-4o-mini",             # Fast & reliable
 ]
 
 EXTRACTION_SYSTEM_PROMPT = (
@@ -81,7 +79,7 @@ class AIExtractionService:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=120.0)
+            self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
 
     async def close(self) -> None:
