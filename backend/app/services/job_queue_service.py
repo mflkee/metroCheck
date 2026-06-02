@@ -347,9 +347,12 @@ class JobQueueService:
                         verification_method=extracted_data.get('verification_method'),
                         measurement_range=extracted_data.get('measurement_range'),
                         raw_text=text[:10000],
-                        status=ai_result.get("status", "manual_review"),
-                        model_used=ai_result.get("model", "unknown"),
-                        confidence=ai_result.get("confidence", 0.0),
+                        status=ai_result.get("status") or "manual_review",
+                        model_used=ai_result.get("model") or "unknown",
+                        confidence=ai_result.get("confidence") or 0.0,
+                        cost=ai_result.get("cost") or 0.0,
+                        attempts=ai_result.get("attempts") or 0,
+                        pressure_units=extracted_data.get("pressure_units"),
                     )
                     existing = await proto_data_repo.get_by_protocol_file_id(proto.id)
                     if existing:
