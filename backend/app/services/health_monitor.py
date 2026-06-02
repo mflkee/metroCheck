@@ -21,7 +21,7 @@ class HealthMonitor:
     def __init__(self) -> None:
         self._status: dict[str, Any] = {
             "arshin_api": {"status": "unknown", "last_check": 0},
-            "arshin_token": {"status": "unknown", "expires_in": 0, "last_check": 0},
+            "arshin_token": {"status": "unknown", "age_seconds": None, "age_minutes": None, "last_check": 0},
             "openrouter": {"status": "unknown", "last_check": 0},
             "token_agent": {"status": "unknown", "last_check": 0},
         }
@@ -163,19 +163,21 @@ class HealthMonitor:
             updated_at = data.get("updated_at", 0)
             expires_in = _jwt_expires_in(token)
             age = time.time() - updated_at
+            age_min = int(age) // 60
 
             if token and expires_in > 0:
                 self._status["arshin_token"] = {
                     "status": "ok",
-                    "expires_in": expires_in,
-                    "expires_min": expires_in // 60,
+                    "age_seconds": int(age),
+                    "age_minutes": age_min,
                     "last_check": time.time(),
                 }
             else:
                 self._status["arshin_token"] = {
                     "status": "expired",
-                    "expires_in": 0,
-                    "note": f"возраст токена {int(age)}с, expires_in {expires_in}с" if token else "токен отсутствует",
+                    "age_seconds": int(age) if updated_at else None,
+                    "age_minutes": age_min if updated_at else None,
+                    "note": f"возраст токена {age_min} мин" if token else "токен отсутствует",
                     "last_check": time.time(),
                 }
         except Exception as e:

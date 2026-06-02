@@ -53,11 +53,37 @@ async def token_status(
     if x_api_key != settings.FASTAPI_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
+    import os
+    import time
+    import json
+
+    token_file = settings.TOKEN_FILE_PATH
+    used_file = token_file + ".used" if token_file else None
+
+    # Try current file first, then archived (.used)
+    data = None
+    for f in [token_file, used_file]:
+        if f and os.path.exists(f):
+            try:
+                with open(f, "r") as fh:
+                    data = json.load(fh)
+                break
+            except Exception:
+                pass
+
     client = ArshinClient()
     token = client.bearer_token
+
+    if data and data.get("updated_at"):
+        age_seconds = int(time.time() - data["updated_at"])
+        age_minutes = age_seconds // 60
+        if token:
+            return {"status": "ok", "age_seconds": age_seconds, "age_minutes": age_minutes}
+        return {"status": "expired", "age_seconds": age_seconds, "age_minutes": age_minutes}
+
     if token:
-        return {"status": "ok", "expires_in": int(client._token_expires - __import__("time").time())}
-    return {"status": "expired", "expires_in": 0}
+        return {"status": "ok", "age_seconds": 0, "age_minutes": 0}
+    return {"status": "expired", "age_seconds": None, "age_minutes": None}
 
 
 @router.post("/refresh-token", status_code=202)

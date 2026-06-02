@@ -165,6 +165,60 @@ async def get_job(
     return JobQueueService._job_to_dict(job)
 
 
+@router.get("/{job_id}/download-report")
+async def download_job_report(
+    job_id: int,
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download latest existing report for a job (works even if interrupted/failed)."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    from app.repositories.job_repository import JobRepository
+    from fastapi.responses import FileResponse
+    import os
+    import glob
+
+    repo = JobRepository(db)
+    job = await repo.get_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Search for existing reports in /tmp/reports and /reports
+    reports_dirs = ["/tmp/reports", "/reports"]
+    search_patterns = [
+        f"*{job.year}_{job.month:02d}*.xlsx",
+        f"*interim*{job.year}_{job.month:02d}*.xlsx",
+    ]
+
+    candidates = []
+    for directory in reports_dirs:
+        if not os.path.isdir(directory):
+            continue
+        for pattern in search_patterns:
+            for path in glob.glob(os.path.join(directory, pattern)):
+                try:
+                    mtime = os.path.getmtime(path)
+                    candidates.append((mtime, path))
+                except OSError:
+                    pass
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail="No report files found for this job")
+
+    # Pick the newest file
+    candidates.sort(reverse=True)
+    file_path = candidates[0][1]
+    filename = os.path.basename(file_path)
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 @router.post("/{job_id}/generate-report")
 async def generate_job_report(
     job_id: int,
