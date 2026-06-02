@@ -13,7 +13,8 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = [
-    "openai/gpt-4o-mini",             # Fast & reliable
+    "nvidia/nemotron-3-super-120b-a12b:free",  # Free, tested working
+    "openai/gpt-4o-mini",             # Paid fallback
 ]
 
 EXTRACTION_SYSTEM_PROMPT = (
