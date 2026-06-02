@@ -144,6 +144,10 @@ class JobQueueService:
             raise
         except Exception as e:
             self._current_task = None
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             job.status = "failed"
             job.error_message = str(e)
             job.progress = f"Failed: {e}"
