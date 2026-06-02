@@ -1,7 +1,9 @@
 """AI extraction service — extracts protocol data using OpenRouter with fallback chain."""
 
+import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -11,23 +13,64 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = [
-    "deepseek/deepseek-v4-flash:free",
-    "inclusionai/ring-2.6-1t:free",
-    "openai/gpt-oss-120b:free",
-    "google/gemma-4-31b-it:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "openai/gpt-4o-mini",
+    "openai/gpt-oss-120b:free",      # Best free model (11/12 success)
+    "google/gemma-4-31b-it:free",     # Second free option (1/12 success)
+    "openai/gpt-4o-mini",             # Paid fallback
 ]
 
 EXTRACTION_SYSTEM_PROMPT = (
-    "You are a metrology lab assistant. Extract structured data from a "
-    "calibration protocol in JSON format.\n"
+    "Extract data from a Russian calibration protocol into JSON.\n\n"
+    "STRICT RULES:\n"
+    "1. Return ONLY a JSON object — no markdown, no explanations, no comments\n"
+    "2. If a field is missing in the text, use null\n"
+    "3. Do NOT repeat or summarize the input text\n"
+    "4. Do NOT add fields not listed below\n"
+    "5.verification_date must be YYYY-MM-DD format\n"
+    "6. result must be exactly 'suitable' or 'unsuitable' ( lowercase )\n\n"
+    "Example:\n"
+    '{"protocol_number":"01/001/24","device_name":"счетчик газа",'
+    '"device_type":"КТМ600 РУС","serial_number":"21148561",'
+    '"mit_number":"62301-15","manufacture_year":2021,'
+    '"owner":"ООО ИНК","verification_date":"2024-01-11",'
+    '"verifier":"Чупин А.А.","temperature":22.8,"humidity":39.0,'
+    '"pressure":100.9,"pressure_units":"kPa","result":"suitable",'
+    '"verification_method":"МП 0302-13-2015","measurement_range":"(4-400) м³/ч"}\n\n'
     "Fields: protocol_number, device_name, device_type, serial_number, "
-    "mit_number, manufacture_year, owner, verification_date (YYYY-MM-DD), "
-    "verifier, temperature (number), humidity (number), pressure (number), "
-    "pressure_units (kPa/mmHg), result (suitable/unsuitable), verification_method, measurement_range.\n"
-    "If field is not found - null. Return ONLY JSON, no explanations."
+    "mit_number, manufacture_year, owner, verification_date, verifier, "
+    "temperature, humidity, pressure, pressure_units, result, "
+    "verification_method, measurement_range"
 )
+
+
+def _extract_json_from_text(text: str) -> dict[str, Any] | None:
+    """Try to extract JSON from markdown code blocks or raw text."""
+    if not text:
+        return None
+
+    # 1. Try direct JSON parse
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Try markdown code block ```json {...} ```
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Try to find first { ... } pair
+    match = re.search(r'(\{.*\})', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 class AIExtractionService:
@@ -48,9 +91,8 @@ class AIExtractionService:
 
     def _validate_extraction(self, content: str) -> tuple[bool, dict[str, Any] | None]:
         """Validate extracted JSON data."""
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
+        data = _extract_json_from_text(content)
+        if data is None:
             return False, None
 
         if not isinstance(data, dict):
@@ -91,7 +133,7 @@ class AIExtractionService:
                 pass
 
         confidence = max(0, score / len(required))
-        is_valid = confidence >= 0.3 and score >= 0
+        is_valid = confidence >= 0.2  # Lowered from 0.3
 
         return is_valid, data
 
@@ -112,8 +154,8 @@ class AIExtractionService:
         self,
         text: str,
         models: list[str] | None = None,
-        max_tokens: int = 1000,
-        temperature: float = 0.1,
+        max_tokens: int = 600,
+        temperature: float = 0.0,
     ) -> dict[str, Any]:
         """Extract protocol data from text using AI.
 
@@ -129,6 +171,20 @@ class AIExtractionService:
 
         for attempt, model in enumerate(model_chain, 1):
             try:
+                payload: dict[str, Any] = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                        {"role": "user", "content": text[:8000]},
+                    ],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+
+                # Only OpenAI models support json_object response format reliably
+                if model.startswith("openai/"):
+                    payload["response_format"] = {"type": "json_object"}
+
                 response = await client.post(
                     f"{settings.OPENROUTER_BASE_URL}/chat/completions",
                     headers={
@@ -137,16 +193,7 @@ class AIExtractionService:
                         "HTTP-Referer": "https://metrocheck.ru",
                         "X-Title": "metroChek Protocol Control",
                     },
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                            {"role": "user", "content": text[:8000]},
-                        ],
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                        "response_format": {"type": "json_object"},
-                    },
+                    json=payload,
                 )
                 response.raise_for_status()
                 result = response.json()
@@ -155,6 +202,12 @@ class AIExtractionService:
                 usage = result.get("usage", {})
 
                 if content is None:
+                    continue
+
+                # Detect model "hallucination" — too many tokens means not JSON
+                completion_tokens = usage.get("completion_tokens", 0)
+                if completion_tokens > 800:
+                    logger.warning("Model %s generated too many tokens (%s), likely not JSON", model, completion_tokens)
                     continue
 
                 is_valid, data = self._validate_extraction(content)
@@ -170,8 +223,13 @@ class AIExtractionService:
                         "usage": usage,
                     }
 
+                # Log why validation failed for debugging
+                logger.debug("Model %s response failed validation: %s", model, content[:200])
+
             except (httpx.HTTPError, KeyError, json.JSONDecodeError, TypeError, AttributeError) as e:
                 logger.warning("AI model %s failed: %s", model, e)
+                # Rate limit cooldown between models
+                await asyncio.sleep(1.0)
                 continue
 
         return {
