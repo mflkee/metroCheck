@@ -184,15 +184,18 @@ class AIExtractionService:
                 if model.startswith("openai/"):
                     payload["response_format"] = {"type": "json_object"}
 
-                response = await client.post(
-                    f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://metrocheck.ru",
-                        "X-Title": "metroChek Protocol Control",
-                    },
-                    json=payload,
+                response = await asyncio.wait_for(
+                    client.post(
+                        f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://metrocheck.ru",
+                            "X-Title": "metroChek Protocol Control",
+                        },
+                        json=payload,
+                    ),
+                    timeout=35.0,
                 )
                 response.raise_for_status()
                 result = response.json()
@@ -225,7 +228,7 @@ class AIExtractionService:
                 # Log why validation failed for debugging
                 logger.debug("Model %s response failed validation: %s", model, content[:200])
 
-            except (httpx.HTTPError, KeyError, json.JSONDecodeError, TypeError, AttributeError) as e:
+            except (httpx.HTTPError, KeyError, json.JSONDecodeError, TypeError, AttributeError, asyncio.TimeoutError) as e:
                 logger.warning("AI model %s failed: %s", model, e)
                 # Rate limit cooldown between models
                 await asyncio.sleep(1.0)
