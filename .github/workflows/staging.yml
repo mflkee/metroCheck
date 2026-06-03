@@ -24,9 +24,9 @@ jobs:
       - name: Apply staging migrations
         run: |
           cd ~/apps/metroCheck
-          # Wait for postgres then run migrations
+          # Wait for postgres container to accept connections
           for _ in {1..30}; do
-            docker compose -p metrocheck-stg -f docker-compose.staging.yml exec -T postgres pg_isready -U mkair -d mkair_stg 2>/dev/null && break
+            docker exec metroCheck_postgres_stg pg_isready -U mkair -d mkair_stg 2>/dev/null && break
             sleep 1
           done
           docker compose -p metrocheck-stg -f docker-compose.staging.yml run --no-deps --rm backend alembic upgrade head
