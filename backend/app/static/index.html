@@ -131,10 +131,12 @@ select:focus, input:focus { border-color:var(--blue); }
 .badge.purple { background:rgba(188,140,255,.15); color:var(--purple); }
 .badge.cyan { background:rgba(57,210,192,.15); color:var(--cyan); }
 .row {
-  display:grid; grid-template-columns:36px 70px 70px 1fr 36px;
-  gap:8px; align-items:center; padding:8px 12px; font-size:13px;
+  display:flex; align-items:center; gap:8px; padding:8px 12px; font-size:13px;
   background:var(--bg); border-radius:var(--radius); margin-bottom:4px;
+  flex-wrap:wrap; min-height:36px;
 }
+.row .info { display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
+.row .actions { display:flex; gap:4px; flex-shrink:0; }
 .row .id { color:var(--blue); font-weight:600; font-size:11px; }
 .row .dt { color:var(--text-dim); }
 .empty { text-align:center; padding:32px 16px; color:var(--text-muted); font-size:13px; }
@@ -405,7 +407,7 @@ async function updQueue() {
     // Pending
     const pl = document.getElementById('pending-list');
     if (d.pending?.length) {
-      const html = d.pending.map(j => `<div class="row"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge orange">${j.job_type==='manual'?'Ручн':'Авто'}</span><span class="muted">${j.progress||'Ожидание...'}</span><button class="btn danger sm" onclick="cancel(${j.id})">✕</button></div>`).join('');
+      const html = d.pending.map(j => `<div class="row"><div class="info"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge orange">${j.job_type==='manual'?'Ручн':'Авто'}</span><span class="muted">${j.progress||'Ожидание...'}</span></div><div class="actions"><button class="btn danger sm" onclick="cancel(${j.id})">✕</button></div></div>`).join('');
       if (pl.innerHTML !== html) pl.innerHTML = html;
     } else {
       const html = `<div class="empty"><div class="icon">📭</div><div>Очередь пуста</div></div>`;
@@ -415,7 +417,7 @@ async function updQueue() {
     // Recent
     const rl = document.getElementById('recent-list');
     if (d.recent?.length) {
-      const html = d.recent.slice(0,10).map(j => `<div class="row" style="justify-content:space-between"><div style="display:flex;align-items:center;gap:8px;flex:1"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge ${j.status==='completed'?'green':j.status==='failed'?'red':'orange'}">${j.status}</span><span class="muted">${j.progress||'—'}</span><span class="dt">${fmtDate(j.completed_at||j.started_at)}</span></div><div style="display:flex;gap:4px"><button class="btn ghost sm" onclick="downloadReport(${j.id})" title="Скачать отчёт">📥</button><button class="btn danger sm" onclick="deleteJob(${j.id})" title="Удалить">✕</button></div></div>`).join('');
+      const html = d.recent.slice(0,10).map(j => `<div class="row"><div class="info"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge ${j.status==='completed'?'green':j.status==='failed'?'red':'orange'}">${j.status}</span><span class="muted">${j.progress||'—'}</span><span class="dt">${fmtDate(j.completed_at||j.started_at)}</span></div><div class="actions"><button class="btn ghost sm" onclick="downloadReport(${j.id})" title="Скачать отчёт">📥</button><button class="btn danger sm" onclick="deleteJob(${j.id})" title="Удалить">✕</button></div></div>`).join('');
       if (rl.innerHTML !== html) rl.innerHTML = html;
     } else {
       const html = `<div class="empty"><div class="icon">📄</div><div>История пуста</div></div>`;
@@ -529,9 +531,13 @@ async function downloadReport(id) {
 async function deleteJob(id) {
   if (!confirm('Удалить #' + id + '?')) return;
   try {
-    await api('/v1/jobs/' + id, 'DELETE');
+    const r = await fetch(BASE + '/v1/jobs/' + id, { method: 'DELETE', headers: { 'X-API-Key': KEY } });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      throw Error(r.status + (txt ? ': ' + txt : ''));
+    }
     updQueue();
-  } catch { alert('Ошибка удаления'); }
+  } catch (e) { alert('Ошибка удаления: ' + e.message); }
 }
 
 async function genReport(id) {
