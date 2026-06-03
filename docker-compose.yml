@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: metroCheck_postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mkair}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mkair_secret}
@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: metroCheck_redis
-    restart: unless-stopped
+    restart: always
     volumes:
       - redis_data:/data
     ports:
@@ -40,7 +40,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: metroCheck_backend
-    restart: unless-stopped
+    restart: always
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mkair}:${POSTGRES_PASSWORD:-mkair_secret}@postgres:5432/${POSTGRES_DB:-mkair}
       REDIS_URL: redis://redis:6379/0
@@ -89,7 +89,7 @@ services:
   frontend:
     image: nginx:alpine
     container_name: metroCheck_frontend
-    restart: unless-stopped
+    restart: always
     ports:
       - "${FRONTEND_PORT:-8081}:80"
     volumes:
