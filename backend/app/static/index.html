@@ -517,7 +517,7 @@ async function runCheck() {
 
 async function downloadReport(id) {
   try {
-    const r = await fetch(BASE + '/v1/jobs/' + id + '/download-report', { headers: { 'X-API-Key': KEY } });
+    const r = await fetch(BASE + '/v1/jobs/' + id + '/generate-report', { method: 'POST', headers: { 'X-API-Key': KEY } });
     if (!r.ok) throw Error();
     const blob = await r.blob();
     const u = URL.createObjectURL(blob);
@@ -525,7 +525,7 @@ async function downloadReport(id) {
     a.href = u; a.download = `report_${id}.xlsx`;
     document.body.appendChild(a); a.click();
     URL.revokeObjectURL(u); document.body.removeChild(a);
-  } catch { alert('Отчёт не найден'); }
+  } catch { alert('Ошибка генерации отчёта'); }
 }
 
 async function deleteJob(id) {
