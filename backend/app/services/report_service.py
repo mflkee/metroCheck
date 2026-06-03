@@ -313,7 +313,10 @@ class ReportService:
                 info_notes.append(f"Методика: {proto.verification_method}")
 
             if proto and proto.verifier and cal.verifier:
-                if proto.verifier != cal.verifier:
+                # Normalize spaces in initials: "А. А." → "А.А."
+                norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
+                norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
+                if norm_proto_verifier != norm_cal_verifier:
                     mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
 
             if proto and proto.result and cal.result:
