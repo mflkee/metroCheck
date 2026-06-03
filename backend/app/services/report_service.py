@@ -291,7 +291,7 @@ class ReportService:
             ]
 
             mismatches = []
-            info_notes = []
+            notes = []  # FYI only, doesn't affect status
 
             if proto and proto.verification_date and cal.verification_date:
                 proto_date = proto.verification_date.strftime("%d.%m.%Y")
@@ -308,9 +308,9 @@ class ReportService:
                     if len(proto_words & cal_words) < 1:
                         mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
 
-            # Methodology — ARSHIN has no direct field, show as info note if present
+            # Methodology — just note, don't check
             if proto and proto.verification_method:
-                info_notes.append(f"Методика: {proto.verification_method}")
+                notes.append(f"Методика: {proto.verification_method}")
 
             if proto and proto.verifier and cal.verifier:
                 # Normalize spaces in initials: "А. А." → "А.А."
@@ -327,13 +327,9 @@ class ReportService:
                 if proto.serial_number.strip() != serial:
                     mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
 
-            # Compare ranges (soft check)
-            if proto and proto_range and arshin_range:
-                if arshin_range not in ('—', ''):
-                    if proto_range.lower() != arshin_range.lower():
-                        mismatches.append(f"Диапазон: {arshin_range} vs {proto_range}")
-            elif proto and proto_range and (not arshin_range or arshin_range in ('—', '')):
-                info_notes.append(f"Диапазон в АРШИН отсутствует (в протоколе: {proto_range})")
+            # Range — skip, ARSHIN public doesn't have it
+            if proto and proto_range:
+                notes.append(f"Диапазон (протокол): {proto_range}")
 
             if not proto:
                 mismatches.append("ПРОТОКОЛ ОТСУТСТВУЕТ")
@@ -342,10 +338,6 @@ class ReportService:
                 status = "❌"
                 status_color = "FFC7CE"
                 status_font_color = "9C0006"
-            elif info_notes:
-                status = "?"
-                status_color = "FFF2CC"
-                status_font_color = "806000"
             else:
                 status = "✓"
                 status_color = "C6EFCE"
@@ -353,11 +345,11 @@ class ReportService:
 
             row_data[STATUS_COL - 1] = status
             comments = "; ".join(mismatches) if mismatches else ""
-            if info_notes:
+            if notes:
                 if comments:
-                    comments += " | " + "; ".join(info_notes)
+                    comments += " | " + "; ".join(notes)
                 else:
-                    comments = "; ".join(info_notes)
+                    comments = "; ".join(notes)
             row_data[COMMENTS_COL - 1] = comments
 
             for col_idx, value in enumerate(row_data, 1):
@@ -368,13 +360,13 @@ class ReportService:
                 if col_idx == STATUS_COL:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
                     cell.font = Font(bold=True, color=status_font_color, size=12)
-                elif col_idx == COMMENTS_COL and (mismatches or info_notes):
+                elif col_idx == COMMENTS_COL and (mismatches or notes):
                     if mismatches:
                         cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                         cell.font = Font(color="9C0006", size=9)
                     else:
-                        cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                        cell.font = Font(color="806000", size=9)
+                        cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                        cell.font = Font(color="006100", size=9)
 
         widths = [
             5, 38,  # Статус, Расхождения
