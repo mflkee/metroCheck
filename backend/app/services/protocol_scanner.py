@@ -167,11 +167,13 @@ class ProtocolScanner:
 
     async def extract_text(self, protocol_file_id: int) -> dict[str, Any]:
         """Extract text from protocol file (runs in thread to avoid blocking)."""
-        protocol = await self.repo.get_by_id(protocol_file_id)
+        # Shield DB operations so cancellation (e.g. from asyncio.wait_for)
+        # doesn't corrupt the greenlet state of the async session
+        protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
 
-        # Run blocking I/O in a thread
+        # Run blocking I/O in a thread — can be cancelled safely (no greenlet)
         result = await asyncio.to_thread(self.extract_text_sync, protocol.file_path)
         
         if result.get("error"):
@@ -180,7 +182,7 @@ class ProtocolScanner:
             protocol.status = "scanned"
             protocol.raw_text = result["text"][:10000]  # Store first 10k chars
         
-        await self.db.commit()
+        await asyncio.shield(self.db.commit())
         
         return {
             "protocol_id": protocol_file_id,

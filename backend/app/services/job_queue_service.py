@@ -91,6 +91,15 @@ class JobQueueService:
                     await self.db.rollback()
                 except Exception:
                     pass
+                # Recreate session if corrupted
+                try:
+                    await self.db.close()
+                except Exception:
+                    pass
+                from app.core.database import AsyncSessionLocal
+                from app.repositories.job_repository import JobRepository
+                self.db = AsyncSessionLocal()
+                self.repo = JobRepository(self.db)
                 await asyncio.sleep(5)
 
     def stop_worker(self) -> None:
@@ -140,7 +149,25 @@ class JobQueueService:
             job.status = "cancelled"
             job.progress = "Cancelled"
             job.completed_at = datetime.utcnow()
-            await self.db.commit()
+            try:
+                await self.db.commit()
+            except Exception:
+                # Session corrupted — recreate and re-save
+                try:
+                    await self.db.rollback()
+                    await self.db.close()
+                except Exception:
+                    pass
+                from app.core.database import AsyncSessionLocal
+                from app.repositories.job_repository import JobRepository
+                self.db = AsyncSessionLocal()
+                self.repo = JobRepository(self.db)
+                fresh_job = await self.repo.get_by_id(job.id)
+                if fresh_job:
+                    fresh_job.status = "cancelled"
+                    fresh_job.progress = "Cancelled"
+                    fresh_job.completed_at = datetime.utcnow()
+                    await self.db.commit()
             raise
         except Exception as e:
             self._current_task = None
@@ -148,10 +175,33 @@ class JobQueueService:
                 await self.db.rollback()
             except Exception:
                 pass
-            job.status = "failed"
-            job.error_message = str(e)
-            job.progress = f"Failed: {e}"
-            job.completed_at = datetime.utcnow()
+            
+            # Recreate session in case it was corrupted by task cancellation
+            # (greenlet_spawn error) — a single shared session is used for all jobs
+            try:
+                await self.db.close()
+            except Exception:
+                pass
+            from app.core.database import AsyncSessionLocal
+            from app.repositories.job_repository import JobRepository
+            self.db = AsyncSessionLocal()
+            self.repo = JobRepository(self.db)
+            
+            # Re-attach and update job in the new session
+            fresh_job = await self.repo.get_by_id(job.id)
+            if fresh_job:
+                fresh_job.status = "failed"
+                fresh_job.error_message = str(e)
+                fresh_job.progress = f"Failed: {e}"
+                fresh_job.completed_at = datetime.utcnow()
+            else:
+                # Fallback: re-add the detached object
+                job.status = "failed"
+                job.error_message = str(e)
+                job.progress = f"Failed: {e}"
+                job.completed_at = datetime.utcnow()
+                self.db.add(job)
+            
             try:
                 await self.db.commit()
             except Exception:
