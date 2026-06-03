@@ -93,7 +93,7 @@ class ReportService:
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
-                   "Дата", "Действует до", "№ док-та", "Результат", "Методика", "Диапазон"]
+                   "Дата", "Действует до", "№ док-та", "Результат"]
         self._write_headers(ws, headers, "4472C4")
 
         for idx, cal in enumerate(calibrations, 1):
@@ -105,15 +105,13 @@ class ReportService:
                 result_text = "непригоден"
             else:
                 result_text = ""
-            # Find matching protocol for verification_method
-            # We'll leave it empty here, it will be filled in comparison sheet
             row = [idx, cal.vri_id, cal.mit_number, cal.mit_title, cal.mit_notation,
                    cal.mi_modification, cal.mi_number,
                    cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
                    cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
-                   cal.result_docnum, result_text, "—", ""]
+                   cal.result_docnum, result_text]
             self._write_data_row(ws, row, idx, "DDEBF7")
-        self._set_column_widths(ws, [4, 14, 11, 22, 16, 14, 13, 12, 12, 20, 10, 18, 18])
+        self._set_column_widths(ws, [4, 14, 11, 22, 16, 14, 13, 12, 12, 20, 10])
 
     def _fill_lk_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "Поверитель", "t, °C", "φ, %", "P, кПа"]
@@ -170,7 +168,7 @@ class ReportService:
 
         compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
-                          "Дата", "Действует до", "№ док-та", "Результат", "Методика", "Диапазон"]
+                          "Дата", "Действует до", "№ док-та", "Результат"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Тип", "Зав№",
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
@@ -269,7 +267,7 @@ class ReportService:
                 cal.mi_modification, cal.mi_number,
                 cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
-                cal.result_docnum, result_text, "—", arshin_range or "—",
+                cal.result_docnum, result_text,
                 # lk headers
                 cal.verifier or "", fmt_num(lk_conditions.get("temperature")),
                 fmt_num(lk_conditions.get("humidity")), fmt_num(lk_conditions.get("pressure")),
