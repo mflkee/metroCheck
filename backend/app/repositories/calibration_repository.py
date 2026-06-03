@@ -131,19 +131,31 @@ class CalibrationRepository:
         result = await self.db.execute(select(Calibration).where(Calibration.id == cal_id))
         cal = result.scalar_one_or_none()
         if cal:
-            # LK API uses "author" instead of "verifier"
-            cal.verifier = detail.get("author") or detail.get("verifier")
-            # Store raw conditions as JSON string (may be absent in LK response)
             import json
-            conditions = detail.get("conditions", {})
-            # Some LK endpoints return conditions flattened
-            if not conditions and any(k in detail for k in ("temperature", "humidity", "pressure")):
-                conditions = {
-                    "temperature": detail.get("temperature"),
-                    "humidity": detail.get("humidity"),
-                    "pressure": detail.get("pressure"),
-                }
+
+            # verifierName from detailed LK record
+            cal.verifier = detail.get("verifierName") or detail.get("author")
+
+            # Conditions from detailed LK record
+            conditions = {
+                "temperature": detail.get("conditionsTemperature"),
+                "humidity": detail.get("conditionsHymidity"),
+                "pressure": detail.get("conditionsPressure"),
+            }
             cal.conditions = json.dumps(conditions)
+
+            # Modification from miInfo
+            mi_info = detail.get("miInfo", {})
+            vri_mi = mi_info.get("vriMi", {})
+            cal.mi_modification = vri_mi.get("modification") or cal.mi_modification
+
+            # Methodology from docTitle
+            if detail.get("docTitle"):
+                # Store in conditions or a separate field; for now append to conditions
+                cond = json.loads(cal.conditions or "{}")
+                cond["methodology"] = detail.get("docTitle")
+                cal.conditions = json.dumps(cond)
+
             await self.db.commit()
 
     async def update_data2(self, cal_id: int, data2: dict[str, Any]) -> None:
@@ -151,9 +163,20 @@ class CalibrationRepository:
         result = await self.db.execute(select(Calibration).where(Calibration.id == cal_id))
         cal = result.scalar_one_or_none()
         if cal:
-            # Merge data2 fields
+            import json
+
+            # Merge data2 fields from detailed LK record
             if "factoryNum" in data2:
                 cal.mi_number = str(data2.get("factoryNum", cal.mi_number or ""))
             if "mitypeNumber" in data2:
                 cal.mit_number = data2.get("mitypeNumber", cal.mit_number)
+
+            # Update conditions if present
+            if any(k in data2 for k in ("conditionsTemperature", "conditionsHymidity", "conditionsPressure")):
+                conditions = json.loads(cal.conditions or "{}")
+                conditions["temperature"] = data2.get("conditionsTemperature", conditions.get("temperature"))
+                conditions["humidity"] = data2.get("conditionsHymidity", conditions.get("humidity"))
+                conditions["pressure"] = data2.get("conditionsPressure", conditions.get("pressure"))
+                cal.conditions = json.dumps(conditions)
+
             await self.db.commit()
