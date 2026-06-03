@@ -117,6 +117,13 @@ class JobRepository:
             return True
         return False
 
+    async def delete_job(self, job_id: int) -> bool:
+        from sqlalchemy import delete
+        from app.models.job import Job
+        result = await self.db.execute(delete(Job).where(Job.id == job_id))
+        await self.db.commit()
+        return result.rowcount > 0
+
     async def pause_job(self, job_id: int) -> bool:
         job = await self.get_by_id(job_id)
         if job and job.status == "pending":
