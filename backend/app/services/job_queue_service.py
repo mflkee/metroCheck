@@ -610,7 +610,7 @@ class JobQueueService:
             warnings=checks.get("warnings", 0),
             missing=checks.get("missing", 0),
             check_run_id=job.check_run_id or 0,
-            report_url=f"http://100.89.59.195:8002/api/v1/checks/results/{job.check_run_id}" if job.check_run_id else None,
+            report_url=f"http://100.89.59.195:8081/" if job.check_run_id else None,
             recipient_email=report_email,
         )
         
