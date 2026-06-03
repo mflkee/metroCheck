@@ -136,7 +136,7 @@ class ReportService:
     def _fill_protocol_sheet(self, ws, protocols) -> None:
         headers = ["№", "№ протокола", "Наименование", "Тип", "Зав№",
                    "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                   "Поверитель", "t, °C", "φ, %", "P, кПа", "Диапазон", "Результат"]
+                   "Поверитель", "t, °C", "φ, %", "P, кПа", "Диапазон"]
         self._write_headers(ws, headers, "ED7D31")
 
         def fmt_num(val):
@@ -157,9 +157,9 @@ class ReportService:
                    proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
                    proto.verifier or "", fmt_num(proto.temperature),
                    fmt_num(proto.humidity), fmt_num(proto.pressure),
-                   proto_range, proto.result or ""]
+                   proto_range]
             self._write_data_row(ws, row, idx, "FCE4D6")
-        self._set_column_widths(ws, [4, 15, 20, 14, 13, 11, 18, 6, 18, 12, 16, 8, 8, 9, 18, 10])
+        self._auto_fit_columns(ws)
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
         proto_by_serial = {}
@@ -400,3 +400,17 @@ class ReportService:
         from openpyxl.utils import get_column_letter
         for idx, width in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(idx)].width = width
+
+    def _auto_fit_columns(self, ws) -> None:
+        from openpyxl.utils import get_column_letter
+        for column in ws.columns:
+            max_length = 0
+            column_letter = get_column_letter(column[0].column)
+            for cell in column:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except Exception:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
