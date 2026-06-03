@@ -415,7 +415,7 @@ async function updQueue() {
     // Recent
     const rl = document.getElementById('recent-list');
     if (d.recent?.length) {
-      const html = d.recent.slice(0,10).map(j => `<div class="row"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge ${j.status==='completed'?'green':j.status==='failed'?'red':'orange'}">${j.status}</span><span class="muted">${j.progress||'—'}</span><span class="dt">${fmtDate(j.completed_at||j.started_at)}</span></div>`).join('');
+      const html = d.recent.slice(0,10).map(j => `<div class="row" style="justify-content:space-between"><div style="display:flex;align-items:center;gap:8px;flex:1"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge ${j.status==='completed'?'green':j.status==='failed'?'red':'orange'}">${j.status}</span><span class="muted">${j.progress||'—'}</span><span class="dt">${fmtDate(j.completed_at||j.started_at)}</span></div><div style="display:flex;gap:4px"><button class="btn ghost sm" onclick="downloadReport(${j.id})" title="Скачать отчёт">📥</button><button class="btn danger sm" onclick="deleteJob(${j.id})" title="Удалить">✕</button></div></div>`).join('');
       if (rl.innerHTML !== html) rl.innerHTML = html;
     } else {
       const html = `<div class="empty"><div class="icon">📄</div><div>История пуста</div></div>`;
@@ -511,6 +511,27 @@ async function runCheck() {
   const m = parseInt(document.getElementById('run-m').value);
   await api('/v1/jobs/enqueue', 'POST', { year: y, month: m });
   updQueue();
+}
+
+async function downloadReport(id) {
+  try {
+    const r = await fetch(BASE + '/v1/jobs/' + id + '/download-report', { headers: { 'X-API-Key': KEY } });
+    if (!r.ok) throw Error();
+    const blob = await r.blob();
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = `report_${id}.xlsx`;
+    document.body.appendChild(a); a.click();
+    URL.revokeObjectURL(u); document.body.removeChild(a);
+  } catch { alert('Отчёт не найден'); }
+}
+
+async function deleteJob(id) {
+  if (!confirm('Удалить #' + id + '?')) return;
+  try {
+    await api('/v1/jobs/' + id, 'DELETE');
+    updQueue();
+  } catch { alert('Ошибка удаления'); }
 }
 
 async function genReport(id) {

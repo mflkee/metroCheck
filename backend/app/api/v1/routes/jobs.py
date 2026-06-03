@@ -262,3 +262,22 @@ async def generate_job_report(
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@router.delete("/{job_id}")
+async def delete_job(
+    job_id: int,
+    x_api_key: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a job by ID."""
+    if x_api_key != settings.FASTAPI_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    from app.repositories.job_repository import JobRepository
+    repo = JobRepository(db)
+    deleted = await repo.delete_job(job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "deleted", "job_id": job_id}
+
