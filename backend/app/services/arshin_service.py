@@ -146,7 +146,17 @@ class ArshinService:
                 continue
 
             try:
-                detail = await self.client.get_lk_details_by_docnum(cal.result_docnum)
+                # Step 1: Search by document number to get LK record id
+                search_result = await self.client.get_lk_details_by_docnum(cal.result_docnum)
+                if not search_result:
+                    continue
+
+                # Step 2: Fetch detailed record using LK id (not vri_id!)
+                lk_id = search_result.get("id")
+                if not lk_id:
+                    continue
+
+                detail = await self.client.get_lk_data2_by_id(lk_id)
                 if detail:
                     await self.repo.update_lk_details(cal.id, detail)
                     updated += 1
@@ -156,20 +166,32 @@ class ArshinService:
         return {"total": len(calibrations), "updated": updated, "errors": errors}
 
     async def fetch_lk_data2(self, year: int, month: int) -> dict[str, Any]:
-        """Fetch extended LK data (data2) for all calibrations."""
+        """Fetch extended LK data (data2) for all calibrations.
+
+        Deprecated: all data now fetched in fetch_lk_details.
+        Kept for pipeline compatibility.
+        """
         calibrations = await self.repo.get_without_data2(year, month)
 
         updated = 0
         errors = 0
         for cal in calibrations:
-            if not cal.vri_id:
+            if not cal.result_docnum:
                 continue
 
             try:
-                # vri_id from LK details is the ID for data2
-                data2 = await self.client.get_lk_data2_by_id(int(cal.vri_id))
-                if data2:
-                    await self.repo.update_data2(cal.id, data2)
+                # Re-fetch using the same flow as fetch_lk_details
+                search_result = await self.client.get_lk_details_by_docnum(cal.result_docnum)
+                if not search_result:
+                    continue
+
+                lk_id = search_result.get("id")
+                if not lk_id:
+                    continue
+
+                detail = await self.client.get_lk_data2_by_id(lk_id)
+                if detail:
+                    await self.repo.update_data2(cal.id, detail)
                     updated += 1
             except Exception:
                 errors += 1
