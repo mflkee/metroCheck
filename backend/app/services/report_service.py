@@ -57,7 +57,7 @@ class ReportService:
             return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
         return ""
 
-    async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports") -> dict[str, Any]:
+    async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports", job_id: int | None = None) -> dict[str, Any]:
         """Generate interim Excel report with full comparison layout."""
         calibrations = await self.cal_repo.get_by_month(year, month)
         protocols = await self.proto_repo.get_by_month(year, month)
@@ -77,7 +77,8 @@ class ReportService:
         self._fill_comparison_sheet(ws_compare, calibrations, protocols)
 
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"report_{year}_{month:02d}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        job_suffix = f"_job{job_id}" if job_id else ""
+        filename = f"report_{year}_{month:02d}{job_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         file_path = os.path.join(output_dir, filename)
         wb.save(file_path)
 

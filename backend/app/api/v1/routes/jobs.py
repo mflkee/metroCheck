@@ -242,12 +242,8 @@ async def generate_job_report(
     # Generate report based on current data
     report_service = ReportService(db)
     
-    # If job has check_run_id, generate full report
-    if job.check_run_id:
-        result = await report_service.generate_report(job.check_run_id)
-    else:
-        # Generate interim report with current data
-        result = await report_service.generate_interim_report(job.year, job.month)
+    # Always generate fresh interim report (avoids stale cached files)
+    result = await report_service.generate_interim_report(job.year, job.month, job_id=job.id)
 
     if result.get("error"):
         raise HTTPException(status_code=500, detail=result["error"])
