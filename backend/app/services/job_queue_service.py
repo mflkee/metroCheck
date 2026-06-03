@@ -75,6 +75,24 @@ class JobQueueService:
     async def start_worker(self) -> None:
         """Start background worker that processes jobs."""
         self._stop_event.clear()
+        
+        # Clean up stale "running" jobs left over from a restart
+        try:
+            stale = await self.repo.list_by_status("running")
+            for s in stale:
+                s.status = "failed"
+                s.error_message = "Backend restart — job was left in running state"
+                s.progress = "Отменено после перезапуска"
+                s.completed_at = datetime.utcnow()
+                logger.warning("Marked stale running job #%d as failed", s.id)
+            if stale:
+                await self.db.commit()
+        except Exception:
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+        
         while not self._stop_event.is_set():
             try:
                 processed = await self._process_next_job()
