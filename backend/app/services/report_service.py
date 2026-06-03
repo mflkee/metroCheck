@@ -308,10 +308,6 @@ class ReportService:
                     if len(proto_words & cal_words) < 1:
                         mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
 
-            # Methodology — just note, don't check
-            if proto and proto.verification_method:
-                notes.append(f"Методика: {proto.verification_method}")
-
             if proto and proto.verifier and cal.verifier:
                 # Normalize spaces in initials: "А. А." → "А.А."
                 norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
@@ -326,10 +322,6 @@ class ReportService:
             if proto and proto.serial_number and serial:
                 if proto.serial_number.strip() != serial:
                     mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
-
-            # Range — skip, ARSHIN public doesn't have it
-            if proto and proto_range:
-                notes.append(f"Диапазон (протокол): {proto_range}")
 
             if not proto:
                 mismatches.append("ПРОТОКОЛ ОТСУТСТВУЕТ")
