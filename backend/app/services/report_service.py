@@ -112,7 +112,7 @@ class ReportService:
                    cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
                    cal.result_docnum, result_text]
             self._write_data_row(ws, row, idx, "DDEBF7")
-        self._set_column_widths(ws, [4, 14, 11, 22, 16, 14, 13, 12, 12, 20, 10])
+        self._auto_fit_columns(ws)
 
     def _fill_lk_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "Поверитель", "t, °C", "φ, %", "P, кПа"]
@@ -131,7 +131,7 @@ class ReportService:
                    conditions.get("humidity", ""),
                    conditions.get("pressure", "")]
             self._write_data_row(ws, row, idx, "E2EFDA")
-        self._set_column_widths(ws, [4, 14, 16, 8, 8, 9])
+        self._auto_fit_columns(ws)
 
     def _fill_protocol_sheet(self, ws, protocols) -> None:
         headers = ["№", "№ протокола", "Наименование", "Тип", "Зав№",
@@ -366,9 +366,7 @@ class ReportService:
             16, 7, 7, 8,
             14, 20, 14, 13, 11, 18, 6, 18, 12, 16, 7, 7, 8, 16, 10,
         ]
-        self._set_column_widths(ws, widths)
-        for row in range(3, len(calibrations) + 3):
-            ws.row_dimensions[row].height = 35
+        self._auto_fit_columns(ws)
 
     def _write_headers(self, ws, headers, color) -> None:
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
