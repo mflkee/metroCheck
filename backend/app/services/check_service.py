@@ -238,7 +238,7 @@ class CheckService:
                     self.db.add(result)
                     results.append(result)
 
-            # Check humidity (must be 0-100%)
+            # Check humidity against ARSHIN conditions (allow ±10% RH)
             if protocol.humidity is not None:
                 if protocol.humidity < 0 or protocol.humidity > 100:
                     result = CheckResult(
@@ -248,6 +248,19 @@ class CheckService:
                         check_type="data_match",
                         status="warning",
                         comment=f"Humidity out of range: {protocol.humidity}%",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
+                cal_humidity = self._parse_condition(cal.conditions, "humidity")
+                if cal_humidity is not None and abs(protocol.humidity - cal_humidity) > 10.0:
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"Humidity mismatch: ARSHIN={cal_humidity}% vs Protocol={protocol.humidity}%",
                     )
                     self.db.add(result)
                     results.append(result)
