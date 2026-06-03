@@ -16,13 +16,6 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
-      - name: Clean up stale staging containers
-        run: |
-          # Remove containers that may have been created before -p flag was added
-          for c in metroCheck_postgres_stg metroCheck_redis_stg metroCheck_backend_stg metroCheck_frontend_stg; do
-            docker rm -f "$c" 2>/dev/null && echo "removed $c" || true
-          done
-
       - name: Build & deploy staging
         run: |
           cd ~/apps/metroCheck
@@ -31,7 +24,12 @@ jobs:
       - name: Apply staging migrations
         run: |
           cd ~/apps/metroCheck
-          docker compose -p metrocheck-stg -f docker-compose.staging.yml exec -T backend alembic upgrade head
+          # Wait for postgres then run migrations
+          for _ in {1..30}; do
+            docker compose -p metrocheck-stg -f docker-compose.staging.yml exec -T postgres pg_isready -U mkair -d mkair_stg 2>/dev/null && break
+            sleep 1
+          done
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml run --no-deps --rm backend alembic upgrade head
 
       - name: Staging health check
         run: |
