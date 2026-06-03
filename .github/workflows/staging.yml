@@ -16,6 +16,13 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
+      - name: Clean up stale staging containers
+        run: |
+          # Remove containers that may have been created before -p flag was added
+          for c in metroCheck_postgres_stg metroCheck_redis_stg metroCheck_backend_stg metroCheck_frontend_stg; do
+            docker rm -f "$c" 2>/dev/null && echo "removed $c" || true
+          done
+
       - name: Build & deploy staging
         run: |
           cd ~/apps/metroCheck
