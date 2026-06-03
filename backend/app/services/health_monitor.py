@@ -177,6 +177,13 @@ class HealthMonitor:
                     "status": "expired",
                     "age_seconds": int(age) if updated_at else None,
                     "age_minutes": age_min if updated_at else None,
+                    "last_check": time.time(),
+                }
+            else:
+                self._status["arshin_token"] = {
+                    "status": "expired",
+                    "age_seconds": int(age) if updated_at else None,
+                    "age_minutes": age_min if updated_at else None,
                     "note": f"возраст токена {age_min} мин" if token else "токен отсутствует",
                     "last_check": time.time(),
                 }

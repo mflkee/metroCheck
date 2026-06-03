@@ -348,7 +348,10 @@ async function updHealth() {
       const st = s[i.key] || {};
       let detail = hBadge(st.status);
       if (i.key === 'arshin_token' && st.status === 'ok') {
-        detail = `<span class="badge ${(st.expires_min||0)<10?'red':'green'}">${st.expires_min||0} мин</span>`;
+        const sec = st.age_seconds || 0;
+        const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+        const ss = String(sec % 60).padStart(2, '0');
+        detail = `<span class="badge green" id="token-timer" data-base="${sec}">${mm}:${ss}</span>`;
       }
       if (i.key === 'openrouter' && st.balance) detail += ` $${st.balance}`;
       return `<div class="health-i"><div class="hlbl">${i.label}</div><div style="margin-left:auto">${detail}</div></div>`;
@@ -361,6 +364,18 @@ async function updHealth() {
     document.getElementById('st').textContent = problems.length ? 'Есть проблемы' : 'Сервер онлайн';
   } catch { console.error('health fail'); }
 }
+
+// Token stopwatch ticker
+setInterval(() => {
+  const timer = document.getElementById('token-timer');
+  if (!timer) return;
+  let base = parseInt(timer.dataset.base || '0', 10);
+  base += 1;
+  timer.dataset.base = base;
+  const mm = String(Math.floor(base / 60)).padStart(2, '0');
+  const ss = String(base % 60).padStart(2, '0');
+  timer.textContent = `${mm}:${ss}`;
+}, 1000);
 
 // ── Queue ──
 async function updQueue() {
