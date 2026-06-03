@@ -54,3 +54,4 @@ data/**/.git/
 
 # Local development reports
 reports/*.xlsx
+*.sql
