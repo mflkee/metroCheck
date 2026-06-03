@@ -169,11 +169,11 @@ class ReportService:
 
         compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
-                          "Дата", "Действует до", "№ док-та", "Результат"]
+                          "Дата", "Действует до", "№ док-та"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Тип", "Зав№",
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                         "Поверитель", "t", "φ", "P", "Диапазон", "Результат"]
+                         "Поверитель", "t", "φ", "P", "Диапазон"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
         group_titles = [
@@ -237,14 +237,6 @@ class ReportService:
                     lk_conditions = json.loads(cal.conditions)
                 except json.JSONDecodeError:
                     pass
-            if cal.result:
-                result_text = cal.result
-            elif cal.applicability is True:
-                result_text = "пригоден"
-            elif cal.applicability is False:
-                result_text = "непригоден"
-            else:
-                result_text = ""
 
             def fmt_num(val):
                 if val is None:
@@ -268,7 +260,7 @@ class ReportService:
                 cal.mi_modification, cal.mi_number,
                 cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
-                cal.result_docnum, result_text,
+                cal.result_docnum,
                 # lk headers
                 cal.verifier or "", fmt_num(lk_conditions.get("temperature")),
                 fmt_num(lk_conditions.get("humidity")), fmt_num(lk_conditions.get("pressure")),
@@ -287,7 +279,6 @@ class ReportService:
                 fmt_num(proto.humidity) if proto else "",
                 fmt_num(proto.pressure) if proto else "",
                 proto_range or "—",
-                proto.result if proto else "",
             ]
 
             mismatches = []
@@ -314,10 +305,6 @@ class ReportService:
                 norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
                 if norm_proto_verifier != norm_cal_verifier:
                     mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
-
-            if proto and proto.result and cal.result:
-                if proto.result != cal.result:
-                    mismatches.append(f"Результат: {cal.result} vs {proto.result}")
 
             if proto and proto.serial_number and serial:
                 if proto.serial_number.strip() != serial:
