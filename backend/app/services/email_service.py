@@ -1,8 +1,12 @@
 """Email service for sending reports."""
 
+import os
 import smtplib
+import zipfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from typing import Optional
 
 from app.core.config import settings
@@ -39,7 +43,7 @@ class EmailService:
         warnings: int,
         missing: int,
         check_run_id: int,
-        report_url: Optional[str] = None,
+        report_path: Optional[str] = None,
         recipient_email: Optional[str] = None,
     ) -> bool:
         """Send email report after check completion."""
@@ -63,7 +67,7 @@ class EmailService:
         <li style="color: #f59e0b;">Предупреждений: <strong>{warnings}</strong></li>
         <li style="color: #6b7280;">Нет протоколов: <strong>{missing}</strong></li>
     </ul>
-    {f'<p><a href="{report_url}" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Скачать полный отчет</a></p>' if report_url else ''}
+    <p>Отчет во вложении (ZIP архив).</p>
     <hr>
     <p style="color: #666; font-size: 12px;">
         metroChek Automated Protocol Control System<br>
@@ -72,17 +76,45 @@ class EmailService:
 </body>
 </html>"""
 
+        # Create ZIP attachment if report exists
+        zip_path = None
+        if report_path and os.path.exists(report_path):
+            zip_path = report_path.replace('.xlsx', '.zip')
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    zf.write(report_path, os.path.basename(report_path))
+            except Exception as e:
+                print(f"[Email] Failed to create ZIP: {e}")
+                zip_path = None
+
         try:
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = self.from_email
             for to_email in to_emails:
-                msg_copy = MIMEMultipart('alternative')
-                msg_copy['Subject'] = subject
-                msg_copy['From'] = self.from_email
-                msg_copy['To'] = to_email
-                msg_copy.attach(MIMEText(body, 'html', 'utf-8'))
-                self._send_smtp(msg_copy)
+                msg = MIMEMultipart()
+                msg['Subject'] = subject
+                msg['From'] = self.from_email
+                msg['To'] = to_email
+                msg.attach(MIMEText(body, 'html', 'utf-8'))
+                
+                # Attach ZIP file
+                if zip_path and os.path.exists(zip_path):
+                    with open(zip_path, 'rb') as f:
+                        attachment = MIMEBase('application', 'zip')
+                        attachment.set_payload(f.read())
+                        encoders.encode_base64(attachment)
+                        attachment.add_header(
+                            'Content-Disposition',
+                            f'attachment; filename="{os.path.basename(zip_path)}"'
+                        )
+                        msg.attach(attachment)
+                
+                self._send_smtp(msg)
+            
+            # Cleanup temp ZIP
+            if zip_path and os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                except Exception:
+                    pass
             
             print(f"[Email] Report sent to {', '.join(to_emails)}")
             return True

@@ -602,6 +602,16 @@ class JobQueueService:
         except Exception:
             pass
         
+        # Generate report and attach to email
+        report_path = None
+        try:
+            from app.services.report_service import ReportService
+            report_service = ReportService(self.db)
+            report_result = await report_service.generate_interim_report(job.year, job.month)
+            report_path = report_result.get("file_path")
+        except Exception as e:
+            print(f"[Email] Failed to generate report: {e}")
+        
         await self.email.send_check_report(
             year=job.year,
             month=job.month,
@@ -610,7 +620,7 @@ class JobQueueService:
             warnings=checks.get("warnings", 0),
             missing=checks.get("missing", 0),
             check_run_id=job.check_run_id or 0,
-            report_url=f"http://100.89.59.195:8081/" if job.check_run_id else None,
+            report_path=report_path,
             recipient_email=report_email,
         )
         
