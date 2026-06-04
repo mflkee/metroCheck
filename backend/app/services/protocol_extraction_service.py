@@ -160,12 +160,20 @@ class ProtocolExtractionService:
     def _extract_serial_number(self, text: str) -> str | None:
         """Extract serial number."""
         patterns = [
-            r'Заводской\s+номер[:\s]+([^\n\r]+)',
+            r'Заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
             r'Зав\.\s*№?[:\s]+([^\n\r]+)',
             r'Серийный\s+номер[:\s]+([^\n\r]+)',
             r'№\s*заводской[:\s]+([^\n\r]+)',
         ]
-        return self._match_first(text, patterns)
+        serial = self._match_first(text, patterns)
+        if serial:
+            # Clean up artifacts
+            serial = re.sub(r'^\(номера\):\s*', '', serial)
+            serial = re.sub(r'все\s+цифры\s+и\s+буквы\s+заводского\s+номера', '', serial, flags=re.IGNORECASE)
+            serial = re.sub(r'[();]', '', serial)
+            serial = serial.strip()
+            return serial if len(serial) > 1 else None
+        return None
 
     def _extract_mit_number(self, text: str) -> str | None:
         """Extract MIT number like '47279-11'."""
@@ -227,14 +235,26 @@ class ProtocolExtractionService:
 
     def _extract_verification_date(self, text: str) -> str | None:
         """Extract verification date in YYYY-MM-DD format."""
-        # Pattern: "от 11.01.2024г."
-        match = re.search(r'от\s+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', text)
+        # Look for "Дата поверки:" near the end of the document (after "Заключение:")
+        # This avoids picking up certificate dates
+        conclusion_match = re.search(r'Заключение:.*?(\n\n|\Z)', text, re.DOTALL)
+        search_text = conclusion_match.group(0) if conclusion_match else text
+        
+        # Pattern: "Дата поверки: 01.12.2025 г."
+        match = re.search(r'Дата\s+поверки[:\s]+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', search_text)
+        if match:
+            day, month, year = match.groups()
+            return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+        
+        # Fallback: "от 11.01.2024г." - but only in the last 1000 chars
+        last_part = text[-1000:]
+        match = re.search(r'от\s+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', last_part)
         if match:
             day, month, year = match.groups()
             return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
 
         # Pattern: "11 января 2024"
-        match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', text)
+        match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', last_part)
         if match:
             day, month_ru, year = match.groups()
             month = self.MONTH_MAP.get(month_ru.lower())
@@ -242,7 +262,7 @@ class ProtocolExtractionService:
                 return f"{year}-{month}-{day.zfill(2)}"
 
         # Pattern: "2024-01-11"
-        match = re.search(r'(\d{4})[\.\-/](\d{1,2})[\.\-/](\d{1,2})', text)
+        match = re.search(r'(\d{4})[\.\-/](\d{1,2})[\.\-/](\d{1,2})', last_part)
         if match:
             year, month, day = match.groups()
             return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
@@ -258,6 +278,9 @@ class ProtocolExtractionService:
         ]
         verifier = self._match_first(text, patterns)
         if verifier:
+            # Skip placeholder text
+            if 'подпись' in verifier.lower() or 'фамилия' in verifier.lower() or 'инициалы' in verifier.lower():
+                return None
             # Clean format: "Чупин А.А." or "Чупин А. А."
             verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
             verifier = verifier.strip()
