@@ -383,68 +383,69 @@ class JobQueueService:
                 logger.info("[DEBUG] Protocol %s: extraction done, status=%s", proto.id, ai_result.get("status"))
                 extracted_data = ai_result.get("content") or {}
 
-                if extracted_data.get('serial_number'):
-                    verification_date = None
-                    vd = extracted_data.get('verification_date')
-                    if vd:
-                        try:
-                            from datetime import datetime
-                            verification_date = datetime.strptime(vd, '%Y-%m-%d').date()
-                        except (ValueError, TypeError):
-                            pass
+                verification_date = None
+                vd = extracted_data.get('verification_date')
+                if vd:
+                    try:
+                        from datetime import datetime
+                        verification_date = datetime.strptime(vd, '%Y-%m-%d').date()
+                    except (ValueError, TypeError):
+                        pass
 
-                    temperature = extracted_data.get('temperature')
-                    if temperature is not None:
-                        temperature = float(str(temperature).replace(',', '.').split()[0].replace('°C', '').replace('C', ''))
+                temperature = extracted_data.get('temperature')
+                if temperature is not None:
+                    temperature = float(str(temperature).replace(',', '.').split()[0].replace('°C', '').replace('C', ''))
 
-                    humidity = extracted_data.get('humidity')
-                    if humidity is not None:
-                        humidity = float(str(humidity).replace('%', '').replace(',', '.').split()[0])
+                humidity = extracted_data.get('humidity')
+                if humidity is not None:
+                    humidity = float(str(humidity).replace('%', '').replace(',', '.').split()[0])
 
-                    pressure = extracted_data.get('pressure')
-                    if pressure is not None:
-                        pressure = float(str(pressure).replace(',', '.').split()[0])
+                pressure = extracted_data.get('pressure')
+                if pressure is not None:
+                    pressure = float(str(pressure).replace(',', '.').split()[0])
 
-                    manufacture_year = extracted_data.get('manufacture_year')
-                    if manufacture_year is not None:
-                        try:
-                            manufacture_year = int(manufacture_year)
-                        except (ValueError, TypeError):
-                            manufacture_year = None
+                manufacture_year = extracted_data.get('manufacture_year')
+                if manufacture_year is not None:
+                    try:
+                        manufacture_year = int(manufacture_year)
+                    except (ValueError, TypeError):
+                        manufacture_year = None
 
-                    fields = dict(
-                        protocol_number=extracted_data.get('protocol_number'),
-                        device_name=extracted_data.get('device_name'),
-                        device_type=extracted_data.get('device_type'),
-                        serial_number=extracted_data.get('serial_number'),
-                        mit_number=extracted_data.get('mit_number'),
-                        manufacture_year=manufacture_year,
-                        owner=extracted_data.get('owner'),
-                        verification_date=verification_date,
-                        verifier=extracted_data.get('verifier'),
-                        temperature=temperature,
-                        humidity=humidity,
-                        pressure=pressure,
-                        result=extracted_data.get('result'),
-                        verification_method=extracted_data.get('verification_method'),
-                        measurement_range=extracted_data.get('measurement_range'),
-                        raw_text=text[:10000],
-                        status=ai_result.get("status") or "manual_review",
-                        model_used=ai_result.get("model") or "unknown",
-                        confidence=ai_result.get("confidence") or 0.0,
-                        cost=ai_result.get("cost") or 0.0,
-                        attempts=ai_result.get("attempts") or 0,
-                        pressure_units=extracted_data.get("pressure_units"),
-                    )
-                    existing = await proto_data_repo.get_by_protocol_file_id(proto.id)
-                    if existing:
-                        for key, value in fields.items():
-                            setattr(existing, key, value)
-                        extracted += 1
-                    else:
-                        data = ProtocolData(protocol_file_id=proto.id, **fields)
-                        self.db.add(data)
-                        extracted += 1
+                fields = dict(
+                    protocol_number=extracted_data.get('protocol_number'),
+                    device_name=extracted_data.get('device_name'),
+                    device_type=extracted_data.get('device_type'),
+                    serial_number=extracted_data.get('serial_number'),
+                    mit_number=extracted_data.get('mit_number'),
+                    manufacture_year=manufacture_year,
+                    owner=extracted_data.get('owner'),
+                    verification_date=verification_date,
+                    verifier=extracted_data.get('verifier'),
+                    temperature=temperature,
+                    humidity=humidity,
+                    pressure=pressure,
+                    result=extracted_data.get('result'),
+                    verification_method=extracted_data.get('verification_method'),
+                    measurement_range=extracted_data.get('measurement_range'),
+                    raw_text=text[:10000],
+                    status=ai_result.get("status") or "manual_review",
+                    model_used=ai_result.get("model") or "unknown",
+                    confidence=ai_result.get("confidence") or 0.0,
+                    cost=ai_result.get("cost") or 0.0,
+                    attempts=ai_result.get("attempts") or 0,
+                    pressure_units=extracted_data.get("pressure_units"),
+                )
+                existing = await proto_data_repo.get_by_protocol_file_id(proto.id)
+                if existing:
+                    for key, value in fields.items():
+                        setattr(existing, key, value)
+                else:
+                    data = ProtocolData(protocol_file_id=proto.id, **fields)
+                    self.db.add(data)
+                
+                # Count as extracted if we have at least serial_number or protocol_number
+                if extracted_data.get('serial_number') or extracted_data.get('protocol_number'):
+                    extracted += 1
                 else:
                     extract_errors += 1
 
