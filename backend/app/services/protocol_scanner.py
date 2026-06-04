@@ -165,25 +165,42 @@ class ProtocolScanner:
         except Exception as e:
             return {"error": str(e), "text": "", "pages": 0}
 
-    async def extract_text(self, protocol_file_id: int) -> dict[str, Any]:
+    async def extract_text(self, protocol_file_id: int, timeout: float = 120.0) -> dict[str, Any]:
         """Extract text from protocol file (runs in thread to avoid blocking)."""
-        # Shield DB operations so cancellation (e.g. from asyncio.wait_for)
-        # doesn't corrupt the greenlet state of the async session
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Shield DB operations so cancellation doesn't corrupt greenlet state
         protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
 
-        # Run blocking I/O in a thread — can be cancelled safely (no greenlet)
-        result = await asyncio.to_thread(self.extract_text_sync, protocol.file_path)
-        
+        # Run blocking I/O in a thread pool with real timeout
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self.extract_text_sync, protocol.file_path)
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.wrap_future(future),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # Thread abandoned; mark as error and move on
+                protocol.status = "error"
+                protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
+                await asyncio.shield(self.db.commit())
+                return {
+                    "protocol_id": protocol_file_id,
+                    "error": f"OCR timeout (>{int(timeout)}s)",
+                }
+
         if result.get("error"):
             protocol.status = "error"
         else:
             protocol.status = "scanned"
             protocol.raw_text = result["text"][:10000]  # Store first 10k chars
-        
+
         await asyncio.shield(self.db.commit())
-        
+
         return {
             "protocol_id": protocol_file_id,
             "text": result.get("text", ""),
