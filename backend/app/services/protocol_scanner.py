@@ -18,6 +18,28 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 SUPPORTED_EXTENSIONS = {".pdf"} | IMAGE_EXTENSIONS
 
 
+def _extract_text_process(file_path: str, queue: Any) -> None:
+    """Top-level helper for multiprocessing — runs in a separate process."""
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext in IMAGE_EXTENSIONS:
+            with Image.open(file_path) as img:
+                full_text = pytesseract.image_to_string(img, lang="rus+eng")
+            pages = 1
+        else:
+            text_parts = []
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(page_text)
+            full_text = "\n".join(text_parts)
+            pages = len(text_parts)
+        queue.put({"text": full_text, "pages": pages, "error": None})
+    except Exception as e:
+        queue.put({"error": str(e), "text": "", "pages": 0})
+
+
 class ProtocolScanner:
     """Scan protocol folders and extract text from PDFs and images (OCR)."""
 
@@ -166,38 +188,48 @@ class ProtocolScanner:
             return {"error": str(e), "text": "", "pages": 0}
 
     async def extract_text(self, protocol_file_id: int, timeout: float = 120.0) -> dict[str, Any]:
-        """Extract text from protocol file (runs in thread to avoid blocking)."""
-        from concurrent.futures import ThreadPoolExecutor
+        """Extract text from protocol file using a separate process with hard timeout."""
+        import multiprocessing
 
         # Shield DB operations so cancellation doesn't corrupt greenlet state
         protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
 
-        # Run blocking I/O in a thread pool with real timeout
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self.extract_text_sync, protocol.file_path)
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.wrap_future(future),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                # Thread abandoned; mark as error and move on
-                protocol.status = "error"
-                protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
-                await asyncio.shield(self.db.commit())
-                return {
-                    "protocol_id": protocol_file_id,
-                    "error": f"OCR timeout (>{int(timeout)}s)",
-                }
+        # Use multiprocessing so we can truly kill a hung parser
+        queue: multiprocessing.Queue = multiprocessing.Queue()
+        proc = multiprocessing.Process(
+            target=_extract_text_process,
+            args=(protocol.file_path, queue),
+        )
+        proc.start()
+        proc.join(timeout)
+
+        if proc.is_alive():
+            # Hung PDF parser — kill it
+            proc.terminate()
+            proc.join(5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join()
+            protocol.status = "error"
+            protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
+            await asyncio.shield(self.db.commit())
+            return {
+                "protocol_id": protocol_file_id,
+                "error": f"OCR timeout (>{int(timeout)}s)",
+            }
+
+        try:
+            result = queue.get_nowait()
+        except Exception:
+            result = {"error": "No result from OCR process"}
 
         if result.get("error"):
             protocol.status = "error"
         else:
             protocol.status = "scanned"
-            protocol.raw_text = result["text"][:10000]  # Store first 10k chars
+            protocol.raw_text = result["text"][:10000]
 
         await asyncio.shield(self.db.commit())
 
