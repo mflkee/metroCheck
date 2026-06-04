@@ -27,10 +27,11 @@ class ProtocolFileRepository:
         return result.scalar_one_or_none()
 
     async def get_by_month(self, year: int, month: int) -> list[ProtocolFile]:
-        """Get all protocol files for a given month."""
+        """Get all protocol files for a given month, ordered by ID (scan order)."""
         result = await self.db.execute(
             select(ProtocolFile)
             .where(ProtocolFile.year == year)
             .where(ProtocolFile.month == month)
+            .order_by(ProtocolFile.id)
         )
         return list(result.scalars().all())

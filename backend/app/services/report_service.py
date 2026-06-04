@@ -162,10 +162,11 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
-        proto_by_serial = {}
-        for p in protocols:
-            if p.serial_number:
-                proto_by_serial[p.serial_number.strip()] = p
+        # Build calibrations lookup by serial number
+        cal_by_serial = {}
+        for c in calibrations:
+            if c.mi_number:
+                cal_by_serial[c.mi_number.strip()] = c
 
         compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
@@ -228,69 +229,77 @@ class ReportService:
         STATUS_COL = 1
         COMMENTS_COL = 2
 
-        for idx, cal in enumerate(calibrations, 1):
-            serial = (cal.mi_number or "").strip()
-            proto = proto_by_serial.get(serial)
+        def fmt_num(val):
+            if val is None:
+                return ""
+            try:
+                return f"{float(val):.1f}"
+            except (ValueError, TypeError):
+                return str(val)
+
+        # Iterate by protocols (all files in folder order), find matching calibration
+        for idx, proto in enumerate(protocols, 1):
+            serial = (proto.serial_number or "").strip()
+            cal = cal_by_serial.get(serial)
             lk_conditions = {}
-            if cal.conditions:
+            if cal and cal.conditions:
                 try:
                     lk_conditions = json.loads(cal.conditions)
                 except json.JSONDecodeError:
                     pass
 
-            def fmt_num(val):
-                if val is None:
-                    return ""
-                try:
-                    return f"{float(val):.1f}"
-                except (ValueError, TypeError):
-                    return str(val)
-
             # Extract protocol range
-            proto_range = self._extract_range_from_text(proto.raw_text or "") if proto else ""
-            # Extract ARSHIN range from conditions or empty
-            arshin_range = lk_conditions.get("range", "") if cal.conditions else ""
+            proto_range = self._extract_range_from_text(proto.raw_text or "")
 
             row_data = [
                 # compare columns (status + comments) filled later
                 "",
                 "",
                 # public headers
-                idx, cal.vri_id, cal.mit_number, cal.mit_title, cal.mit_notation,
-                cal.mi_modification, cal.mi_number,
-                cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
-                cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
-                cal.result_docnum,
+                idx, 
+                cal.vri_id if cal else "",
+                cal.mit_number if cal else "",
+                cal.mit_title if cal else "",
+                cal.mit_notation if cal else "",
+                cal.mi_modification if cal else "",
+                cal.mi_number if cal else "",
+                cal.verification_date.strftime("%d.%m.%Y") if cal and cal.verification_date else "",
+                cal.valid_date.strftime("%d.%m.%Y") if cal and cal.valid_date else "",
+                cal.result_docnum if cal else "",
                 # lk headers
-                cal.verifier or "", fmt_num(lk_conditions.get("temperature")),
-                fmt_num(lk_conditions.get("humidity")), fmt_num(lk_conditions.get("pressure")),
+                cal.verifier or "" if cal else "",
+                fmt_num(lk_conditions.get("temperature")) if cal else "",
+                fmt_num(lk_conditions.get("humidity")) if cal else "",
+                fmt_num(lk_conditions.get("pressure")) if cal else "",
                 # proto headers
-                proto.protocol_number if proto else "НЕТ ПРОТОКОЛА",
-                proto.device_name if proto else "",
-                proto.device_type if proto else "",
-                proto.serial_number if proto else "",
-                proto.mit_number if proto else "",
-                (proto.verification_method if proto and proto.verification_method else "—"),
-                proto.manufacture_year if proto else "",
-                proto.owner if proto else "",
-                proto.verification_date.strftime("%d.%m.%Y") if proto and proto.verification_date else "",
-                proto.verifier if proto else "",
-                fmt_num(proto.temperature) if proto else "",
-                fmt_num(proto.humidity) if proto else "",
-                fmt_num(proto.pressure) if proto else "",
+                proto.protocol_number or "",
+                proto.device_name or "",
+                proto.device_type or "",
+                proto.serial_number or "",
+                proto.mit_number or "",
+                (proto.verification_method if proto.verification_method else "—"),
+                proto.manufacture_year or "",
+                proto.owner or "",
+                proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
+                proto.verifier or "",
+                fmt_num(proto.temperature),
+                fmt_num(proto.humidity),
+                fmt_num(proto.pressure),
                 proto_range or "—",
             ]
 
             mismatches = []
-            notes = []  # FYI only, doesn't affect status
 
-            if proto and proto.verification_date and cal.verification_date:
+            if not cal:
+                mismatches.append("НЕТ В АРШИН")
+
+            if cal and proto.verification_date and cal.verification_date:
                 proto_date = proto.verification_date.strftime("%d.%m.%Y")
                 cal_date = cal.verification_date.strftime("%d.%m.%Y")
                 if proto_date != cal_date:
                     mismatches.append(f"Дата: {cal_date} vs {proto_date}")
 
-            if proto and proto.device_name and cal.mit_title:
+            if cal and proto.device_name and cal.mit_title:
                 norm_proto = self._normalize_text(proto.device_name)
                 norm_cal = self._normalize_text(cal.mit_title)
                 if norm_proto not in norm_cal and norm_cal not in norm_proto:
@@ -299,19 +308,15 @@ class ReportService:
                     if len(proto_words & cal_words) < 1:
                         mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
 
-            if proto and proto.verifier and cal.verifier:
-                # Normalize spaces in initials: "А. А." → "А.А."
+            if cal and proto.verifier and cal.verifier:
                 norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
                 norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
                 if norm_proto_verifier != norm_cal_verifier:
                     mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
 
-            if proto and proto.serial_number and serial:
+            if cal and proto.serial_number and serial:
                 if proto.serial_number.strip() != serial:
                     mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
-
-            if not proto:
-                mismatches.append("ПРОТОКОЛ ОТСУТСТВУЕТ")
 
             if mismatches:
                 status = "❌"
@@ -324,11 +329,6 @@ class ReportService:
 
             row_data[STATUS_COL - 1] = status
             comments = "; ".join(mismatches) if mismatches else ""
-            if notes:
-                if comments:
-                    comments += " | " + "; ".join(notes)
-                else:
-                    comments = "; ".join(notes)
             row_data[COMMENTS_COL - 1] = comments
 
             for col_idx, value in enumerate(row_data, 1):
@@ -339,13 +339,9 @@ class ReportService:
                 if col_idx == STATUS_COL:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
                     cell.font = Font(bold=True, color=status_font_color, size=12)
-                elif col_idx == COMMENTS_COL and (mismatches or notes):
-                    if mismatches:
-                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                        cell.font = Font(color="9C0006", size=9)
-                    else:
-                        cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                        cell.font = Font(color="006100", size=9)
+                elif col_idx == COMMENTS_COL and mismatches:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                    cell.font = Font(color="9C0006", size=9)
 
         widths = [
             5, 38,  # Статус, Расхождения

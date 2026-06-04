@@ -46,6 +46,7 @@ class ProtocolDataRepository:
             .join(ProtocolFile)
             .where(ProtocolFile.year == year)
             .where(ProtocolFile.month == month)
+            .order_by(ProtocolFile.id)
         )
         return list(result.scalars().all())
 
