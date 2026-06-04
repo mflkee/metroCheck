@@ -123,6 +123,8 @@ class ProtocolExtractionService:
             r'№\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})\s+от',
             r'№\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
             r'ПРОТОКОЛ\s+№?\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
+            # Fallback: just look for the pattern anywhere in first 500 chars
+            r'(\d{2}[/-]\d{3,4}[/-]\d{2})',
         ]
         return self._match_first(text, patterns)
 
@@ -130,18 +132,18 @@ class ProtocolExtractionService:
         """Extract device name from 'Наименование средства измерений'."""
         # Look for device name after common headers
         patterns = [
-            r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]+)',
-            r'Наименование\s+СИ[:\s]+([^\n\r]+)',
-            r'Тип\s*[,\s]*\s*модификация\s+средства\s+измерений[:\s]+([^\n\r]+)',
-            r'Тип,?\s+модификация[:\s]+([^\n\r]+)',
-            r'Наименование[:\s]+([^\n\r]+)',
+            r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]{2,100})',
+            r'Наименование\s+СИ[:\s]+([^\n\r]{2,100})',
+            r'Наименование[:\s]+([^\n\r]{2,100})',
         ]
         name = self._match_first(text, patterns)
         if name:
-            # Clean up - remove "счетчик газа" etc
+            # Clean up - take first meaningful part
             name = name.strip()
+            # Remove common artifacts
+            name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
             # Take first part before comma or parenthesis
-            name = re.split(r'[,\(\[].*', name)[0].strip()
+            name = re.split(r'[,;\(\[].*', name)[0].strip()
             return name if len(name) > 2 else None
         return None
 
@@ -203,16 +205,21 @@ class ProtocolExtractionService:
 
     def _extract_owner(self, text: str) -> str | None:
         """Extract owner organization."""
+        # Look for organization name near "Владелец" or standalone
         patterns = [
-            r'Владелец\s+средства\s+измерений[:\s]+([^\n\r]+)',
-            r'Владелец[:\s]+([^\n\r]+)',
-            r'Организация[-\s]*владелец[:\s]+([^\n\r]+)',
+            r'Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
+            r'Владелец[:\s]+([^\n\r]{3,100})',
+            r'Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
+            r'Организация[:\s]+([^\n\r]{3,100})',
         ]
         owner = self._match_first(text, patterns)
         if owner:
-            # Remove INN and extra text
-            owner = re.sub(r'\s+\d{10,12}\s*', ' ', owner)
+            # Clean: remove INN, extra text, quotes
+            owner = re.sub(r'\s+\d{10,14}\s*', ' ', owner)
+            owner = re.sub(r'["«»]', '', owner)
             owner = owner.strip()
+            # Stop at first sentence end or common delimiters
+            owner = re.split(r'[;,]\s*(?=\d|по\s|с\s|в\s)', owner)[0].strip()
             if len(owner) > 3:
                 return owner
         return None
@@ -331,13 +338,21 @@ class ProtocolExtractionService:
     def _extract_range(self, text: str) -> str | None:
         """Extract measurement range."""
         patterns = [
-            r'Диапазон\s+измерений[^\n]*(?:\n[^\n]*){0,3}от\s+(\d[\d\.,]*)\s+до\s+(\d[\d\.,]*)\s+([^\n]+)',
-            r'от\s+(\d[\d\.,]*)\s+до\s+(\d[\d\.,]*)\s+([^\n]{1,30})',
+            # Pattern with unit after range
+            r'Диапазон\s+измерений.{0,300}?от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]+)',
+            r'от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]{1,20})',
+            # Pattern without "от...до" — just numbers with dash
+            r'Диапазон\s+измерений.{0,300}?(\d[\d\.,]*)\s*[-–—]\s*(\d[\d\.,]*)\s+([\w/°³²]{1,20})',
+            # Range with unit at the end of section
+            r'диапазон.{0,300}?(?:входной|измеряемой|рабочих).{0,200}?(\d[\d\.,]*)\s*[-–—]\s*(\d[\d\.,]*)\s+([\w/°³²]{1,20})',
         ]
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
-                return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
+                unit = match.group(3).strip()
+                # Clean unit
+                unit = re.sub(r'[;,\.\s]+$', '', unit)
+                return f"({match.group(1)}-{match.group(2)}) {unit}"
         return None
 
     def _match_first(self, text: str, patterns: list[str]) -> str | None:
