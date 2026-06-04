@@ -175,11 +175,10 @@ class ProtocolExtractionService:
     def _extract_serial_number(self, text: str) -> str | None:
         """Extract serial number."""
         patterns = [
-            # Value on next line after "Заводской номер:"
-            r'Заводской\s+номер\s*\(?(?:номера)?\)?[:\s]*\n\s*([^\n\r]+)',
-            r'Заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
-            r'Зав\.\s*№?[:\s]+([^\n\r]+)',
-            r'Серийный\s+номер[:\s]+([^\n\r]+)',
+            # Value on next line after "Заводской номер" (any text after it on same line)
+            r'заводской\s+номер.*?\n\s*([^\n\r]+)',
+            r'серийный\s+номер.*?\n\s*([^\n\r]+)',
+            r'зав\.\s*№?[:\s]+([^\n\r]+)',
             r'№\s*заводской[:\s]+([^\n\r]+)',
         ]
         serial = self._match_first(text, patterns)
@@ -290,9 +289,9 @@ class ProtocolExtractionService:
         """Extract verifier name."""
         patterns = [
             # Value on next line after "Поверитель:"
-            r'Поверитель[:\s]*\n\s*([^\n\r]+)',
-            r'Поверитель[:\s]+([^\n\r]+)',
-            r'Поверител[ьи]\s*:?\s*([^\n\r]+)',
+            r'поверитель[:\s]*\n\s*([^\n\r]+)',
+            r'поверитель[:\s]+([^\n\r]+)',
+            r'поверител[ьи]\s*:?\s*([^\n\r]+)',
         ]
         verifier = self._match_first(text, patterns)
         if verifier:
