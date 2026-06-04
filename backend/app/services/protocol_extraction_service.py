@@ -1,238 +1,368 @@
-"""Protocol Extraction Service — multi-pass AI extraction with validation."""
+"""Protocol Extraction Service — regex-based extraction with fallbacks."""
 
-import asyncio
-import json
 import logging
 import re
-from typing import Any, Optional
-
-from app.services.ai_extraction_service import get_ai_extraction_service
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Field-specific extraction prompts for retry
-FIELD_PROMPTS = {
-    "mit_number": (
-        "Find the MIT (государственный реестр СИ) number in this protocol. "
-        "Look for patterns like: 'номер по Государственному реестру СИ РФ', '№ в реестре', "
-        "or standalone numbers like '47279-11', '62301-15'. "
-        "Return ONLY the number, nothing else."
-    ),
-    "measurement_range": (
-        "Find the measurement range (диапазон измерений) in this protocol. "
-        "Look for: 'Диапазон измерений', 'Установленный диапазон', 'от X до Y', 'входной измеряемой величины'. "
-        "Return the range in format like '(4-400) м³/ч' or '-50…+250 °С'. "
-        "Return ONLY the range, nothing else."
-    ),
-    "result": (
-        "Find the verification result in this protocol. "
-        "Look for: 'пригоден', 'непригоден', 'соответствует', 'признано пригодным'. "
-        "Return ONLY 'suitable' or 'unsuitable'."
-    ),
-    "verification_date": (
-        "Find the verification date in this protocol. "
-        "Look for: 'Дата поверки', 'Протокол поверки № ... от'. "
-        "Return ONLY the date in YYYY-MM-DD format."
-    ),
-    "verifier": (
-        "Find the verifier name (поверитель) in this protocol. "
-        "Look for: 'Поверитель:', 'Ф.И.О.', or signature lines. "
-        "Return ONLY the name in format 'Фамилия И.О.'."
-    ),
-    "device_type": (
-        "Find the specific device type/modification in this protocol. "
-        "This is usually more specific than the device name. "
-        "Look for: 'Тип', 'Модификация', 'Обозначение'. "
-        "Return ONLY the type, nothing else."
-    ),
-}
-
 
 class ProtocolExtractionService:
-    """Multi-pass protocol extraction with validation and retry."""
+    """Extract protocol data using regex patterns and text analysis."""
 
-    def __init__(self) -> None:
-        self.ai_service = get_ai_extraction_service()
+    # Russian month mapping
+    MONTH_MAP = {
+        'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
+        'мая': '05', 'июня': '06', 'июля': '07', 'августа': '08',
+        'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12',
+    }
 
     async def extract(self, text: str) -> dict[str, Any]:
-        """Extract all protocol data with validation and retry.
-        
-        Pipeline:
-        1. Initial extraction with full prompt
-        2. Validate each field against raw text
-        3. Retry missing fields with targeted prompts
-        4. Final validation
-        """
-        # Phase 1: Initial extraction
-        result = await self.ai_service.extract(text)
-        data = result.get("content") or {}
-        
-        if not data:
-            logger.warning("Initial extraction failed completely")
-            return self._build_result(data, result, "manual_review")
-        
-        # Phase 2: Validate and retry missing fields
-        missing_fields = self._find_missing_fields(data)
-        
-        if missing_fields:
-            logger.info("Retrying %d missing fields: %s", len(missing_fields), missing_fields)
-            for field in missing_fields:
-                value = await self._extract_field(text, field)
-                if value:
-                    data[field] = value
-                    logger.debug("Field %s extracted on retry: %s", field, value)
-        
-        # Phase 3: Post-process and validate
-        data = self._post_process(data, text)
-        
-        # Calculate final confidence
+        """Extract all protocol data using regex + AI hybrid."""
+        if not text:
+            return {"content": {}, "status": "manual_review", "cost": 0}
+
+        # Phase 1: Regex extraction (fast, for standard fields)
+        data = {
+            "protocol_number": self._extract_protocol_number(text),
+            "device_name": None,  # Will try AI
+            "device_type": None,  # Will try AI
+            "serial_number": self._extract_serial_number(text),
+            "mit_number": self._extract_mit_number(text),
+            "manufacture_year": self._extract_manufacture_year(text),
+            "owner": self._extract_owner(text),
+            "verification_date": self._extract_verification_date(text),
+            "verifier": self._extract_verifier(text),
+            "temperature": self._extract_temperature(text),
+            "humidity": self._extract_humidity(text),
+            "pressure": self._extract_pressure(text),
+            "verification_method": self._extract_methodology(text),
+            "result": self._extract_result(text),
+            "measurement_range": None,  # Will try AI
+        }
+
+        # Phase 2: Try regex for device_name and range too
+        data["device_name"] = self._extract_device_name(text)
+        data["device_type"] = self._extract_device_type(text)
+        data["measurement_range"] = self._extract_range(text)
+
+        # Clean all values
+        data = {k: self._clean_value(v) for k, v in data.items()}
+
+        # Phase 3: AI fallback for missing complex fields only
         confidence = self._calculate_confidence(data)
         
-        status = "success" if confidence >= 0.5 else "manual_review"
-        
-        return self._build_result(data, result, status)
-
-    def _find_missing_fields(self, data: dict) -> list[str]:
-        """Find fields that are missing or suspicious."""
-        missing = []
-        critical_fields = ["serial_number", "verification_date", "verifier", "result"]
-        important_fields = ["mit_number", "device_type", "measurement_range"]
-        
-        for field in critical_fields:
-            if not data.get(field):
-                missing.append(field)
-        
-        for field in important_fields:
-            if not data.get(field):
-                missing.append(field)
-        
-        return missing
-
-    async def _extract_field(self, text: str, field: str) -> Any:
-        """Extract a single field with targeted prompt."""
-        prompt = FIELD_PROMPTS.get(field)
-        if not prompt:
-            return None
-        
-        try:
-            # Use free model for retry
-            models = ["nvidia/nemotron-3-super-120b-a12b:free"]
+        if confidence < 0.5:
+            # AI only for missing fields
+            missing = []
+            if not data.get("device_name"):
+                missing.append("device_name")
+            if not data.get("measurement_range"):
+                missing.append("measurement_range")
+            if not data.get("device_type"):
+                missing.append("device_type")
             
-            for model in models:
+            if missing:
                 try:
-                    result = await self.ai_service.extract(
-                        text=text,
-                        models=[model],
-                        max_tokens=200,
-                        temperature=0.0,
-                    )
-                    
-                    if result.get("content") and result["content"].get(field):
-                        return result["content"][field]
-                    
-                    # If AI returns something else, try to use it
-                    if result.get("content"):
-                        # The response might be a dict with the field, or just a string
-                        content = result["content"]
-                        if isinstance(content, dict) and field in content:
-                            return content[field]
-                        elif isinstance(content, dict) and len(content) == 1:
-                            # Single field response
-                            return list(content.values())[0]
-                        
+                    ai_data = await self._ai_extract_fields(text, missing)
+                    for field in missing:
+                        if ai_data.get(field) and not data.get(field):
+                            data[field] = ai_data[field]
                 except Exception as e:
-                    logger.debug("Field extraction %s with %s failed: %s", field, model, e)
-                    continue
-            
-            return None
-        except Exception as e:
-            logger.warning("Field extraction %s failed: %s", field, e)
-            return None
+                    logger.warning("AI fallback failed: %s", e)
 
-    def _post_process(self, data: dict, text: str) -> dict:
-        """Post-process extracted data."""
-        # Fix result values
-        result = data.get("result")
-        if result and isinstance(result, str):
-            result_lower = result.lower()
-            if "пригод" in result_lower or "соответств" in result_lower:
-                data["result"] = "suitable"
-            elif "непригод" in result_lower or "не соответств" in result_lower:
-                data["result"] = "unsuitable"
-        
-        # Fix date format
-        vdate = data.get("verification_date")
-        if vdate and isinstance(vdate, str):
-            # Try to parse Russian date format
-            for fmt in ["%d.%m.%Y", "%d-%m-%Y", "%Y-%m-%d"]:
-                try:
-                    from datetime import datetime
-                    parsed = datetime.strptime(vdate.strip(), fmt)
-                    data["verification_date"] = parsed.strftime("%Y-%m-%d")
-                    break
-                except ValueError:
-                    continue
-        
-        # Extract measurement_range from text if missing
-        if not data.get("measurement_range"):
-            mr = self._extract_measurement_range_regex(text)
-            if mr:
-                data["measurement_range"] = mr
-        
-        # Extract mit_number from text if missing
-        if not data.get("mit_number"):
-            mit = self._extract_mit_number_regex(text)
-            if mit:
-                data["mit_number"] = mit
-        
-        return data
+        # Recalculate confidence
+        confidence = self._calculate_confidence(data)
+        status = "success" if confidence >= 0.4 else "manual_review"
 
-    def _extract_measurement_range_regex(self, text: str) -> str | None:
-        """Extract measurement range using regex fallback."""
-        # Pattern 1: "Диапазон измерений... от X до Y"
+        return {
+            "content": data,
+            "status": status,
+            "cost": 0,
+            "attempts": 1,
+        }
+
+    async def _ai_extract_fields(self, text: str, fields: list[str]) -> dict[str, Any]:
+        """Use AI to extract only specific missing fields."""
+        from app.services.ai_extraction_service import get_ai_extraction_service
+        
+        ai_service = get_ai_extraction_service()
+        
+        # Build minimal prompt for missing fields only
+        field_prompts = {
+            "device_name": "Найди наименование средства измерений (одно слово или короткая фраза)",
+            "device_type": "Найди тип/модификацию СИ",
+            "measurement_range": "Найди диапазон измерений в формате 'от X до Y единица'",
+        }
+        
+        prompts = [field_prompts[f] for f in fields if f in field_prompts]
+        if not prompts:
+            return {}
+        
+        prompt = (
+            f"Проанализируй протокол поверки и найди:\n"
+            f"{'\n'.join(f'{i+1}. {p}' for i, p in enumerate(prompts))}\n\n"
+            f"Верни ТОЛЬКО JSON с полями: {', '.join(fields)}.\n"
+            f"Без пояснений."
+        )
+        
+        result = await ai_service.extract(
+            text=text,
+            custom_prompt=prompt,
+            models=["nvidia/nemotron-3-super-120b-a12b:free"],
+            max_tokens=300,
+        )
+        
+        return result.get("content", {})
+
+    def _extract_protocol_number(self, text: str) -> str | None:
+        """Extract protocol number like '12/044/25' or '01/001/24'."""
         patterns = [
-            r'Диапазон\s+измерений.{0,200}?от\s+([\d\-–]+)\s+до\s+([\d\-–]+)\s+([^\n]+)',
-            r'Установленный\s+диапазон.{0,200}?входной\s+измеряемой\s+величины.{0,50}([\d\-–\.]+…[\+\d\-–\.]+)',
-            r'от\s+([\d\-–]+)\s+до\s+([\d\-–]+)\s+([^\n]{1,30})',
+            r'ПРОТОКОЛ\s+ПОВЕРКИ\s+№?\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
+            r'Протокол\s+поверки\s+№?\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
+            r'№\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})\s+от',
+            r'№\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
+            r'ПРОТОКОЛ\s+№?\s*(\d{1,3}[/-]\d{1,4}[/-]\d{2,4})',
         ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-            if match:
-                if len(match.groups()) == 3:
-                    return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
-                else:
-                    return match.group(1).strip()
-        
+        return self._match_first(text, patterns)
+
+    def _extract_device_name(self, text: str) -> str | None:
+        """Extract device name from 'Наименование средства измерений'."""
+        # Look for device name after common headers
+        patterns = [
+            r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]+)',
+            r'Наименование\s+СИ[:\s]+([^\n\r]+)',
+            r'Тип\s*[,\s]*\s*модификация\s+средства\s+измерений[:\s]+([^\n\r]+)',
+            r'Тип,?\s+модификация[:\s]+([^\n\r]+)',
+            r'Наименование[:\s]+([^\n\r]+)',
+        ]
+        name = self._match_first(text, patterns)
+        if name:
+            # Clean up - remove "счетчик газа" etc
+            name = name.strip()
+            # Take first part before comma or parenthesis
+            name = re.split(r'[,\(\[].*', name)[0].strip()
+            return name if len(name) > 2 else None
         return None
 
-    def _extract_mit_number_regex(self, text: str) -> str | None:
-        """Extract MIT number using regex fallback."""
-        # Look for patterns like "47279-11" near "реестр" or standalone
+    def _extract_device_type(self, text: str) -> str | None:
+        """Extract device type/modification."""
         patterns = [
-            r'номер\s+по\s+Государственному\s+реестру[^\n]*\n\s*(\d{3,6}-\d{2,4})',
-            r'реестру\s+СИ\s+РФ[^\n]*\n\s*(\d{3,6}-\d{2,4})',
+            r'Тип,?\s+модификация\s+средства\s+измерений[:\s]+([^\n\r]+)',
+            r'Тип,?\s+модификация[:\s]+([^\n\r]+)',
+            r'Тип[:\s]+([^\n\r]+)',
+            r'Модификация[:\s]+([^\n\r]+)',
         ]
-        
+        return self._match_first(text, patterns)
+
+    def _extract_serial_number(self, text: str) -> str | None:
+        """Extract serial number."""
+        patterns = [
+            r'Заводской\s+номер[:\s]+([^\n\r]+)',
+            r'Зав\.\s*№?[:\s]+([^\n\r]+)',
+            r'Серийный\s+номер[:\s]+([^\n\r]+)',
+            r'№\s*заводской[:\s]+([^\n\r]+)',
+        ]
+        return self._match_first(text, patterns)
+
+    def _extract_mit_number(self, text: str) -> str | None:
+        """Extract MIT number like '47279-11'."""
+        # Look in specific sections first
+        mit_section = re.search(
+            r'(Номер\s+в\s+государственном\s+реестре|реестре\s+СИ|Государственный\s+реестр)[^\n]*(?:\n[^\n]*){0,5}',
+            text, re.IGNORECASE
+        )
+        search_text = mit_section.group(0) if mit_section else text
+
+        patterns = [
+            r'(\d{5,6}-\d{2,4})',
+            r'(\d{3,6}-\d{2,4})',
+        ]
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            match = re.search(pattern, search_text)
+            if match:
+                return match.group(1)
+        return None
+
+    def _extract_manufacture_year(self, text: str) -> int | None:
+        """Extract manufacture year."""
+        patterns = [
+            r'Год\s+выпуска[:\s]+(\d{4})',
+            r'Год\s+изготовления[:\s]+(\d{4})',
+            r'Год\s+выпуска\D+(\d{4})',
+        ]
+        year_str = self._match_first(text, patterns)
+        if year_str:
+            try:
+                year = int(year_str)
+                if 1980 <= year <= 2030:
+                    return year
+            except ValueError:
+                pass
+        return None
+
+    def _extract_owner(self, text: str) -> str | None:
+        """Extract owner organization."""
+        patterns = [
+            r'Владелец\s+средства\s+измерений[:\s]+([^\n\r]+)',
+            r'Владелец[:\s]+([^\n\r]+)',
+            r'Организация[-\s]*владелец[:\s]+([^\n\r]+)',
+        ]
+        owner = self._match_first(text, patterns)
+        if owner:
+            # Remove INN and extra text
+            owner = re.sub(r'\s+\d{10,12}\s*', ' ', owner)
+            owner = owner.strip()
+            if len(owner) > 3:
+                return owner
+        return None
+
+    def _extract_verification_date(self, text: str) -> str | None:
+        """Extract verification date in YYYY-MM-DD format."""
+        # Pattern: "от 11.01.2024г."
+        match = re.search(r'от\s+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', text)
+        if match:
+            day, month, year = match.groups()
+            return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+        # Pattern: "11 января 2024"
+        match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', text)
+        if match:
+            day, month_ru, year = match.groups()
+            month = self.MONTH_MAP.get(month_ru.lower())
+            if month:
+                return f"{year}-{month}-{day.zfill(2)}"
+
+        # Pattern: "2024-01-11"
+        match = re.search(r'(\d{4})[\.\-/](\d{1,2})[\.\-/](\d{1,2})', text)
+        if match:
+            year, month, day = match.groups()
+            return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+        return None
+
+    def _extract_verifier(self, text: str) -> str | None:
+        """Extract verifier name."""
+        patterns = [
+            r'Поверитель[:\s]+([^\n\r]+)',
+            r'Поверитель\s*\n\s*([^\n\r]+)',
+            r'Поверител[ьи]\s*:?\s*([^\n\r]+)',
+        ]
+        verifier = self._match_first(text, patterns)
+        if verifier:
+            # Clean format: "Чупин А.А." or "Чупин А. А."
+            verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
+            verifier = verifier.strip()
+            if len(verifier) > 3:
+                return verifier
+        return None
+
+    def _extract_temperature(self, text: str) -> float | None:
+        """Extract temperature."""
+        patterns = [
+            r'температура[^\d]*(\d+[\.,]?\d*)\s*°?\s*С',
+            r'температура[^\d]*(\d+[\.,]?\d*)',
+            r'Температура\D+(\d+[\.,]?\d*)',
+        ]
+        temp_str = self._match_first(text, patterns)
+        if temp_str:
+            try:
+                return float(temp_str.replace(',', '.'))
+            except ValueError:
+                pass
+        return None
+
+    def _extract_humidity(self, text: str) -> float | None:
+        """Extract humidity."""
+        patterns = [
+            r'влажность[^\d]*(\d+[\.,]?\d*)\s*%',
+            r'влажность[^\d]*(\d+[\.,]?\d*)',
+            r'Влажность\D+(\d+[\.,]?\d*)',
+        ]
+        hum_str = self._match_first(text, patterns)
+        if hum_str:
+            try:
+                return float(hum_str.replace(',', '.'))
+            except ValueError:
+                pass
+        return None
+
+    def _extract_pressure(self, text: str) -> float | None:
+        """Extract pressure."""
+        patterns = [
+            r'давление[^\d]*(\d+[\.,]?\d*)\s*(?:кПа|гПа|hPa)',
+            r'давление[^\d]*(\d+[\.,]?\d*)',
+            r'Давление\D+(\d+[\.,]?\d*)',
+        ]
+        press_str = self._match_first(text, patterns)
+        if press_str:
+            try:
+                return float(press_str.replace(',', '.'))
+            except ValueError:
+                pass
+        return None
+
+    def _extract_methodology(self, text: str) -> str | None:
+        """Extract verification methodology."""
+        patterns = [
+            r'Методика\s+поверки[:\s]+([^\n\r]+)',
+            r'Методика[:\s]+([^\n\r]+)',
+            r'по\s+методике[:\s]+([^\n\r]+)',
+            r'документ\s+на\s+методику\s+поверки[:\s]+([^\n\r]+)',
+        ]
+        method = self._match_first(text, patterns)
+        if method:
+            # Clean methodology - remove quotes and extra symbols
+            method = re.sub(r'^[\s"«»\'„]+|[\s"«»\'„]+$', '', method)
+            method = method.strip()
+            if len(method) > 5:
+                return method
+        return None
+
+    def _extract_result(self, text: str) -> str | None:
+        """Extract verification result."""
+        text_lower = text.lower()
+        if 'пригод' in text_lower or 'соответств' in text_lower:
+            return 'suitable'
+        elif 'непригод' in text_lower or 'не соответств' in text_lower:
+            return 'unsuitable'
+        return None
+
+    def _extract_range(self, text: str) -> str | None:
+        """Extract measurement range."""
+        patterns = [
+            r'Диапазон\s+измерений[^\n]*(?:\n[^\n]*){0,3}от\s+(\d[\d\.,]*)\s+до\s+(\d[\d\.,]*)\s+([^\n]+)',
+            r'от\s+(\d[\d\.,]*)\s+до\s+(\d[\d\.,]*)\s+([^\n]{1,30})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
+        return None
+
+    def _match_first(self, text: str, patterns: list[str]) -> str | None:
+        """Try patterns and return first match."""
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 return match.group(1).strip()
-        
-        # Fallback: standalone number on its own line
-        lines = text.split('\n')
-        for i, line in enumerate(lines):
-            if 'реестр' in line.lower() or 'реестру' in line.lower():
-                # Check next few lines
-                for j in range(i+1, min(i+3, len(lines))):
-                    match = re.match(r'^\s*(\d{3,6}-\d{2,4})\s*$', lines[j])
-                    if match:
-                        return match.group(1).strip()
-        
         return None
 
+    def _clean_value(self, value: Any) -> Any:
+        """Clean extracted value."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            # Remove surrounding quotes and whitespace
+            value = value.strip()
+            value = re.sub(r'^[\s"«»\'„\.,]+|[\s"«»\'„\.,]+$', '', value)
+            # Replace multiple spaces
+            value = re.sub(r'\s+', ' ', value)
+            return value if value else None
+        return value
+
     def _calculate_confidence(self, data: dict) -> float:
-        """Calculate extraction confidence score."""
+        """Calculate extraction confidence."""
         required = [
             "protocol_number", "serial_number", "device_name",
             "verification_date", "verifier", "result",
@@ -251,23 +381,28 @@ class ProtocolExtractionService:
         max_score = len(required) * 2 + len(optional)
         return min(1.0, score / max_score)
 
-    def _build_result(self, data: dict, ai_result: dict, status: str) -> dict[str, Any]:
-        """Build final result dict."""
-        return {
-            "content": data,
-            "model": ai_result.get("model"),
-            "status": status,
-            "cost": ai_result.get("cost", 0.0),
-            "attempts": ai_result.get("attempts", 0) + 1,  # +1 for retry
-            "usage": ai_result.get("usage"),
-        }
+
+_extraction_service = None
 
 
-_extraction_service: Optional[ProtocolExtractionService] = None
-
-
-def get_protocol_extraction_service() -> ProtocolExtractionService:
+def get_protocol_extraction_service():
     global _extraction_service
     if _extraction_service is None:
         _extraction_service = ProtocolExtractionService()
     return _extraction_service
+
+
+# Also provide async wrapper for compatibility
+class SmartExtractor:
+    """Async wrapper for ProtocolExtractionService."""
+
+    def __init__(self) -> None:
+        self.service = get_protocol_extraction_service()
+
+    async def extract(self, text: str) -> dict[str, Any]:
+        """Extract protocol data using regex + AI hybrid."""
+        return await self.service.extract(text)
+
+
+def get_smart_extractor():
+    return SmartExtractor()
