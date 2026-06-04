@@ -207,6 +207,7 @@ class ProtocolExtractionService:
         """Extract owner organization."""
         # Look for organization name near "Владелец" or standalone
         patterns = [
+            r'Принадлежащее[:\s]+([^\n\r]{3,100})',
             r'Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
             r'Владелец[:\s]+([^\n\r]{3,100})',
             r'Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
@@ -337,14 +338,14 @@ class ProtocolExtractionService:
 
     def _extract_range(self, text: str) -> str | None:
         """Extract measurement range."""
+        # Pattern 1: Explicit range with "от...до"
         patterns = [
-            # Pattern with unit after range
             r'Диапазон\s+измерений.{0,300}?от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]+)',
             r'от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]{1,20})',
             # Pattern without "от...до" — just numbers with dash
-            r'Диапазон\s+измерений.{0,300}?(\d[\d\.,]*)\s*[-–—]\s*(\d[\d\.,]*)\s+([\w/°³²]{1,20})',
+            r'Диапазон\s+измерений.{0,300}?([\d\.,]+)\s*[-–—]\s*([\d\.,]+)\s+([\w/°³²]{1,20})',
             # Range with unit at the end of section
-            r'диапазон.{0,300}?(?:входной|измеряемой|рабочих).{0,200}?(\d[\d\.,]*)\s*[-–—]\s*(\d[\d\.,]*)\s+([\w/°³²]{1,20})',
+            r'диапазон.{0,300}?(?:входной|измеряемой|рабочих).{0,200}?([\d\.,]+)\s*[-–—]\s*([\d\.,]+)\s+([\w/°³²]{1,20})',
         ]
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
@@ -353,6 +354,37 @@ class ProtocolExtractionService:
                 # Clean unit
                 unit = re.sub(r'[;,\.\s]+$', '', unit)
                 return f"({match.group(1)}-{match.group(2)}) {unit}"
+        
+        # Pattern 2: Extract from verification table (min/max values)
+        # Look for lines with identical first two values (etalon readings)
+        table_values = []
+        for line in text.split('\n'):
+            match = re.match(r'^\s*([\d\.,]+)\s+\1\s+', line)
+            if match:
+                val = match.group(1).replace(',', '.')
+                try:
+                    table_values.append(float(val))
+                except ValueError:
+                    continue
+        
+        if table_values:
+            min_val = min(table_values)
+            max_val = max(table_values)
+            
+            # Find unit from table header
+            unit = None
+            for pattern in [r'\b(кПа|МПа|bar|Бар|Па|hPa|°C|%)\b']:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    unit = match.group(1)
+                    break
+            
+            if unit:
+                # Format values nicely
+                min_str = f"{min_val:g}".replace('.', ',')
+                max_str = f"{max_val:g}".replace('.', ',')
+                return f"({min_str}-{max_str}) {unit}"
+        
         return None
 
     def _match_first(self, text: str, patterns: list[str]) -> str | None:
