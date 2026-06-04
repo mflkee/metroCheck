@@ -316,9 +316,19 @@ class JobQueueService:
             except asyncio.TimeoutError:
                 ocr_errors += 1
                 logger.warning("OCR timeout for protocol %s", proto.id)
+                # Rollback to prevent "transaction already started" error on next iteration
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
             except Exception as e:
                 ocr_errors += 1
                 logger.warning("OCR failed for protocol %s: %s", proto.id, e)
+                # Rollback to prevent "transaction already started" error on next iteration
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
             
             # Update progress every 5 files
             if idx % 5 == 0 or idx == total - 1:
