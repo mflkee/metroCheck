@@ -314,31 +314,29 @@ class JobQueueService:
         needs_ocr = protocols  # Process ALL files
         total = len(needs_ocr)
         
-        for idx, proto in enumerate(needs_ocr):
-            try:
-                await asyncio.wait_for(scanner.extract_text(proto.id), timeout=120.0)
-                extracted_count += 1
-            except asyncio.TimeoutError:
-                ocr_errors += 1
-                logger.warning("OCR timeout for protocol %s", proto.id)
-                # Rollback to prevent "transaction already started" error on next iteration
+        semaphore = asyncio.Semaphore(5)
+        processed = 0
+        
+        async def process_one(proto):
+            nonlocal extracted_count, ocr_errors, processed
+            async with semaphore:
                 try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
-            except Exception as e:
-                ocr_errors += 1
-                logger.warning("OCR failed for protocol %s: %s", proto.id, e)
-                # Rollback to prevent "transaction already started" error on next iteration
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
-            
-            # Update progress every 5 files
-            if idx % 5 == 0 or idx == total - 1:
-                pct = 35 + int((idx + 1) / max(total, 1) * 15)
-                await self._set_phase(job, "protocol_ocr", f"OCR: {idx + 1}/{total}...", min(pct, 50), stats)
+                    await asyncio.wait_for(scanner.extract_text(proto.id), timeout=120.0)
+                    extracted_count += 1
+                except asyncio.TimeoutError:
+                    ocr_errors += 1
+                    logger.warning("OCR timeout for protocol %s", proto.id)
+                except Exception as e:
+                    ocr_errors += 1
+                    logger.warning("OCR failed for protocol %s: %s", proto.id, e)
+                processed += 1
+                
+                # Update progress every 5 files
+                if processed % 5 == 0 or processed == total:
+                    pct = 35 + int(processed / max(total, 1) * 15)
+                    await self._set_phase(job, "protocol_ocr", f"OCR: {processed}/{total}...", min(pct, 50), stats)
+        
+        await asyncio.gather(*[process_one(p) for p in needs_ocr])
         
         stats["protocol_ocr"] = {
             "total": total,
