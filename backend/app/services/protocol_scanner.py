@@ -188,7 +188,7 @@ class ProtocolScanner:
         except Exception as e:
             return {"error": str(e), "text": "", "pages": 0}
 
-    async def extract_text(self, protocol_file_id: int, timeout: float = 120.0) -> dict[str, Any]:
+    async def extract_text(self, protocol_file_id: int, timeout: float = 30.0) -> dict[str, Any]:
         """Extract text from protocol file with real timeout via ThreadPoolExecutor."""
         from concurrent.futures import ThreadPoolExecutor
 
@@ -196,6 +196,16 @@ class ProtocolScanner:
         protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
+
+        # Skip OCR if text already extracted
+        if protocol.raw_text and len(protocol.raw_text) > 50:
+            protocol.status = "scanned"
+            await asyncio.shield(self.db.commit())
+            return {
+                "protocol_id": protocol_file_id,
+                "text": protocol.raw_text,
+                "pages": 0,
+            }
 
         # ThreadPool with multiple workers so one hung PDF doesn't block others
         loop = asyncio.get_event_loop()
