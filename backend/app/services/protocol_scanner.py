@@ -203,15 +203,24 @@ class ProtocolScanner:
             args=(protocol.file_path, queue),
         )
         proc.start()
-        proc.join(timeout)
+        # Poll so we don't block the asyncio event loop
+        start = time.time()
+        while proc.is_alive() and (time.time() - start) < timeout:
+            await asyncio.sleep(0.5)
 
         if proc.is_alive():
             # Hung PDF parser — kill it
             proc.terminate()
-            proc.join(5)
+            try:
+                proc.join(5)
+            except Exception:
+                pass
             if proc.is_alive():
                 proc.kill()
-                proc.join()
+                try:
+                    proc.join(2)
+                except Exception:
+                    pass
             protocol.status = "error"
             protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
             await asyncio.shield(self.db.commit())
