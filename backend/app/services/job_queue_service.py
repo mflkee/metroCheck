@@ -353,12 +353,12 @@ class JobQueueService:
         await self._check_cancelled(job.id)
 
         from app.repositories.protocol_data_repository import ProtocolDataRepository
-        from app.services.smart_extractor import get_smart_extractor
+        from app.services.protocol_extraction_service import get_protocol_extraction_service
 
         from app.models.protocol_data import ProtocolData
 
         proto_data_repo = ProtocolDataRepository(self.db)
-        extraction_service = get_smart_extractor()
+        extraction_service = get_protocol_extraction_service()
         extracted = 0
         extract_errors = 0
 
