@@ -301,13 +301,18 @@ class JobQueueService:
         await self._set_phase(job, "protocol_ocr", "Извлечение текста из протоколов...", 35, stats)
         await self._check_cancelled(job.id)
         
+        # Reset all protocols to pending so we process EVERY file
+        protocols = await proto_repo.get_by_month(job.year, job.month)
+        for p in protocols:
+            p.status = "pending"
+        await self.db.commit()
+        
+        # Refresh list after reset
         protocols = await proto_repo.get_by_month(job.year, job.month)
         extracted_count = 0
         ocr_errors = 0
-        # Only process files that haven't been scanned yet
-        needs_ocr = [p for p in protocols if p.status != "scanned"]
+        needs_ocr = protocols  # Process ALL files
         total = len(needs_ocr)
-        skipped = len(protocols) - total
         
         for idx, proto in enumerate(needs_ocr):
             try:
@@ -339,7 +344,6 @@ class JobQueueService:
             "total": total,
             "extracted": extracted_count,
             "errors": ocr_errors,
-            "skipped": skipped,
             "status": "completed",
         }
         await self._set_phase(job, "protocol_ocr", f"OCR: {extracted_count}/{total} обработано", 50, stats)
