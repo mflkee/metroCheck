@@ -129,8 +129,17 @@ class ProtocolExtractionService:
         return self._match_first(text, patterns)
 
     def _extract_device_name(self, text: str) -> str | None:
-        """Extract device name from 'Наименование средства измерений'."""
-        # Look for device name after common headers
+        """Extract device name - it's the line before the 'наименование' label."""
+        # In these protocols, device name is on the line BEFORE "наименование, тип" or "наименование средства"
+        match = re.search(r'\n([^\n\r]{3,100})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+            # Clean up
+            name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
+            name = re.split(r'[,;\(\[].*', name)[0].strip()
+            return name if len(name) > 2 else None
+        
+        # Fallback to old patterns
         patterns = [
             r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]{2,100})',
             r'Наименование\s+СИ[:\s]+([^\n\r]{2,100})',
@@ -138,17 +147,23 @@ class ProtocolExtractionService:
         ]
         name = self._match_first(text, patterns)
         if name:
-            # Clean up - take first meaningful part
             name = name.strip()
-            # Remove common artifacts
             name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
-            # Take first part before comma or parenthesis
             name = re.split(r'[,;\(\[].*', name)[0].strip()
             return name if len(name) > 2 else None
         return None
 
     def _extract_device_type(self, text: str) -> str | None:
         """Extract device type/modification."""
+        # In these protocols, type is often after comma in the device name line
+        # E.g., "Манометры показывающие, ТМ серия 20" -> type = "ТМ серия 20"
+        match = re.search(r'\n([^\n\r]{3,100})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
+        if match:
+            line = match.group(1).strip()
+            if ',' in line:
+                type_part = line.split(',', 1)[1].strip()
+                return type_part if len(type_part) > 2 else None
+        
         patterns = [
             r'Тип,?\s+модификация\s+средства\s+измерений[:\s]+([^\n\r]+)',
             r'Тип,?\s+модификация[:\s]+([^\n\r]+)',
@@ -160,6 +175,8 @@ class ProtocolExtractionService:
     def _extract_serial_number(self, text: str) -> str | None:
         """Extract serial number."""
         patterns = [
+            # Value on next line after "Заводской номер:"
+            r'Заводской\s+номер\s*\(?(?:номера)?\)?[:\s]*\n\s*([^\n\r]+)',
             r'Заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
             r'Зав\.\s*№?[:\s]+([^\n\r]+)',
             r'Серийный\s+номер[:\s]+([^\n\r]+)',
@@ -272,8 +289,9 @@ class ProtocolExtractionService:
     def _extract_verifier(self, text: str) -> str | None:
         """Extract verifier name."""
         patterns = [
+            # Value on next line after "Поверитель:"
+            r'Поверитель[:\s]*\n\s*([^\n\r]+)',
             r'Поверитель[:\s]+([^\n\r]+)',
-            r'Поверитель\s*\n\s*([^\n\r]+)',
             r'Поверител[ьи]\s*:?\s*([^\n\r]+)',
         ]
         verifier = self._match_first(text, patterns)
