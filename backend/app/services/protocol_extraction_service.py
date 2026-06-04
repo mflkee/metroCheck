@@ -162,6 +162,9 @@ class ProtocolExtractionService:
             line = match.group(1).strip()
             if ',' in line:
                 type_part = line.split(',', 1)[1].strip()
+                # Skip if it looks like a description, not a type
+                if re.search(r'согласно|реестра|состав|автономных|перечень', type_part, re.IGNORECASE):
+                    return None
                 return type_part if len(type_part) > 2 else None
         
         patterns = [
@@ -170,11 +173,16 @@ class ProtocolExtractionService:
             r'Тип[:\s]+([^\n\r]+)',
             r'Модификация[:\s]+([^\n\r]+)',
         ]
-        return self._match_first(text, patterns)
+        type_val = self._match_first(text, patterns)
+        if type_val and not re.search(r'согласно|реестра|состав|автономных|перечень', type_val, re.IGNORECASE):
+            return type_val
+        return None
 
     def _extract_serial_number(self, text: str) -> str | None:
         """Extract serial number."""
         patterns = [
+            # Value on SAME line: "Заводской номер (номера): 64180"
+            r'заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
             # Value on next line after "Заводской номер" (any text after it on same line)
             r'заводской\s+номер.*?\n\s*([^\n\r]+)',
             r'серийный\s+номер.*?\n\s*([^\n\r]+)',
@@ -188,6 +196,9 @@ class ProtocolExtractionService:
             serial = re.sub(r'все\s+цифры\s+и\s+буквы\s+заводского\s+номера', '', serial, flags=re.IGNORECASE)
             serial = re.sub(r'[();]', '', serial)
             serial = serial.strip()
+            # Skip if it looks like "Год выпуска" or other labels
+            if re.match(r'^(?:Год\s+выпуска|наименование|документ|методика)', serial, re.IGNORECASE):
+                return None
             return serial if len(serial) > 1 else None
         return None
 
