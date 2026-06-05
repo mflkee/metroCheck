@@ -248,7 +248,8 @@ class ReportService:
             except (ValueError, TypeError):
                 return str(val)
 
-        row_num = 2
+        row_num = 3  # Start data after header rows (row 1 = groups, row 2 = column names)
+        display_num = 1
 
         # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration
         for proto in protocols:
@@ -270,7 +271,7 @@ class ReportService:
                 "",
                 "",
                 # public headers
-                row_num - 1,
+                display_num,
                 cal.vri_id if cal else "",
                 cal.mit_number if cal else "",
                 cal.mit_title if cal else "",
@@ -346,6 +347,7 @@ class ReportService:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(color="9C0006", size=9)
             row_num += 1
+            display_num += 1
 
         # SECOND PASS: ARSHIN entries without a matching protocol
         for cal in calibrations:
@@ -360,7 +362,7 @@ class ReportService:
                 row_data = [
                     "❌",
                     "НЕТ ПРОТОКОЛА",
-                    row_num - 1,
+                    display_num,
                     cal.vri_id or "",
                     cal.mit_number or "",
                     cal.mit_title or "",
@@ -389,6 +391,7 @@ class ReportService:
                         cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                         cell.font = Font(color="9C0006", size=9)
                 row_num += 1
+                display_num += 1
 
         self._auto_fit_columns(ws)
 

@@ -49,27 +49,21 @@ class ProtocolExtractionService:
         # Clean all values
         data = {k: self._clean_value(v) for k, v in data.items()}
 
-        # Phase 3: AI fallback for missing complex fields only
-        confidence = self._calculate_confidence(data)
+        # Phase 3: AI fallback for any missing fields
+        missing = [k for k, v in data.items() if not v]
 
-        if confidence < 0.5:
-            # AI only for missing fields
-            missing = []
-            if not data.get("device_name"):
-                missing.append("device_name")
-            if not data.get("measurement_range"):
-                missing.append("measurement_range")
-            if not data.get("device_type"):
-                missing.append("device_type")
-
-            if missing:
-                try:
-                    ai_data = await self._ai_extract_fields(text, missing)
-                    for field in missing:
-                        if ai_data.get(field) and not data.get(field):
-                            data[field] = ai_data[field]
-                except Exception as e:
-                    logger.warning("AI fallback failed: %s", e)
+        if missing:
+            try:
+                ai_data = await self._ai_extract_fields(text, missing)
+                filled = {}
+                for field in missing:
+                    if ai_data.get(field) and not data.get(field):
+                        data[field] = ai_data[field]
+                        filled[field] = ai_data[field]
+                if filled:
+                    self._log_ai_fallback(file_name or "unknown", filled, text)
+            except Exception as e:
+                logger.warning("AI fallback failed: %s", e)
 
         # Recalculate confidence
         confidence = self._calculate_confidence(data)
@@ -89,32 +83,51 @@ class ProtocolExtractionService:
 
         ai_service = get_ai_extraction_service()
 
-        # Build minimal prompt for missing fields only
-        field_prompts = {
-            "device_name": "Найди наименование средства измерений (одно слово или короткая фраза)",
-            "device_type": "Найди тип/модификацию СИ",
-            "measurement_range": "Найди диапазон измерений в формате 'от X до Y единица'",
-        }
-
-        prompts = [field_prompts[f] for f in fields if f in field_prompts]
-        if not prompts:
-            return {}
-
-        prompt = (
-            f"Проанализируй протокол поверки и найди:\n"
-            f"{'\n'.join(f'{i+1}. {p}' for i, p in enumerate(prompts))}\n\n"
-            f"Верни ТОЛЬКО JSON с полями: {', '.join(fields)}.\n"
-            f"Без пояснений."
-        )
-
         result = await ai_service.extract(
             text=text,
-            custom_prompt=prompt,
-            models=["nvidia/nemotron-3-super-120b-a12b:free"],
-            max_tokens=300,
+            models=[
+                "moonshotai/kimi-k2.6:free",
+                "nvidia/nemotron-3-super-120b-a12b:free",
+            ],
+            max_tokens=600,
         )
 
-        return result.get("content", {})
+        content = result.get("content") or {}
+        if not isinstance(content, dict):
+            return {}
+        # Return only the fields we asked for
+        return {f: content.get(f) for f in fields}
+
+    def _log_ai_fallback(self, file_name: str, filled: dict[str, Any], text: str) -> None:
+        """Log AI fallback usage so patterns can be reviewed & added later."""
+        field_kwargs = {
+            "device_name": ["наименование", "средство", "измерений", "си"],
+            "device_type": ["тип", "модификация"],
+            "serial_number": ["заводской", "номер", "серийн", "№"],
+            "mit_number": ["реестр", "госреестр"],
+            "manufacture_year": ["год выпуска", "дата выпуска", "изготовления"],
+            "owner": ["владелец", "принадлежн", "организация"],
+            "verification_method": ["методик", "документ", "поверк"],
+            "verifier": ["поверитель"],
+            "measurement_range": ["диапазон"],
+        }
+        snippet_parts = []
+        for field in filled:
+            keywords = field_kwargs.get(field, [field])
+            for kw in keywords:
+                idx = text.lower().find(kw)
+                if idx >= 0:
+                    start = max(0, idx - 60)
+                    end = min(len(text), idx + 140)
+                    snippet = text[start:end].replace("\n", "↵")
+                    snippet_parts.append(f"[{field}]...{snippet}...")
+                    break
+        snippet_str = " | ".join(snippet_parts) if snippet_parts else "(no context found)"
+
+        logger.info(
+            "AI_FALLBACK file=%s fields=%s snippet=%s",
+            file_name, filled, snippet_str,
+        )
 
     def _extract_protocol_number(self, text: str) -> str | None:
         """Extract protocol number like '12/044/25' or '01/001/24'."""
@@ -462,6 +475,8 @@ class ProtocolExtractionService:
             owner = re.sub(r'["«»]', '', owner)
             # Stop at first comma or semicolon
             owner = re.split(r'[;,]\s*', owner)[0].strip()
+            # Remove trailing numbered section headers (e.g. "3. Дата выпуска:")
+            owner = re.sub(r'\s*\d+\.\s*[^\s]+.*$', '', owner).strip()
             owner = re.sub(r'\s+', ' ', owner).strip()
             if len(owner) > 3:
                 return owner
