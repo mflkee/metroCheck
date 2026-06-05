@@ -461,7 +461,7 @@ class ProtocolExtractionService:
         """Extract owner organization."""
         # Look for organization name near "Владелец" or standalone
         patterns = [
-            r'(?:\d+\.\s*)?Принадлежн(?:ащее|ость|ое|ность)[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Принадлеж(?:ащее|н(?:ость|ое|ность))[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Владелец[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
@@ -602,11 +602,11 @@ class ProtocolExtractionService:
     def _extract_methodology(self, text: str) -> str | None:
         """Extract verification methodology (multi-line aware)."""
         # Pattern 1: multi-line capture until a clear boundary
-        boundaries = r'(?:\n\s*наименование\s+и\s+номер\s+документа|\n\s*Средства\s+поверки|\n\s*Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
+        boundaries = r'(?:\n\s*(?:\d+\.\s*)?наименование\s+и\s+номер\s+документа|\n\s*(?:\d+\.\s*)?Средства\s+поверки|\n\s*(?:\d+\.\s*)?Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
         labels = (
             r'(?:\d+\.\s*)?'
             r'(?:'
-            r'Наименование\s+нормативного\s+документа\s+(?:на\s+методику\s+)?поверк(?:и|е)'
+            r'Наименование\s+нормативного\s+документа\s+(?:(?:на\s+методику|по)\s+)?поверк(?:и|е)'
             r'|Нормативный\s+документ\s+на\s+методику\s+поверки'
             r'|Документ\s+на\s+методику\s+поверки'
             r'|Методика\s+поверки'
@@ -644,7 +644,7 @@ class ProtocolExtractionService:
 
         # Fallback: find methodology reference codes like МИ ..., МП ..., ГОСТ ... near the phrase
         match = re.search(
-            r'((?:МИ|МП|ГОСТ|РЭ)\s+[\d\.\-/]+[^\n\r]{0,250}?(?:Методика\s+поверки|поверки))',
+            r'((?:МИ|МП|ГОСТ|РЭ)[-\s]*[\d\.\-/]+[^\n\r]{0,250}?(?:Методика\s+поверки|поверки))',
             text, re.IGNORECASE
         )
         if match:
