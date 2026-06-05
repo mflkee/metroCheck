@@ -686,17 +686,20 @@ class ProtocolExtractionService:
         if not has_code and len(v) > 80:
             return False
         # Reject section headers or template text fragments
-        garbage = [
-            r'средства\s+поверки',
-            r'условия\s+поверки',
-            r'проведение\s+поверки',
-            r'наименование\s+юридического',
-            r'описание\s+средства',
-            r'назначение\s+средства',
-        ]
-        v_lower = v.lower()
-        if any(re.search(g, v_lower) for g in garbage):
-            return False
+        # Only apply when no official doc code is present (avoid rejecting
+        # valid methodology names like "ГОСТ 8.461 ... Методы и средства поверки")
+        if not has_code:
+            garbage = [
+                r'средства\s+поверки',
+                r'условия\s+поверки',
+                r'проведение\s+поверки',
+                r'наименование\s+юридического',
+                r'описание\s+средства',
+                r'назначение\s+средства',
+            ]
+            v_lower = v.lower()
+            if any(re.search(g, v_lower) for g in garbage):
+                return False
         return True
 
     def _extract_result(self, text: str) -> str | None:
