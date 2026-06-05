@@ -134,9 +134,9 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_protocol_sheet(self, ws, protocols) -> None:
-        headers = ["№", "№ протокола", "Наименование", "Мод.", "Зав№",
+        headers = ["№", "№ протокола", "Наименование", "Зав№",
                    "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                   "Поверитель", "t, °C", "φ, %", "P, кПа", "Диапазон"]
+                   "Поверитель", "t, °C", "φ, %", "P, кПа"]
         self._write_headers(ws, headers, "ED7D31")
 
         def fmt_num(val):
@@ -148,16 +148,14 @@ class ReportService:
                 return str(val)
 
         for idx, proto in enumerate(protocols, 1):
-            # Extract range from raw text
-            proto_range = self._extract_range_from_text(proto.raw_text or "")
-            row = [idx, proto.protocol_number or "", proto.device_name or "",
-                   proto.device_type or "", proto.serial_number or "",
+            full_name = (proto.device_name or "") + (" " + proto.device_type if proto.device_type else "")
+            row = [idx, proto.protocol_number or "", full_name,
+                   proto.serial_number or "",
                    proto.mit_number or "", proto.verification_method or "",
                    proto.manufacture_year or "", proto.owner or "",
                    proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
                    proto.verifier or "", fmt_num(proto.temperature),
-                   fmt_num(proto.humidity), fmt_num(proto.pressure),
-                   proto_range]
+                   fmt_num(proto.humidity), fmt_num(proto.pressure)]
             self._write_data_row(ws, row, idx, "FCE4D6")
         self._auto_fit_columns(ws)
 
@@ -175,9 +173,9 @@ class ReportService:
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
                           "Дата", "Действует до", "№ док-та"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
-        proto_headers = ["№ протокола", "Наименование", "Мод.", "Зав№",
+        proto_headers = ["№ протокола", "Наименование", "Зав№",
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                         "Поверитель", "t", "φ", "P", "Диапазон"]
+                         "Поверитель", "t", "φ", "P"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
         group_titles = [
@@ -255,8 +253,7 @@ class ReportService:
                 except json.JSONDecodeError:
                     pass
 
-            # Extract protocol range
-            proto_range = self._extract_range_from_text(proto.raw_text or "")
+            full_name = (proto.device_name or "") + (" " + proto.device_type if proto.device_type else "")
 
             row_data = [
                 # compare columns (status + comments) filled later
@@ -280,8 +277,7 @@ class ReportService:
                 fmt_num(lk_conditions.get("pressure")) if cal else "",
                 # proto headers
                 proto.protocol_number or "",
-                proto.device_name or "",
-                proto.device_type or "",
+                full_name,
                 proto.serial_number or "",
                 proto.mit_number or "",
                 (proto.verification_method if proto.verification_method else "—"),
@@ -292,7 +288,6 @@ class ReportService:
                 fmt_num(proto.temperature),
                 fmt_num(proto.humidity),
                 fmt_num(proto.pressure),
-                proto_range or "—",
             ]
 
             mismatches = []
@@ -305,15 +300,6 @@ class ReportService:
                 cal_date = cal.verification_date.strftime("%d.%m.%Y")
                 if proto_date != cal_date:
                     mismatches.append(f"Дата: {cal_date} vs {proto_date}")
-
-            if cal and proto.device_name and cal.mit_title:
-                norm_proto = self._normalize_text(proto.device_name)
-                norm_cal = self._normalize_text(cal.mit_title)
-                if norm_proto not in norm_cal and norm_cal not in norm_proto:
-                    proto_words = {w for w in norm_proto.split() if len(w) >= 3}
-                    cal_words = {w for w in norm_cal.split() if len(w) >= 3}
-                    if len(proto_words & cal_words) < 1:
-                        mismatches.append(f"Наименование: {cal.mit_title} vs {proto.device_name}")
 
             if cal and proto.verifier and cal.verifier:
                 norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
@@ -379,7 +365,7 @@ class ReportService:
                     fmt_num(lk_conditions.get("humidity")),
                     fmt_num(lk_conditions.get("pressure")),
                     # proto columns — empty
-                    "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "",
                 ]
                 for col_idx, value in enumerate(row_data, 1):
                     cell = ws.cell(row=row_num, column=col_idx, value=value)
