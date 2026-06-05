@@ -51,7 +51,7 @@ class ProtocolExtractionService:
 
         # Phase 3: AI fallback — force for critical fields, or if confidence is low
         missing = [k for k, v in data.items() if not v]
-        critical = {"owner", "verification_method", "device_name", "measurement_range"}
+        critical = {"owner", "verification_method"}
         pre_confidence = self._calculate_confidence(data)
         if missing and (pre_confidence < 0.6 or critical & set(missing)):
             try:
