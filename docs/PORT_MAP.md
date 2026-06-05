@@ -1,88 +1,145 @@
-# metroCheck Server — Port Mapping & Infrastructure
+# MetroCheck — Port Mapping & Infrastructure
 
-## Server: metroCheck-server (100.89.59.195)
+## Сервер: mkair-server (100.89.59.195)
+Пароль: `<PASSWORD>`, пользователь: `mflkee`, VPN: Netbird
 
-## Docker Services
+## Docker Services — Production
 
-| Service | Container | Internal Port | External Port | URL | Description |
-|---------|-----------|--------------|---------------|-----|-------------|
-| **Frontend (nginx)** | metroCheck_frontend | 80 | 8080 | http://100.89.59.195:8080 | Web UI мониторинга |
-| **Backend API** | metroCheck_backend | 8000 | 8002 | http://100.89.59.195:8002 | FastAPI + API endpoints |
-| **PostgreSQL** | metroCheck_postgres | 5432 | 5434 | localhost only | База данных |
-| **Redis** | metroCheck_redis | 6379 | 6382 | localhost only | Очередь и кэш |
+| Service | Container Name | Internal Port | External Port | Description |
+|---------|---------------|--------------|---------------|-------------|
+| Backend | `metroCheck_backend` | 8000 | **8002** | FastAPI |
+| Frontend | `metroCheck_frontend` | 80 | **8081** | nginx static UI |
+| PostgreSQL | `metroCheck_postgres` | 5432 | **5434** | Database (db: `mkair`) |
+| Redis | `metroCheck_redis` | 6379 | **6382** | Cache & queue |
 
-## API Endpoints (Backend :8002)
+## Docker Services — Staging
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/health` | GET | Health check |
-| `/api/v1/arshin/status` | GET | ARSHIN API status |
-| `/api/v1/arshin/token-status` | GET | Token status |
-| `/api/v1/arshin/scheduler/status` | GET | Scheduler status |
-| `/api/v1/arshin/scheduler/mode` | POST | Set scheduler mode (manual/auto) |
-| `/api/v1/arshin/scheduler/settings` | POST | Configure scheduler settings |
-| `/api/v1/arshin/run-check` | POST | Manual check trigger |
-| `/api/v1/arshin/refresh-token` | POST | Request new token |
-| `/api/v1/arshin/task/{id}` | GET | Task status |
-| `/api/v1/jobs/queue` | GET | Job queue status |
-| `/api/v1/checks/results/{id}` | GET | Check results |
+| Service | Container Name | Internal Port | External Port | Description |
+|---------|---------------|--------------|---------------|-------------|
+| Backend | `metroCheck_backend_stg` | 8000 | **9002** | FastAPI |
+| Frontend | `metroCheck_frontend_stg` | 80 | **9081** | nginx static UI |
+| PostgreSQL | `metroCheck_postgres_stg` | 5432 | **5435** | Database (db: `mkair_stg`) |
+| Redis | `metroCheck_redis_stg` | 6379 | **6383** | Cache & queue |
+
+## API Endpoints (Backend)
+
+Все эндпоинты требуют заголовок `x-api-key`.
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Основной healthcheck |
+| GET | `/health/live` | Liveness probe |
+
+### ARSHIN (`/api/v1/arshin/`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/status` | Статус API АРШИН |
+| GET | `/token-status` | Статус токена ЛК |
+| POST | `/refresh-token` | Запросить новый токен (async) |
+| GET | `/task/{id}` | Статус асинхронной задачи |
+| POST | `/fetch-calibrations` | Загрузить калибровки (sync) |
+| POST | `/fetch-lk-details` | LK детали (sync) |
+| POST | `/fetch-lk-data2` | LK data2 (sync) |
+| POST | `/fetch-lk-async` | LK детали (async) |
+| POST | `/fetch-data2-async` | LK data2 (async) |
+| GET | `/scheduler/status` | Статус scheduler |
+| POST | `/scheduler/mode` | Режим manual/auto |
+| POST | `/scheduler/settings` | Настройки scheduler |
+| GET | `/scheduler/emails` | Список email для отчётов |
+| POST | `/scheduler/emails` | Добавить email |
+| DELETE | `/scheduler/emails/{id}` | Удалить email |
+
+### Jobs (`/api/v1/jobs/`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/enqueue` | Создать ручную задачу |
+| POST | `/enqueue-auto` | Создать авто-задачу |
+| GET | `/status` | Список задач |
+| GET | `/{id}` | Детали задачи |
+| POST | `/{id}/pause` | Пауза |
+| POST | `/{id}/resume` | Возобновить |
+| POST | `/{id}/cancel` | Отмена |
+| DELETE | `/{id}` | Удалить |
+| POST | `/{id}/generate-report` | Сгенерировать отчёт |
+| GET | `/{id}/download-report` | Скачать отчёт |
+
+### Checks (`/api/v1/checks/`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/run` | Запустить проверку (sync) |
+| POST | `/run_async` | Запустить проверку (async) |
+| GET | `/task/{id}` | Статус задачи |
+| GET | `/results/{id}` | Результаты |
 
 ## Synology Drive Sync
 
-| Local Path | Sync Direction | Remote | Description |
-|------------|---------------|--------|-------------|
-| `/home/mflkee/SynologyDrive/` | ↔ | NAS | Протоколы (2022-2026) |
-| `/home/mflkee/SynologyDrive/tokens/` | ↔ | NAS | Токены АРШИН |
+| Local Path | Remote | Description |
+|------------|--------|-------------|
+| `/home/mflkee/SynologyDrive/2025/` | NAS | Протоколы по месяцам |
+| `/home/mflkee/SynologyDrive/tokens/` | NAS | Токены АРШИН |
+| `/home/mflkee/SynologyDrive/2022/` | NAS | Архив |
+| `/home/mflkee/SynologyDrive/2023/` | NAS | Архив |
+| `/home/mflkee/SynologyDrive/2024/` | NAS | Архив |
 
-## Token Flow
+**Mount в контейнере:**
+- `/home/mflkee/SynologyDrive/2025/` → `/protocols/` (ro)
+- `/home/mflkee/SynologyDrive/tokens/` → `/shared/tokens/`
 
-```
-ПК Зонова (Нижневартовск)
-  ├─ Chrome Extension → fgis.gost.ru
-  ├─ Token Agent → C:/Users/Зонов/SynologyDrive/tokens/arshin-token.json
-  └─ Synology Drive Client → NAS
+## Monitoring (отдельный Docker Compose в ~/apps/monitoring/)
 
-NAS (Synology)
-  └─ Облачное хранилище
-
-mkair-server (Тюмень)
-  ├─ Synology Drive Client → /home/mflkee/SynologyDrive/tokens/
-  ├─ Docker Volume Mount → /shared/tokens/
-  └─ Backend читает → arshin-token.json
-```
+| Service | Port | URL |
+|---------|------|-----|
+| Grafana | 3000 → 8090 | http://192.168.1.84:8090 |
+| Prometheus | 9090 → 9091 | http://127.0.0.1:9091 |
+| cAdvisor | 8080 | http://127.0.0.1:8080 |
+| Node Exporter | 9100 | — |
+| Alertmanager | 9093 | — |
+| Blackbox | 9115 | — |
 
 ## Scheduler Configuration
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `mode` | `manual` | Режим: manual или auto |
-| `auto_day` | 1 | День месяца для авто-проверки |
-| `auto_time` | 09:00 | Время авто-проверки (HH:MM) |
-| `month_offset` | -1 | Смещение месяца (-12 до 0) |
+| `mode` | `manual` | Режим: manual / auto |
+| `auto_day` | 1 | День месяца для авто-запуска |
+| `auto_time` | 09:00 | Время авто-запуска |
+| `month_offset` | -1 | Смещение месяца (-12..0) |
 
 ## Firewall
 
 | Port | Service | Access |
 |------|---------|--------|
-| 8080 | Frontend | LAN + VPN |
-| 8002 | Backend API | LAN + VPN |
-| 5434 | PostgreSQL | localhost only |
-| 6382 | Redis | localhost only |
+| 8002 | Backend (prod) | LAN + VPN |
+| 8081 | Frontend (prod) | LAN + VPN |
+| 9002 | Backend (staging) | LAN + VPN |
+| 9081 | Frontend (staging) | LAN + VPN |
+| 5434 | PostgreSQL (prod) | localhost only |
+| 5435 | PostgreSQL (staging) | localhost only |
+| 6382 | Redis (prod) | localhost only |
+| 6383 | Redis (staging) | localhost only |
+| 8090 | Grafana | LAN + VPN |
 
-## Deployment
+## Quick Deploy
 
+### Staging (авто)
 ```bash
-cd ~/apps/metroCheck
-git pull origin main
-docker compose up -d --build
-docker compose exec backend alembic upgrade head
+git push origin main
+# → GitHub Actions само задеплоит
 ```
 
-## Troubleshooting
+### Staging (ручное пересоздание)
+```bash
+sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server 'cd ~/apps/metroCheck && docker compose -f docker-compose.staging.yml down && docker compose -f docker-compose.staging.yml up -d --build && docker compose -f docker-compose.staging.yml run --no-deps --rm backend alembic upgrade head'
+```
 
-| Problem | Solution |
-|---------|----------|
-| Token not found | Check SynologyDrive sync status |
-| Scheduler not running | Check mode: `GET /api/v1/arshin/scheduler/status` |
-| Database errors | Run migrations: `alembic upgrade head` |
-| Backend unhealthy | Check logs: `docker logs metroCheck_backend` |
+### Production
+```bash
+# GitHub UI → Actions → Promote to Production → type "deploy"
+# Или:
+git checkout -b release/v1.x.x && git push origin release/v1.x.x
+```
