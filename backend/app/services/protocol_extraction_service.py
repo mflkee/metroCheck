@@ -88,6 +88,7 @@ class ProtocolExtractionService:
             models=[
                 "moonshotai/kimi-k2.6:free",
                 "nvidia/nemotron-3-super-120b-a12b:free",
+                "openai/gpt-4o-mini",
             ],
             max_tokens=600,
         )
@@ -460,7 +461,7 @@ class ProtocolExtractionService:
         """Extract owner organization."""
         # Look for organization name near "Владелец" or standalone
         patterns = [
-            r'(?:\d+\.\s*)?Принадлежн(?:ость|ое|ность)[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Принадлежн(?:ащее|ость|ое|ность)[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Владелец[:\s]+([^\n\r]{3,100})',
             r'(?:\d+\.\s*)?Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',

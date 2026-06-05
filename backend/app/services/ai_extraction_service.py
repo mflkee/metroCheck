@@ -27,7 +27,7 @@ EXTRACTION_SYSTEM_PROMPT = (
     "4. result: 'suitable' или 'unsuitable'\n\n"
     "ПОЛЯ (ищи по ключевым словам):\n"
     "- protocol_number: № протокола\n"
-    "- device_name: Наименование СИ\n"  
+    "- device_name: Наименование СИ\n"
     "- device_type: Тип/модификация\n"
     "- serial_number: Заводской №/серийный №\n"
     "- mit_number: № в госреестре (формат 12345-67)\n"
@@ -237,10 +237,14 @@ class AIExtractionService:
                 # Log why validation failed for debugging
                 logger.debug("Model %s response failed validation: %s", model, content[:200])
 
-            except (httpx.HTTPError, KeyError, json.JSONDecodeError, TypeError, AttributeError, asyncio.TimeoutError) as e:
-                logger.warning("AI model %s failed: %s", model, e)
-                # Rate limit cooldown between models
-                await asyncio.sleep(1.0)
+            except (TimeoutError, httpx.HTTPError, KeyError, json.JSONDecodeError, TypeError, AttributeError) as e:
+                is_429 = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+                if is_429:
+                    logger.warning("AI model %s rate limited (429), waiting 15s...", model)
+                    await asyncio.sleep(15.0)
+                else:
+                    logger.warning("AI model %s failed: %s", model, e)
+                    await asyncio.sleep(1.0)
                 continue
 
         return {
