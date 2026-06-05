@@ -27,6 +27,16 @@ class ReportService:
         self.proto_repo = ProtocolDataRepository(db)
 
     @staticmethod
+    def _combine_name_type(name: str, type_: str) -> str:
+        if not type_:
+            return name or ""
+        if not name:
+            return type_
+        if type_.startswith(name):
+            return type_
+        return f"{name} {type_}"
+
+    @staticmethod
     def _normalize_text(text: str) -> str:
         """Normalize text for comparison: lowercase, remove extra spaces."""
         if not text:
@@ -148,7 +158,7 @@ class ReportService:
                 return str(val)
 
         for idx, proto in enumerate(protocols, 1):
-            full_name = (proto.device_name or "") + (" " + proto.device_type if proto.device_type else "")
+            full_name = self._combine_name_type(proto.device_name, proto.device_type)
             row = [idx, proto.protocol_number or "", full_name,
                    proto.serial_number or "",
                    proto.mit_number or "", proto.verification_method or "",
@@ -253,7 +263,7 @@ class ReportService:
                 except json.JSONDecodeError:
                     pass
 
-            full_name = (proto.device_name or "") + (" " + proto.device_type if proto.device_type else "")
+            full_name = self._combine_name_type(proto.device_name, proto.device_type)
 
             row_data = [
                 # compare columns (status + comments) filled later
