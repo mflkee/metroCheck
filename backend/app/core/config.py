@@ -21,10 +21,6 @@ class Settings(BaseSettings):
     # Token sync via shared file (Synology Drive / Dropbox / etc.)
     # Path where token JSON file appears after sync from Zonov's PC
     TOKEN_FILE_PATH: str = "/shared/tokens/arshin-token.json"
-    
-    # Legacy: Netbird settings (deprecated, kept for compatibility)
-    ZONOV_IP: str = "100.89.96.31"
-    TOKEN_AGENT_KEY: str = "metrocheck-token-agent-key"
 
     # Security
     FASTAPI_API_KEY: str = "CHANGE_ME_API_KEY"

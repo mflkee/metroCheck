@@ -938,19 +938,3 @@ def get_protocol_extraction_service():
     if _extraction_service is None:
         _extraction_service = ProtocolExtractionService()
     return _extraction_service
-
-
-# Also provide async wrapper for compatibility
-class SmartExtractor:
-    """Async wrapper for ProtocolExtractionService."""
-
-    def __init__(self) -> None:
-        self.service = get_protocol_extraction_service()
-
-    async def extract(self, text: str, file_name: str | None = None, file_path: str | None = None) -> dict[str, Any]:
-        """Extract protocol data using regex + AI hybrid."""
-        return await self.service.extract(text, file_name, file_path)
-
-
-def get_smart_extractor():
-    return SmartExtractor()

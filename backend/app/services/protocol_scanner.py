@@ -3,13 +3,14 @@
 import asyncio
 import hashlib
 import os
-import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional, Callable
+from typing import Any
 
 import pdfplumber
-from PIL import Image
 import pytesseract
+from pdf2image import convert_from_path
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.protocol_file import ProtocolFile
@@ -36,6 +37,11 @@ def _extract_text_process(file_path: str, queue: Any) -> None:
                         text_parts.append(page_text)
             full_text = "\n".join(text_parts)
             pages = len(text_parts)
+            if not full_text.strip():
+                images = convert_from_path(file_path)
+                pages = len(images)
+                ocr_parts = [pytesseract.image_to_string(img, lang="rus+eng") for img in images]
+                full_text = "\n".join(ocr_parts)
         queue.put({"text": full_text, "pages": pages, "error": None})
     except Exception as e:
         queue.put({"error": str(e), "text": "", "pages": 0})
@@ -74,7 +80,7 @@ class ProtocolScanner:
 
     async def scan(
         self, year: int, month: int,
-        progress_callback: Optional[Callable] = None,
+        progress_callback: Callable | None = None,
     ) -> dict[str, Any]:
         """Scan folder for protocol files (PDF/JPG/PNG) and save to DB.
 
@@ -178,6 +184,11 @@ class ProtocolScanner:
                             text_parts.append(page_text)
                 full_text = "\n".join(text_parts)
                 pages = len(text_parts)
+                if not full_text.strip():
+                    images = convert_from_path(file_path)
+                    pages = len(images)
+                    ocr_parts = [pytesseract.image_to_string(img, lang="rus+eng") for img in images]
+                    full_text = "\n".join(ocr_parts)
 
             return {
                 "text": full_text,
@@ -216,7 +227,7 @@ class ProtocolScanner:
                     asyncio.wrap_future(future),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Cancel the future (thread will finish eventually but won't block)
                 future.cancel()
                 protocol.status = "error"

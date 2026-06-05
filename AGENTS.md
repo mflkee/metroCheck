@@ -151,6 +151,11 @@ sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server 'curl http://localhost:9002/a
 sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server 'docker logs metroCheck_backend_stg --tail 30'
 ```
 
+### View AI fallback logs (to find regex patterns to add)
+```bash
+sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server 'docker logs metroCheck_backend_stg --tail 500 2>&1 | grep AI_FALLBACK'
+```
+
 ### Promote to production
 ```bash
 # Requires GitHub UI — I can guide you through it

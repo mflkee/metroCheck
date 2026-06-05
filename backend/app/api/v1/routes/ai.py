@@ -70,7 +70,6 @@ async def list_available_models(x_api_key: str = Header(...)) -> dict[str, Any]:
     if x_api_key != settings.FASTAPI_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
-    import httpx
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             "https://openrouter.ai/api/v1/models",
@@ -86,39 +85,6 @@ async def list_available_models(x_api_key: str = Header(...)) -> dict[str, Any]:
             "id": m["id"],
             "context_length": m.get("context_length"),
             "description": (m.get("description") or "")[:100],
-        }
-        for m in data.get("data", [])
-        if ":free" in m.get("id", "")
-    ]
-
-    return {
-        "free_models": free_models,
-        "count": len(free_models),
-        "configured_chain": DEFAULT_MODELS,
-    }
-
-
-@router.get("/models")
-async def list_available_models(x_api_key: str = Header(...)) -> dict[str, Any]:
-    """List available free models from OpenRouter."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            "https://openrouter.ai/api/v1/models",
-            headers={
-                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    free_models = [
-        {
-            "id": m["id"],
-            "context_length": m.get("context_length"),
-            "description": m.get("description", "")[:100],
         }
         for m in data.get("data", [])
         if ":free" in m.get("id", "")
