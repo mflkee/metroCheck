@@ -453,7 +453,7 @@ class JobQueueService:
             logger.info("[DEBUG] Protocol %s: before _set_phase in loop", proto.id)
             if idx % 2 == 0 or idx == len(scanned_protocols) - 1:
                 pct = 50 + int((idx + 1) / max(len(scanned_protocols), 1) * 5)
-                await self._set_phase(job, "data_extract", f"AI: {idx + 1}/{len(scanned_protocols)} протоколов...", min(pct, 55), stats)
+                await self._set_phase(job, "data_extract", f"Обработка: {idx + 1}/{len(scanned_protocols)} протоколов...", min(pct, 55), stats)
             logger.info("[DEBUG] Protocol %s: after _set_phase in loop", proto.id)
 
         logger.info("[DEBUG] data_extract loop done, extracted=%d, errors=%d", extracted, extract_errors)
@@ -464,7 +464,7 @@ class JobQueueService:
             "status": "completed",
         }
         logger.info("[DEBUG] Before final data_extract _set_phase")
-        await self._set_phase(job, "data_extract", f"AI извлeчeно: {extracted}/{len(scanned_protocols)}", 55, stats)
+        await self._set_phase(job, "data_extract", f"Извлечено: {extracted}/{len(scanned_protocols)}", 55, stats)
         logger.info("[DEBUG] After final data_extract _set_phase")
 
         # ── Phase 5: Partial Checks (no token) ────────────────────────────
