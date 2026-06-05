@@ -680,6 +680,9 @@ class ProtocolExtractionService:
             return False
         # Must contain a document code if very long, or be short with digits
         has_code = bool(re.search(r'(?:М[ИП]|ГОСТ|РЭ|ГСИ)\s*[\d\.\-/]', v, re.IGNORECASE))
+        # Also match manufacturer codes like КУВФ.405210.003 or КУВФ.405210.003 МП
+        if not has_code:
+            has_code = bool(re.search(r'[A-ZА-Яa-zа-я]{2,}\.\d+(?:\.\d+)+\s*(?:М[ИП])?\b', v))
         has_digit = bool(re.search(r'\d', v))
         if not has_code and not has_digit:
             return False
