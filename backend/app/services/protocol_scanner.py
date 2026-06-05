@@ -2,15 +2,12 @@
 
 import asyncio
 import hashlib
+import multiprocessing
 import os
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-import pdfplumber
-import pytesseract
-from pdf2image import convert_from_path
-from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.protocol_file import ProtocolFile
@@ -22,6 +19,11 @@ SUPPORTED_EXTENSIONS = {".pdf"} | IMAGE_EXTENSIONS
 
 def _extract_text_process(file_path: str, queue: Any) -> None:
     """Top-level helper for multiprocessing — runs in a separate process."""
+    import pdfplumber
+    import pytesseract
+    from pdf2image import convert_from_path
+    from PIL import Image
+
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext in IMAGE_EXTENSIONS:
@@ -166,46 +168,12 @@ class ProtocolScanner:
             "path": target_folder,
         }
 
-    def extract_text_sync(self, file_path: str) -> dict[str, Any]:
-        """Pure synchronous text extraction from file (no DB, no async)."""
-        ext = os.path.splitext(file_path)[1].lower()
-
-        try:
-            if ext in IMAGE_EXTENSIONS:
-                with Image.open(file_path) as img:
-                    full_text = pytesseract.image_to_string(img, lang="rus+eng")
-                pages = 1
-            else:
-                text_parts = []
-                with pdfplumber.open(file_path) as pdf:
-                    for page in pdf.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text_parts.append(page_text)
-                full_text = "\n".join(text_parts)
-                pages = len(text_parts)
-                if not full_text.strip():
-                    images = convert_from_path(file_path)
-                    pages = len(images)
-                    ocr_parts = [pytesseract.image_to_string(img, lang="rus+eng") for img in images]
-                    full_text = "\n".join(ocr_parts)
-
-            return {
-                "text": full_text,
-                "pages": pages,
-                "error": None,
-            }
-
-        except Exception as e:
-            return {"error": str(e), "text": "", "pages": 0}
-
     async def extract_text(self, protocol_file_id: int, timeout: float = 120.0) -> dict[str, Any]:
-        """Extract text from protocol file with timeout."""
+        """Extract text from protocol file with timeout via separate process."""
         protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
 
-        # Skip OCR if text already extracted
         if protocol.raw_text and len(protocol.raw_text) > 50:
             protocol.status = "scanned"
             await asyncio.shield(self.db.commit())
@@ -215,13 +183,20 @@ class ProtocolScanner:
                 "pages": 0,
             }
 
-        loop = asyncio.get_event_loop()
+        queue: multiprocessing.Queue = multiprocessing.Queue()
+        proc = multiprocessing.Process(
+            target=_extract_text_process,
+            args=(protocol.file_path, queue),
+        )
+        proc.start()
+
         try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, self.extract_text_sync, protocol.file_path),
-                timeout=timeout,
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, queue.get, timeout,
             )
-        except TimeoutError:
+        except Exception:
+            proc.terminate()
+            proc.join(timeout=5)
             protocol.status = "error"
             protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
             await asyncio.shield(self.db.commit())
@@ -229,6 +204,8 @@ class ProtocolScanner:
                 "protocol_id": protocol_file_id,
                 "error": f"OCR timeout (>{int(timeout)}s)",
             }
+        else:
+            proc.join(timeout=5)
 
         if result.get("error"):
             protocol.status = "error"
