@@ -602,7 +602,7 @@ class ProtocolExtractionService:
     def _extract_methodology(self, text: str) -> str | None:
         """Extract verification methodology (multi-line aware)."""
         # Pattern 1: multi-line capture until a clear boundary
-        boundaries = r'(?:\n\s*(?:\d+\.\s*)?наименование\s+и\s+номер\s+документа|\n\s*(?:\d+\.\s*)?Средства\s+поверки|\n\s*(?:\d+\.\s*)?Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
+        boundaries = r'(?:\n\s*(?:\d+\.\s*)?Средства\s+поверки|\n\s*(?:\d+\.\s*)?Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
         labels = (
             r'(?:\d+\.\s*)?'
             r'(?:'
@@ -685,7 +685,11 @@ class ProtocolExtractionService:
             has_code = bool(re.search(r'[A-ZА-Яa-zа-я]{2,}\.\d+(?:\.\d+)+\s*(?:М[ИП])?\b', v))
         has_digit = bool(re.search(r'\d', v))
         if not has_code and not has_digit:
-            return False
+            # Allow descriptive methodology names (product + "Методика поверки")
+            if not (15 <= len(v) <= 80
+                    and re.search(r'[а-яё]', v, re.IGNORECASE)
+                    and len(v.split()) >= 2):
+                return False
         if not has_code and len(v) > 80:
             return False
         # Reject section headers or template text fragments
