@@ -199,11 +199,8 @@ class ProtocolScanner:
         except Exception as e:
             return {"error": str(e), "text": "", "pages": 0}
 
-    async def extract_text(self, protocol_file_id: int, timeout: float = 30.0) -> dict[str, Any]:
-        """Extract text from protocol file with real timeout via ThreadPoolExecutor."""
-        from concurrent.futures import ThreadPoolExecutor
-
-        # Shield DB operations so cancellation doesn't corrupt greenlet state
+    async def extract_text(self, protocol_file_id: int, timeout: float = 120.0) -> dict[str, Any]:
+        """Extract text from protocol file with timeout."""
         protocol = await asyncio.shield(self.repo.get_by_id(protocol_file_id))
         if not protocol:
             return {"error": "Protocol not found"}
@@ -218,25 +215,20 @@ class ProtocolScanner:
                 "pages": 0,
             }
 
-        # ThreadPool with multiple workers so one hung PDF doesn't block others
         loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future = executor.submit(self.extract_text_sync, protocol.file_path)
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.wrap_future(future),
-                    timeout=timeout,
-                )
-            except TimeoutError:
-                # Cancel the future (thread will finish eventually but won't block)
-                future.cancel()
-                protocol.status = "error"
-                protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
-                await asyncio.shield(self.db.commit())
-                return {
-                    "protocol_id": protocol_file_id,
-                    "error": f"OCR timeout (>{int(timeout)}s)",
-                }
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, self.extract_text_sync, protocol.file_path),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            protocol.status = "error"
+            protocol.raw_text = f"OCR timeout (>{int(timeout)}s)"
+            await asyncio.shield(self.db.commit())
+            return {
+                "protocol_id": protocol_file_id,
+                "error": f"OCR timeout (>{int(timeout)}s)",
+            }
 
         if result.get("error"):
             protocol.status = "error"
