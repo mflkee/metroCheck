@@ -3,9 +3,8 @@
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +33,7 @@ class JobQueueService:
         self.db = db
         self.repo = JobRepository(db)
         self.email = EmailService()
-        self._current_task: Optional[asyncio.Task] = None
+        self._current_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
     async def enqueue_manual(
@@ -48,7 +47,7 @@ class JobQueueService:
         for job in pending_auto:
             if job.job_type == "auto":
                 await self.repo.cancel_job(job.id)
-        
+
         return await self.repo.create(
             year=year,
             month=month,
@@ -75,7 +74,7 @@ class JobQueueService:
     async def start_worker(self) -> None:
         """Start background worker that processes jobs."""
         self._stop_event.clear()
-        
+
         # Clean up stale "running" jobs left over from a restart
         try:
             stale = await self.repo.list_by_status("running")
@@ -92,7 +91,7 @@ class JobQueueService:
                 await self.db.rollback()
             except Exception:
                 pass
-        
+
         while not self._stop_event.is_set():
             try:
                 processed = await self._process_next_job()
@@ -155,13 +154,13 @@ class JobQueueService:
             job.progress_percent = 100
             job.processed_devices = job.total_devices
             job.completed_at = datetime.utcnow()
-            
+
             await self.db.commit()
-            
+
             # Send email report
             await self._send_report(job, result)
             return True
-            
+
         except asyncio.CancelledError:
             self._current_task = None
             job.status = "cancelled"
@@ -193,7 +192,7 @@ class JobQueueService:
                 await self.db.rollback()
             except Exception:
                 pass
-            
+
             # Recreate session in case it was corrupted by task cancellation
             # (greenlet_spawn error) — a single shared session is used for all jobs
             try:
@@ -204,7 +203,7 @@ class JobQueueService:
             from app.repositories.job_repository import JobRepository
             self.db = AsyncSessionLocal()
             self.repo = JobRepository(self.db)
-            
+
             # Re-attach and update job in the new session
             fresh_job = await self.repo.get_by_id(job.id)
             if fresh_job:
@@ -219,7 +218,7 @@ class JobQueueService:
                 job.progress = f"Failed: {e}"
                 job.completed_at = datetime.utcnow()
                 self.db.add(job)
-            
+
             try:
                 await self.db.commit()
             except Exception:
@@ -251,24 +250,23 @@ class JobQueueService:
         """
         tm = get_task_manager()
         task_id = await tm.create(f"job_{job.id}_{job.year}_{job.month}")
-        
+
         await self._check_cancelled(job.id)
-        
+
+        from app.repositories.protocol_file_repository import ProtocolFileRepository
         from app.services.arshin_service import ArshinService
         from app.services.protocol_scanner import ProtocolScanner
-        from app.services.check_service import CheckService
-        from app.repositories.protocol_file_repository import ProtocolFileRepository
-        
+
         arshin_service = ArshinService(self.db)
         scanner = ProtocolScanner(self.db, settings.METROCHECK_PROTOCOLS_PATH or "/protocols")
         proto_repo = ProtocolFileRepository(self.db)
         check_service = CheckService(self.db)
-        
+
         stats: dict[str, Any] = {}
-        
+
         # ── Phase 1: Public API ───────────────────────────────────────────
         await self._set_phase(job, "public_api", "Загрузка поверок из АРШИН (public API)...", 5, stats)
-        
+
         cal_result = await arshin_service.fetch_and_save_calibrations(job.year, job.month)
         total_devices = cal_result.get('saved', 0)
         stats["public_api"] = {
@@ -282,12 +280,12 @@ class JobQueueService:
         # ── Phase 2: Protocol Scan ────────────────────────────────────────
         await self._set_phase(job, "protocol_scan", "Подсчёт файлов...", 24, stats)
         await self._check_cancelled(job.id)
-        
+
         async def _on_scan_progress(done: int, total: int) -> None:
             pct = min(25 + int(done / max(total, 1) * 5), 29)
             msg = f"Сканирование: {done}/{total} файлов..."
             await self._set_phase(job, "protocol_scan", msg, pct, stats)
-        
+
         scan_result = await scanner.scan(job.year, job.month, progress_callback=_on_scan_progress)
         stats["protocol_scan"] = {
             "found": scan_result.get('found', 0),
@@ -300,25 +298,25 @@ class JobQueueService:
         # ── Phase 3: Protocol OCR ─────────────────────────────────────────
         await self._set_phase(job, "protocol_ocr", "Извлечение текста из протоколов...", 35, stats)
         await self._check_cancelled(job.id)
-        
+
         # Reset all protocols to pending so we process EVERY file
         protocols = await proto_repo.get_by_month(job.year, job.month)
         for p in protocols:
             p.status = "pending"
         await self.db.commit()
-        
+
         # Refresh list after reset
         protocols = await proto_repo.get_by_month(job.year, job.month)
         extracted_count = 0
         ocr_errors = 0
         needs_ocr = protocols  # Process ALL files
         total = len(needs_ocr)
-        
+
         for idx, proto in enumerate(needs_ocr):
             try:
                 await asyncio.wait_for(scanner.extract_text(proto.id), timeout=30.0)
                 extracted_count += 1
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 ocr_errors += 1
                 logger.warning("OCR timeout for protocol %s", proto.id)
                 # Rollback to prevent "transaction already started" error on next iteration
@@ -334,12 +332,12 @@ class JobQueueService:
                     await self.db.rollback()
                 except Exception:
                     pass
-            
+
             # Update progress every 5 files
             if idx % 5 == 0 or idx == total - 1:
                 pct = 35 + int((idx + 1) / max(total, 1) * 15)
                 await self._set_phase(job, "protocol_ocr", f"OCR: {idx + 1}/{total}...", min(pct, 50), stats)
-        
+
         stats["protocol_ocr"] = {
             "total": total,
             "extracted": extracted_count,
@@ -352,10 +350,9 @@ class JobQueueService:
         await self._set_phase(job, "data_extract", "Извлечение данных из протоколов через AI...", 50, stats)
         await self._check_cancelled(job.id)
 
+        from app.models.protocol_data import ProtocolData
         from app.repositories.protocol_data_repository import ProtocolDataRepository
         from app.services.protocol_extraction_service import get_protocol_extraction_service
-
-        from app.models.protocol_data import ProtocolData
 
         proto_data_repo = ProtocolDataRepository(self.db)
         extraction_service = get_protocol_extraction_service()
@@ -379,7 +376,7 @@ class JobQueueService:
 
                 logger.info("[DEBUG] Protocol %s: starting extraction", proto.id)
                 # Use multi-pass extraction with validation
-                ai_result = await extraction_service.extract(text, proto.file_name)
+                ai_result = await extraction_service.extract(text, proto.file_name, proto.file_path)
                 logger.info("[DEBUG] Protocol %s: extraction done, status=%s", proto.id, ai_result.get("status"))
                 extracted_data = ai_result.get("content") or {}
 
@@ -442,7 +439,7 @@ class JobQueueService:
                 else:
                     data = ProtocolData(protocol_file_id=proto.id, **fields)
                     self.db.add(data)
-                
+
                 # Count as extracted if we have at least serial_number or protocol_number
                 if extracted_data.get('serial_number') or extracted_data.get('protocol_number'):
                     extracted += 1
@@ -475,7 +472,7 @@ class JobQueueService:
         await self._set_phase(job, "partial_check", "Частичная проверка (public API + протоколы)...", 55, stats)
         logger.info("[DEBUG] After partial_check _set_phase")
         await self._check_cancelled(job.id)
-        
+
         logger.info("[DEBUG] Before run_partial_checks")
         partial_result = await check_service.run_partial_checks(job.year, job.month)
         logger.info("[DEBUG] After run_partial_checks: %s", partial_result)
@@ -500,7 +497,7 @@ class JobQueueService:
         # ── Phase 6: LK API ───────────────────────────────────────────────
         await self._set_phase(job, "lk_api", "Загрузка данных из ЛК АРШИН...", 60, stats)
         await self._check_cancelled(job.id)
-        
+
         lk_result = await arshin_service.fetch_lk_details(job.year, job.month)
         stats["lk_details"] = {
             "total": lk_result.get('total', 0),
@@ -511,7 +508,7 @@ class JobQueueService:
         await self._set_phase(job, "lk_api", f"ЛК детали: {lk_result['updated']} записей", 70, stats, processed_devices=total_devices // 3)
 
         await self._set_phase(job, "lk_api", "Загрузка расширенных данных...", 75, stats)
-        
+
         data2_result = await arshin_service.fetch_lk_data2(job.year, job.month)
         stats["lk_data2"] = {
             "total": data2_result.get('total', 0),
@@ -524,11 +521,11 @@ class JobQueueService:
         # ── Phase 7: Full Checks ──────────────────────────────────────────
         await self._set_phase(job, "full_check", "Полная проверка с данными ЛК...", 85, stats)
         await self._check_cancelled(job.id)
-        
+
         check_result = await check_service.run_checks(job.year, job.month)
         if check_result.get("run_id"):
             job.check_run_id = check_result["run_id"]
-        
+
         stats["full_check"] = {
             "errors": check_result.get('errors', 0),
             "warnings": check_result.get('warnings', 0),
@@ -540,7 +537,7 @@ class JobQueueService:
         # ── Phase 8: Report ───────────────────────────────────────────────
         await self._set_phase(job, "report", "Формирование отчета...", 98, stats)
         await self._check_cancelled(job.id)
-        
+
         final_result = {
             "public_api": cal_result,
             "protocol_scan": scan_result,
@@ -550,10 +547,10 @@ class JobQueueService:
             "lk_data2": data2_result,
             "full_check": check_result,
         }
-        
+
         stats["report"] = {"status": "completed"}
         await self._set_phase(job, "report", "Готово!", 100, stats)
-        
+
         return final_result
 
     async def _set_phase(
@@ -563,8 +560,8 @@ class JobQueueService:
         progress: str,
         percent: int,
         stats: dict,
-        total_devices: Optional[int] = None,
-        processed_devices: Optional[int] = None,
+        total_devices: int | None = None,
+        processed_devices: int | None = None,
     ) -> None:
         """Update job phase and stats."""
         stats_json = json.dumps(stats, ensure_ascii=False, default=str)
@@ -589,12 +586,12 @@ class JobQueueService:
         )
         job.waiting_for_token = True
         await self.db.commit()
-        
+
         await client._request_new_token()
-        
+
         job.waiting_for_token = False
         await self.db.commit()
-        
+
         await self.repo.update_status(
             job.id,
             status="running",
@@ -605,7 +602,7 @@ class JobQueueService:
     async def _send_report(self, job: Job, result: dict[str, Any]) -> None:
         """Send email report after completion."""
         checks = result.get("checks", {})
-        
+
         # Read report_email from scheduler state
         report_email = None
         try:
@@ -616,7 +613,7 @@ class JobQueueService:
                 report_email = ", ".join(e.email for e in entries)
         except Exception:
             pass
-        
+
         # Generate report and attach to email
         report_path = None
         try:
@@ -626,7 +623,7 @@ class JobQueueService:
             report_path = report_result.get("file_path")
         except Exception as e:
             print(f"[Email] Failed to generate report: {e}")
-        
+
         await self.email.send_check_report(
             year=job.year,
             month=job.month,
@@ -638,18 +635,18 @@ class JobQueueService:
             report_path=report_path,
             recipient_email=report_email,
         )
-        
+
         job.email_sent = True
         await self.db.commit()
 
-    async def cancel_job(self, job_id: int, db: Optional[AsyncSession] = None) -> bool:
+    async def cancel_job(self, job_id: int, db: AsyncSession | None = None) -> bool:
         """Cancel a pending or running job."""
         from app.repositories.job_repository import JobRepository
         repo = JobRepository(db or self.db)
         job = await repo.get_by_id(job_id)
         if not job:
             return False
-        
+
         if job.status == "running":
             if self._current_task:
                 self._current_task.cancel()
@@ -658,10 +655,10 @@ class JobQueueService:
             job.completed_at = datetime.utcnow()
             await (db or self.db).commit()
             return True
-        
+
         if job.status == "pending":
             return await repo.cancel_job(job_id)
-        
+
         return False
 
     async def pause_job(self, job_id: int) -> bool:
@@ -678,7 +675,7 @@ class JobQueueService:
         pending = await self.repo.list_by_status("pending")
         paused = await self.repo.list_by_status("paused")
         recent = await self.repo.list_all(limit=10)
-        
+
         return {
             "running": self._job_to_dict(running) if running else None,
             "pending": [self._job_to_dict(j) for j in pending],
@@ -713,10 +710,10 @@ class JobQueueService:
         }
 
 
-_queue_service_instance: Optional[JobQueueService] = None
+_queue_service_instance: JobQueueService | None = None
 
 
-def get_queue_service(db: Optional[AsyncSession] = None) -> JobQueueService:
+def get_queue_service(db: AsyncSession | None = None) -> JobQueueService:
     global _queue_service_instance
     if _queue_service_instance is not None:
         return _queue_service_instance

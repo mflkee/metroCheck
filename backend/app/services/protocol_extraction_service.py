@@ -17,7 +17,7 @@ class ProtocolExtractionService:
         'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12',
     }
 
-    async def extract(self, text: str, file_name: str | None = None) -> dict[str, Any]:
+    async def extract(self, text: str, file_name: str | None = None, file_path: str | None = None) -> dict[str, Any]:
         """Extract all protocol data using regex + AI hybrid."""
         if not text:
             return {"content": {}, "status": "manual_review", "cost": 0}
@@ -44,14 +44,14 @@ class ProtocolExtractionService:
         # Phase 2: Try regex for device_name and range too
         data["device_name"] = self._extract_device_name(text)
         data["device_type"] = self._extract_device_type(text)
-        data["measurement_range"] = self._extract_range(text)
+        data["measurement_range"] = self._extract_range(text, file_path)
 
         # Clean all values
         data = {k: self._clean_value(v) for k, v in data.items()}
 
         # Phase 3: AI fallback for missing complex fields only
         confidence = self._calculate_confidence(data)
-        
+
         if confidence < 0.5:
             # AI only for missing fields
             missing = []
@@ -61,7 +61,7 @@ class ProtocolExtractionService:
                 missing.append("measurement_range")
             if not data.get("device_type"):
                 missing.append("device_type")
-            
+
             if missing:
                 try:
                     ai_data = await self._ai_extract_fields(text, missing)
@@ -80,39 +80,40 @@ class ProtocolExtractionService:
             "status": status,
             "cost": 0,
             "attempts": 1,
+            "confidence": round(confidence, 2),
         }
 
     async def _ai_extract_fields(self, text: str, fields: list[str]) -> dict[str, Any]:
         """Use AI to extract only specific missing fields."""
         from app.services.ai_extraction_service import get_ai_extraction_service
-        
+
         ai_service = get_ai_extraction_service()
-        
+
         # Build minimal prompt for missing fields only
         field_prompts = {
             "device_name": "Найди наименование средства измерений (одно слово или короткая фраза)",
             "device_type": "Найди тип/модификацию СИ",
             "measurement_range": "Найди диапазон измерений в формате 'от X до Y единица'",
         }
-        
+
         prompts = [field_prompts[f] for f in fields if f in field_prompts]
         if not prompts:
             return {}
-        
+
         prompt = (
             f"Проанализируй протокол поверки и найди:\n"
             f"{'\n'.join(f'{i+1}. {p}' for i, p in enumerate(prompts))}\n\n"
             f"Верни ТОЛЬКО JSON с полями: {', '.join(fields)}.\n"
             f"Без пояснений."
         )
-        
+
         result = await ai_service.extract(
             text=text,
             custom_prompt=prompt,
             models=["nvidia/nemotron-3-super-120b-a12b:free"],
             max_tokens=300,
         )
-        
+
         return result.get("content", {})
 
     def _extract_protocol_number(self, text: str) -> str | None:
@@ -129,44 +130,199 @@ class ProtocolExtractionService:
         return self._match_first(text, patterns)
 
     def _extract_device_name(self, text: str) -> str | None:
-        """Extract device name - it's the line before the 'наименование' label."""
-        # In these protocols, device name is on the line BEFORE "наименование, тип" or "наименование средства"
-        match = re.search(r'\n([^\n\r]{3,100})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
+        """Extract device name."""
+        candidates = []
+
+        # Pattern A: line(s) BEFORE "наименование, тип" label
+        # Capture up to two preceding lines; if the immediate line starts with a lowercase
+        # continuation word, join with the previous line.
+        match = re.search(
+            r'\n([^\n\r]{3,120})\n([^\n\r]{3,120})\n\s*наименование[,\s]*тип',
+            text, re.IGNORECASE
+        )
         if match:
-            name = match.group(1).strip()
-            # Clean up
-            name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
-            name = re.split(r'[,;\(\[].*', name)[0].strip()
-            return name if len(name) > 2 else None
-        
-        # Fallback to old patterns
-        patterns = [
+            prev_line = match.group(1).strip()
+            line = match.group(2).strip()
+            if (
+                line
+                and line[0].islower()
+                and not re.search(
+                    r'протокол|аккредитации|реестр|уникальный|номер|заводской|год|владел|принадлеж',
+                    prev_line,
+                    re.IGNORECASE,
+                )
+            ):
+                candidates.append(prev_line + ' ' + line)
+            candidates.append(line)
+        else:
+            match = re.search(r'\n([^\n\r]{3,120})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
+            if match:
+                candidates.append(match.group(1).strip())
+
+        # Pattern B: "Наименование прибора X" on same line
+        match = re.search(r'Наименование\s+прибора[:\s]+([^\n\r]{2,100})', text, re.IGNORECASE)
+        if match:
+            candidates.append(match.group(1).strip())
+
+        # Pattern C: "Наименование, тип, модификация: X"
+        match = re.search(r'Наименование[,\s]+тип[^:\n]*:\s*([^\n\r]{2,100})', text, re.IGNORECASE)
+        if match:
+            candidates.append(match.group(1).strip())
+
+        # Pattern D: old explicit labels
+        for pattern in [
             r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]{2,100})',
             r'Наименование\s+СИ[:\s]+([^\n\r]{2,100})',
             r'Наименование[:\s]+([^\n\r]{2,100})',
-        ]
-        name = self._match_first(text, patterns)
-        if name:
-            name = name.strip()
+        ]:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                candidates.append(match.group(1).strip())
+
+        # Pick best candidate: not starting with junk words, reasonable length
+        junk_prefixes = ('прибора', 'средства', 'нормативного', 'документа')
+        for raw in candidates:
+            name = raw
             name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
-            name = re.split(r'[,;\(\[].*', name)[0].strip()
-            return name if len(name) > 2 else None
+            name = re.sub(r'^прибора\s+', '', name, flags=re.IGNORECASE)
+            name = re.sub(r'^типа', '', name, flags=re.IGNORECASE).strip()
+
+            # Split by semicolon: first part is usually the name
+            if ';' in name:
+                name = name.split(';')[0].strip()
+
+            # Split by comma only when the trailing chunk is a clear model code and
+            # the comma is not part of a list (no conjunction like "и" before it).
+            while ',' in name:
+                parts = [p.strip() for p in name.split(',')]
+                last = parts[-1]
+                before = parts[-2] if len(parts) >= 2 else ''
+                # Keep generic uppercase abbreviations like "ТМ, ТВ, ТМВ" in the name
+                generic_abbrev = re.match(r'^[А-ЯA-Z]{2,4}$', last) and not re.search(r'\d', last)
+                if generic_abbrev:
+                    break
+                # Don't split a list that uses "и" (e.g. "ТМ, ТВ, ТМВ и ТМТБ")
+                if 'и' in before or 'и' in last:
+                    break
+                # If last part has digits, dashes, dots or mixed code like "МП4-УУ2" -> type
+                if len(last) <= 30 and (
+                    re.search(r'\d', last)
+                    or re.search(r'[-/]', last)
+                    or re.match(r'^[A-ZА-Я]{2,}\s*\d', last)
+                ):
+                    name = ','.join(parts[:-1]).strip()
+                else:
+                    break
+
+            # Remove trailing model tokens: last 1-2 words if they contain digits or look like codes
+            # e.g. "... EJX 110A" or "... 2 232.50.160"
+            words = name.split()
+            while len(words) >= 2:
+                last = words[-1]
+                prev = words[-2]
+                # If last word is a glued alphanumeric token like "измерительный3051S",
+                # keep only the alphabetic prefix in the name.
+                m = re.match(r'^([A-Za-zА-Яа-яЁё]{3,})(\d[\w\.\-/]*)$', last)
+                if m:
+                    words[-1] = m.group(1)
+                    break
+                # Also split glued tokens where a common prefix is stuck to a model suffix,
+                # e.g. "типаAPR" -> keep "типа" in the name, "APR" goes to type extraction.
+                common_prefixes = ('измерительный', 'преобразователь', 'давления', 'уровня',
+                                   'температуры', 'расхода', 'типа', 'модель', 'серии', 'серия', 'тип')
+                prefix_re = '|'.join(re.escape(p) for p in common_prefixes)
+                m2 = re.match(rf'^({prefix_re})([A-ZА-Я0-9][A-Za-zА-Яа-яЁё0-9\.\-/]*)$', last)
+                if m2:
+                    words[-1] = m2.group(1)
+                    break
+                # Keep generic uppercase abbreviations that are part of a list
+                # e.g. "ТМ, ТВ, ТМВ и ТМТБ" — don't pop "ТМТБ"
+                is_generic_abbrev = (
+                    re.match(r'^[A-ZА-Я]{2,4}$', last)
+                    and not re.search(r'\d', last)
+                    and len(last) <= 4
+                )
+                if is_generic_abbrev and (prev == 'и' or prev.endswith(',') or prev.lower() == 'и'):
+                    break
+                # Drop trailing number/word combos like "232.50.160" or "110A" or "МП4-УУ2"
+                if re.match(r'^[A-Za-zА-Яа-яЁё0-9\.\-/]+$', last) and (
+                    re.search(r'\d', last) or re.match(r'^[A-ZА-Я]{2,}', last)
+                ):
+                    words.pop()
+                # Drop "2 232.50.160" style two-word trailing model
+                elif len(words) >= 3 and re.match(r'^\d+$', prev) and re.match(r'^\d[\d\.]+$', last):
+                    words.pop()
+                    words.pop()
+                else:
+                    break
+            name = ' '.join(words)
+
+            if name.lower().startswith(junk_prefixes):
+                continue
+            if len(name) > 2:
+                return name
         return None
 
     def _extract_device_type(self, text: str) -> str | None:
         """Extract device type/modification."""
-        # In these protocols, type is often after comma in the device name line
-        # E.g., "Манометры показывающие, ТМ серия 20" -> type = "ТМ серия 20"
-        match = re.search(r'\n([^\n\r]{3,100})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
+        # Pattern A: type on the line AFTER a "наименование, тип, модификация:" block
+        match = re.search(
+            r'Наименование[,\s]+тип[^:\n]*:\s*[^\n\r]+\n\s*([^\n\r]{2,60})',
+            text, re.IGNORECASE
+        )
+        if match:
+            val = match.group(1).strip()
+            if not re.search(r'^\d+\.|^(?:Заводской|Дата|Регистрационный|Принадлеж)', val, re.IGNORECASE):
+                return val
+
+        # Pattern B: from the device name line, extract the type part
+        match = re.search(r'\n([^\n\r]{3,120})\n\s*наименование[,\s]*тип', text, re.IGNORECASE)
         if match:
             line = match.group(1).strip()
+            # Semicolon: second part is usually type
+            if ';' in line:
+                type_part = line.split(';', 1)[1].strip()
+                if len(type_part) > 2:
+                    return type_part
+
+            # Comma: last comma-separated chunk that looks like a model
             if ',' in line:
-                type_part = line.split(',', 1)[1].strip()
-                # Skip if it looks like a description, not a type
-                if re.search(r'согласно|реестра|состав|автономных|перечень', type_part, re.IGNORECASE):
-                    return None
-                return type_part if len(type_part) > 2 else None
-        
+                parts = [p.strip() for p in line.split(',')]
+                description_markers = {'если', 'входят', 'автономных', 'состав', 'перечень', 'согласно'}
+                for part in reversed(parts[1:]):
+                    lowered = part.lower()
+                    if any(m in lowered for m in description_markers):
+                        continue
+                    if re.search(r'\d', part) or re.match(r'^[A-ZА-Я]{2,}', part):
+                        clean = re.split(r'\s+(?:если|входят|согласно|состав)', part, flags=re.IGNORECASE)[0]
+                        return clean.strip() if len(clean.strip()) > 2 else None
+
+            # No comma/semicolon — trailing model-like tokens
+            words = line.split()
+            type_words = []
+            # Collect trailing words that look like model codes
+            for w in reversed(words):
+                # Handle glued tokens like "измерительный3051S" or "типаAPR"
+                m = re.match(r'^([a-zа-яё]+?)([A-ZА-Я0-9][A-Za-zА-Яа-яЁё0-9\.\-/]*)$', w)
+                if m:
+                    common_prefixes = ('измерительный', 'преобразователь', 'давления', 'уровня',
+                                       'температуры', 'расхода', 'типа', 'модель', 'серии', 'серия', 'тип')
+                    if m.group(1).lower() in common_prefixes:
+                        type_words.insert(0, m.group(2))
+                    else:
+                        type_words.insert(0, w)
+                    continue
+                if re.match(r'^[A-Za-zА-Яа-яЁё0-9\.\-/]+$', w) and (re.search(r'\d', w) or re.match(r'^[A-ZА-Я]{2,}', w)) or w.isdigit() and type_words:
+                    type_words.insert(0, w)
+                else:
+                    break
+            if type_words and len(' '.join(type_words)) > 2:
+                # Also include a preceding digit if present (e.g. "2 232.50.160")
+                idx = len(words) - len(type_words)
+                if idx > 0 and re.match(r'^\d+$', words[idx - 1]):
+                    type_words.insert(0, words[idx - 1])
+                return ' '.join(type_words)
+
         patterns = [
             r'Тип,?\s+модификация\s+средства\s+измерений[:\s]+([^\n\r]+)',
             r'Тип,?\s+модификация[:\s]+([^\n\r]+)',
@@ -180,40 +336,62 @@ class ProtocolExtractionService:
 
     def _extract_serial_number(self, text: str, file_name: str | None = None) -> str | None:
         """Extract serial number from text or file name."""
-        patterns = [
-            # Value on SAME line: "Заводской номер (номера): 64180"
-            r'заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
-            # Value on next line after "Заводской номер" (any text after it on same line)
-            r'заводской\s+номер.*?\n\s*([^\n\r]+)',
-            r'серийный\s+номер.*?\n\s*([^\n\r]+)',
-            r'зав\.\s*№?[:\s]+([^\n\r]+)',
-            r'№\s*заводской[:\s]+([^\n\r]+)',
-        ]
-        serial = self._match_first(text, patterns)
+        # Compact serial token (letters, digits, dashes, slashes). Some serials have a single space inside.
+        serial_tok = r'[A-Za-zА-Яа-яЁё0-9\-/]+(?:\s[A-Za-zА-Яа-яЁё0-9\-/]+)?'
+
+        # Look for block "Заводской номер (номера): X" or "Заводской номер СИ: X" first
+        match = re.search(
+            r'заводской\s+номер\s*(?:\(номера\)|\s+СИ)?\s*[:\s]+(' + serial_tok + r')',
+            text, re.IGNORECASE
+        )
+        serial = match.group(1).strip() if match else None
+
+        if not serial:
+            # Value on next line after placeholder (take only first token on that line)
+            patterns = [
+                r'заводской\s+номер\s*(?:\(номера\)|\s+СИ)?.*?\n\s*(' + serial_tok + r')',
+                r'серийный\s+номер.*?\n\s*(' + serial_tok + r')',
+                r'зав\.\s*№?[:\s]+(' + serial_tok + r')',
+                r'№\s*заводской[:\s]+(' + serial_tok + r')',
+            ]
+            serial = self._match_first(text, patterns)
+
         if serial:
             # Clean up artifacts
             serial = re.sub(r'^\(номера\):\s*', '', serial)
-            serial = re.sub(r'все\s+цифры\s+и\s+буквы\s+заводского\s+номера', '', serial, flags=re.IGNORECASE)
             serial = re.sub(r'[();]', '', serial)
             serial = serial.strip()
-            # Skip if it looks like "Год выпуска" or other labels
-            if re.match(r'^(?:Год\s+выпуска|наименование|документ|методика)', serial, re.IGNORECASE):
+            # Skip if it looks like a label
+            if re.match(r'^(?:Год\s+выпуска|наименование|документ|методика|все\s+цифры)', serial, re.IGNORECASE):
                 serial = None
-            elif len(serial) <= 1:
+            # Stop at label phrases that sometimes follow the real serial on the same line
+            elif re.search(r'\b(?:Год(?:\s+выпуска)?|наименование|документ|методика|заводской|номер)', serial, re.IGNORECASE):
+                serial = re.split(r'\b(?:Год(?:\s+выпуска)?|наименование|документ|методика|заводской|номер)', serial, flags=re.IGNORECASE)[0].strip()
+                if len(serial) <= 1:
+                    serial = None
+            elif len(serial) <= 1 or len(serial) > 40:
                 serial = None
-        
+
+        # If serial ends with a small integer (likely table row number leaked in), trim it
+        if serial:
+            parts = serial.split()
+            if len(parts) > 1 and parts[-1].isdigit() and len(parts[-1]) <= 2:
+                serial = ' '.join(parts[:-1]).strip()
+                if len(serial) <= 1:
+                    serial = None
+
         # Fallback: extract from file name
         if not serial and file_name:
             # Match patterns like "№ 2062117", "№2062117", "2062117"
-            match = re.search(r'№\s*([A-Za-z0-9\-/]+)', file_name)
+            match = re.search(r'№\s*([A-Za-zА-Яа-яЁё0-9\-/]+)', file_name)
             if match:
                 serial = match.group(1).strip()
             else:
                 # Try to extract number before extension
-                match = re.search(r'([A-Za-z0-9\-/]+)\s*\([^)]*\)\.pdf', file_name)
+                match = re.search(r'([A-Za-zА-Яа-яЁё0-9\-/]+)\s*\([^)]*\)\.pdf', file_name)
                 if match:
                     serial = match.group(1).strip()
-        
+
         return serial
 
     def _extract_mit_number(self, text: str) -> str | None:
@@ -264,12 +442,14 @@ class ProtocolExtractionService:
         ]
         owner = self._match_first(text, patterns)
         if owner:
-            # Clean: remove INN, extra text, quotes
+            # Clean: remove INN/KPP and trailing garbage
+            owner = re.sub(r'\s*,?\s*ИНН\s*/?\s*КПП?\s*\d*', ' ', owner, flags=re.IGNORECASE)
+            owner = re.sub(r'\s*,?\s*ИНН\s*\d{10,14}\s*', ' ', owner, flags=re.IGNORECASE)
             owner = re.sub(r'\s+\d{10,14}\s*', ' ', owner)
             owner = re.sub(r'["«»]', '', owner)
-            owner = owner.strip()
-            # Stop at first sentence end or common delimiters
-            owner = re.split(r'[;,]\s*(?=\d|по\s|с\s|в\s)', owner)[0].strip()
+            # Stop at first comma or semicolon
+            owner = re.split(r'[;,]\s*', owner)[0].strip()
+            owner = re.sub(r'\s+', ' ', owner).strip()
             if len(owner) > 3:
                 return owner
         return None
@@ -280,13 +460,13 @@ class ProtocolExtractionService:
         # This avoids picking up certificate dates
         conclusion_match = re.search(r'Заключение:.*?(\n\n|\Z)', text, re.DOTALL)
         search_text = conclusion_match.group(0) if conclusion_match else text
-        
+
         # Pattern: "Дата поверки: 01.12.2025 г."
         match = re.search(r'Дата\s+поверки[:\s]+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', search_text)
         if match:
             day, month, year = match.groups()
             return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-        
+
         # Fallback: "от 11.01.2024г." - but only in the last 1000 chars
         last_part = text[-1000:]
         match = re.search(r'от\s+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', last_part)
@@ -311,23 +491,38 @@ class ProtocolExtractionService:
         return None
 
     def _extract_verifier(self, text: str) -> str | None:
-        """Extract verifier name."""
-        patterns = [
-            # Value on next line after "Поверитель:"
-            r'поверитель[:\s]*\n\s*([^\n\r]+)',
-            r'поверитель[:\s]+([^\n\r]+)',
-            r'поверител[ьи]\s*:?\s*([^\n\r]+)',
-        ]
-        verifier = self._match_first(text, patterns)
-        if verifier:
-            # Skip placeholder text
-            if 'подпись' in verifier.lower() or 'фамилия' in verifier.lower() or 'инициалы' in verifier.lower():
-                return None
-            # Clean format: "Чупин А.А." or "Чупин А. А."
+        """Extract verifier name.
+
+        Handles both formats:
+            Поверитель: Большаков С.Н.
+            Кадыков П. Ю.
+            Поверитель:
+        """
+        # Pattern A: name after "Поверитель:"
+        match = re.search(r'поверитель[:\s]*\n\s*([^\n\r]+)', text, re.IGNORECASE)
+        verifier = match.group(1).strip() if match else None
+        if verifier and not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
             verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
             verifier = verifier.strip()
             if len(verifier) > 3:
                 return verifier
+
+        # Pattern B: name on line immediately BEFORE "Поверитель:"
+        match = re.search(r'\n\s*([^\n\r]{5,40})\s*\n\s*Поверитель[:\s]*\s*$', text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            verifier = match.group(1).strip()
+            verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
+            if len(verifier) > 3 and not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
+                return verifier
+
+        # Fallback: inline pattern
+        match = re.search(r'поверитель[:\s]+([^\n\r]+)', text, re.IGNORECASE)
+        if match:
+            verifier = match.group(1).strip()
+            if not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
+                verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
+                if len(verifier) > 3:
+                    return verifier
         return None
 
     def _extract_temperature(self, text: str) -> float | None:
@@ -376,19 +571,64 @@ class ProtocolExtractionService:
         return None
 
     def _extract_methodology(self, text: str) -> str | None:
-        """Extract verification methodology."""
+        """Extract verification methodology (multi-line aware)."""
+        # Pattern 1: "Нормативный документ на методику поверки: ..."
+        # Capture multi-line text until a clear boundary.
+        boundaries = r'(?:\n\s*наименование\s+и\s+номер\s+документа|\n\s*Средства\s+поверки|\n\s*Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
+        match = re.search(
+            r'(?:Нормативный\s+документ\s+на\s+методику\s+поверки|Документ\s+на\s+методику\s+поверки|Методика\s+поверки)\s*[:\s]+'
+            r'(.+?)' + boundaries,
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            method = match.group(1)
+            method = re.sub(r'\s+', ' ', method).strip()
+            method = re.sub(r'наименование\s+и\s+номер\s+документа', ' ', method, flags=re.IGNORECASE)
+            method = re.sub(r'"\s*Методика\s+поверки\s*"', '', method, flags=re.IGNORECASE)
+            method = re.sub(r'«\s*', '«', method)
+            method = re.sub(r'\s*»', '»', method)
+            # Ensure matching quotes are closed
+            open_q = method.count('«')
+            close_q = method.count('»')
+            if open_q > close_q:
+                method += '»'
+            method = re.sub(r'\s+', ' ', method).strip()
+            method = re.sub(r'^[\s"«»\'„.,]+|[\s"«»\'„.,]+$', '', method)
+            if len(method) > 5 and method.lower() != 'поверки':
+                return method
+
+        # Fallback: content inside «...» or "..." near "Методика поверки"
+        match = re.search(r'Методика\s+поверки[^«"]*[«"]([^»"]{10,200})[»"]', text, re.IGNORECASE)
+        if match:
+            method = match.group(1).strip()
+            if len(method) > 5:
+                return method
+
+        # Fallback: find methodology reference codes like МИ ..., МП ..., ГОСТ ... near the phrase
+        match = re.search(
+            r'((?:МИ|МП|ГОСТ|РЭ)\s+[\d\.\-/]+[^\n\r]{0,250}?(?:Методика\s+поверки|поверки))',
+            text, re.IGNORECASE
+        )
+        if match:
+            method = match.group(1).strip()
+            # Trim after closing quote if present
+            method = re.split(r'["»]', method)[0].strip()
+            if len(method) > 5:
+                return method
+
+        # Fallback to single-line patterns
         patterns = [
             r'Методика\s+поверки[:\s]+([^\n\r]+)',
             r'Методика[:\s]+([^\n\r]+)',
             r'по\s+методике[:\s]+([^\n\r]+)',
-            r'документ\s+на\s+методику\s+поверки[:\s]+([^\n\r]+)',
         ]
         method = self._match_first(text, patterns)
         if method:
-            # Clean methodology - remove quotes and extra symbols
-            method = re.sub(r'^[\s"«»\'„]+|[\s"«»\'„]+$', '', method)
+            method = re.sub(r'"\s*Методика\s+поверки\s*"', '', method, flags=re.IGNORECASE)
+            method = re.sub(r'^[\s"«»\'„.,]+|[\s"«»\'„.,]+$', '', method)
             method = method.strip()
-            if len(method) > 5:
+            if len(method) > 5 and method.lower() != 'поверки':
                 return method
         return None
 
@@ -401,56 +641,216 @@ class ProtocolExtractionService:
             return 'unsuitable'
         return None
 
-    def _extract_range(self, text: str) -> str | None:
-        """Extract measurement range."""
-        # Pattern 1: Explicit range with "от...до"
-        patterns = [
-            r'Диапазон\s+измерений.{0,300}?от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]+)',
-            r'от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²]{1,20})',
-            # Pattern without "от...до" — just numbers with dash
-            r'Диапазон\s+измерений.{0,300}?([\d\.,]+)\s*[-–—]\s*([\d\.,]+)\s+([\w/°³²]{1,20})',
-            # Range with unit at the end of section
-            r'диапазон.{0,300}?(?:входной|измеряемой|рабочих).{0,200}?([\d\.,]+)\s*[-–—]\s*([\d\.,]+)\s+([\w/°³²]{1,20})',
+    def _normalize_unit(self, unit: str) -> str | None:
+        """Normalize a captured unit string to canonical form; return None if it doesn't look like a unit."""
+        if not unit:
+            return None
+        u = unit.strip().lower()
+        u = re.sub(r'[;,.\s]+$', '', u)
+        aliases = {
+            'кгс/см²': 'кгс/см²', 'кгс/см2': 'кгс/см²',
+            'м³/ч': 'м³/ч', 'м3/ч': 'м³/ч',
+            'мм': 'мм', 'см': 'см',
+            'мпа': 'МПа', 'мПа': 'МПа', 'МПа': 'МПа',
+            'кпа': 'кПа', 'кПа': 'кПа',
+            'gpa': 'гПа', 'hpa': 'hPa',
+            'па': 'Па', 'Па': 'Па',
+            'bar': 'bar', 'бар': 'bar',
+            '% нкпр': '% НКПР', '%нкпр': '% НКПР',
+            '°c': '°C', '°с': '°C',
+            '%': '%',
+        }
+        if u in aliases:
+            return aliases[u]
+        # Allow simple units not in alias list if they look like a unit (no long cyrillic words)
+        if re.match(r'^[°a-zа-я0-9/³²%\-]+$', u, re.IGNORECASE) and len(u) <= 12:
+            return unit.strip()
+        return None
+
+    def _extract_range(self, text: str, file_path: str | None = None) -> str | None:
+        """Extract measurement range from text/table."""
+        # 1. Prefer explicit range statement in the protocol text
+        explicit_patterns = [
+            # "Установленный диапазон измерений: ... (unit) X…+Y" (unit before numbers)
+            (r'Установленный\s+диапазон\s+измерений[:\s]+'
+             r'.{0,200}?\(?([°\w/³²]{1,10})\)?\s+([-+]?[\d\.,]+)\s*[\.…]{1,3}\s*\+?\s*([\d\.,]+)', 2, 3, 1),
+            # "Установленный диапазон измерений: ... (unit) X-Y"
+            (r'Установленный\s+диапазон\s+измерений[:\s]+'
+             r'.{0,200}?\(?([°\w/³²]{1,10})\)?\s+([-+]?[\d\.,]+)\s*[-–—]\s*([\d\.,]+)', 2, 3, 1),
+            # "Установленный диапазон измерений: ... от X до Y unit"
+            (r'Установленный\s+диапазон\s+измерений[:\s]+'
+             r'.{0,200}?от\s+([\d\.,\-]+)\s+до\s+([\d\.,\-]+)\s*([°\w/³²]{1,10})', 1, 2, 3),
+            # "Установленный диапазон измерений: ... X…+Y unit" (ellipsis may be U+2026 or 2-3 dots)
+            (r'Установленный\s+диапазон\s+измерений[:\s]+'
+             r'.{0,200}?([\d\.,\-]+)\s*[\.…]{1,3}\s*\+?\s*([\d\.,\-]+)\s*\(?([°\w/³²]{1,10})\)?', 1, 2, 3),
+            # "Установленный диапазон измерений: ... X-Y unit"
+            (r'Установленный\s+диапазон\s+измерений[:\s]+'
+             r'.{0,200}?([\d\.,\-]+)\s*[-–—]\s*([\d\.,\-]+)\s*([°\w/³²]{1,10})', 1, 2, 3),
+            # "Диапазон измерений (X-Y) unit" when on same line as label
+            (r'Диапазон\s+измерений\s*[:\s]*\(?([\d\.,]+)\s*[-–—]\s*([\d\.,]+)\)?\s*([\w/°³²%]{1,20})', 1, 2, 3),
+            # Generic "от X до Y unit" within 200 chars of verification-related words
+            (r'(?:поверки|измерения)\s*.{0,200}?от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²%]{1,20})', 1, 2, 3),
         ]
-        for pattern in patterns:
+        for pattern, g1, g2, g3 in explicit_patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
-                unit = match.group(3).strip()
-                # Clean unit
-                unit = re.sub(r'[;,\.\s]+$', '', unit)
-                return f"({match.group(1)}-{match.group(2)}) {unit}"
-        
-        # Pattern 2: Extract from verification table (min/max values)
-        # Look for lines with identical first two values (etalon readings)
-        table_values = []
-        for line in text.split('\n'):
-            match = re.match(r'^\s*([\d\.,]+)\s+\1\s+', line)
-            if match:
-                val = match.group(1).replace(',', '.')
-                try:
-                    table_values.append(float(val))
-                except ValueError:
-                    continue
-        
-        if table_values:
-            min_val = min(table_values)
-            max_val = max(table_values)
-            
-            # Find unit from table header
-            unit = None
-            for pattern in [r'\b(кПа|МПа|bar|Бар|Па|hPa|°C|%)\b']:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    unit = match.group(1)
-                    break
-            
-            if unit:
-                # Format values nicely
-                min_str = f"{min_val:g}".replace('.', ',')
-                max_str = f"{max_val:g}".replace('.', ',')
-                return f"({min_str}-{max_str}) {unit}"
-        
+                u = self._normalize_unit(match.group(g3))
+                if u:
+                    return f"({match.group(g1)}-{match.group(g2)}) {u}"
+
+        # 2. Extract from pdfplumber tables if file_path is available
+        if file_path and file_path.lower().endswith('.pdf'):
+            try:
+                table_range = self._extract_range_from_tables(file_path)
+                if table_range:
+                    return table_range
+            except Exception:
+                pass
+
+        # 3. Fallback: try a strict "от X до Y unit" inside the verification section only
+        table_match = re.search(
+            r'(?:Определение|Проведение|Проведение\s+поверки)[^\n]*(?:\n[^\n]*){0,3}\n'
+            r'(.{0,2500}?)(?:Заключение|Дата\s+поверки)',
+            text, re.IGNORECASE | re.DOTALL
+        )
+        if table_match:
+            table_text = table_match.group(1)
+            m = re.search(r'от\s+([\d\.,]+)\s+до\s+([\d\.,]+)\s+([\w/°³²%]{1,20})', table_text, re.IGNORECASE)
+            if m:
+                u = self._normalize_unit(m.group(3))
+                if u:
+                    return f"({m.group(1)}-{m.group(2)}) {u}"
+
         return None
+
+    def _extract_range_from_tables(self, file_path: str) -> str | None:
+        """Use pdfplumber structured tables to determine measurement range."""
+        import pdfplumber
+
+        unit_aliases = {
+            'кгс/см²': 'кгс/см²', 'кгс/см2': 'кгс/см²',
+            'м³/ч': 'м³/ч', 'м3/ч': 'м³/ч',
+            'мм': 'мм',
+            'мпа': 'МПа', 'мПа': 'МПа', 'МПа': 'МПа',
+            'кпа': 'кПа', 'кПа': 'кПа',
+            'gpa': 'гПа', 'hpa': 'hPa',
+            'па': 'Па', 'Па': 'Па',
+            'bar': 'bar', 'бар': 'bar',
+            '% нкпр': '% НКПР',
+            '°c': '°C', '°с': '°C',
+            '%': '%',
+        }
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables()
+                for table in tables:
+                    if not table or len(table) < 3:
+                        continue
+
+                    # Flatten header/subheader rows
+                    header_texts = []
+                    for ridx in range(min(2, len(table))):
+                        row_texts = [str(cell or '').replace('\n', ' ').strip().lower() for cell in table[ridx]]
+                        header_texts.append(row_texts)
+
+                    # Find candidate column index (measured/etalon column)
+                    candidate_idx = None
+                    for col in range(len(header_texts[0])):
+                        col_text = ' '.join(
+                            header_texts[r][col] if col < len(header_texts[r]) else ''
+                            for r in range(len(header_texts))
+                        )
+                        if any(k in col_text for k in ['задаваемое', 'эталон', 'действительное', 'результат измерения']):
+                            candidate_idx = col
+                            break
+                    if candidate_idx is None:
+                        candidate_idx = 0
+
+                    # Determine unit from candidate column header/subheader first
+                    unit = None
+                    for ridx in range(len(header_texts)):
+                        if candidate_idx < len(header_texts[ridx]):
+                            cell = header_texts[ridx][candidate_idx]
+                            for alias, canonical in unit_aliases.items():
+                                if alias.lower() in cell:
+                                    unit = canonical
+                                    break
+                            if unit:
+                                break
+                    # Fallback: scan any header cell
+                    if unit is None:
+                        for ridx in range(len(header_texts)):
+                            for cell in header_texts[ridx]:
+                                for alias, canonical in unit_aliases.items():
+                                    if alias.lower() in cell:
+                                        unit = canonical
+                                        break
+                                if unit:
+                                    break
+                            if unit:
+                                break
+
+                    # Extra unit scan: look in first data rows for embedded units like "% НКПР"
+                    if unit is None:
+                        data_start = len(header_texts)
+                        for ridx in range(data_start, min(data_start + 3, len(table))):
+                            for cell in table[ridx]:
+                                c = str(cell or '').replace('\n', ' ').strip().lower()
+                                for alias, canonical in unit_aliases.items():
+                                    if alias.lower() in c:
+                                        unit = canonical
+                                        break
+                                if unit:
+                                    break
+                            if unit:
+                                break
+
+                    if unit is None:
+                        continue
+
+                    values = []
+                    data_start = min(2, len(table))
+                    for row in table[data_start:]:
+                        if candidate_idx >= len(row):
+                            continue
+                        cell = str(row[candidate_idx] or '').strip()
+                        if not cell:
+                            continue
+                        # Extract first number in cell
+                        m = re.search(r'([\d\.,]+)', cell.replace(' ', '').replace('\n', ''))
+                        if m:
+                            try:
+                                val = float(m.group(1).replace(',', '.'))
+                                if 0 <= val < 1_000_000:
+                                    values.append(val)
+                            except ValueError:
+                                continue
+
+                    if len(values) >= 2:
+                        # Filter out tiny outliers that are likely percentage errors
+                        sorted_vals = sorted(values)
+                        if len(sorted_vals) >= 3 and sorted_vals[1] > 0 and sorted_vals[0] / sorted_vals[1] < 0.05:
+                            sorted_vals = sorted_vals[1:]
+                        # Drop absurdly large max values (e.g. INN numbers leaked in)
+                        if sorted_vals[-1] > 100_000:
+                            sorted_vals = [v for v in sorted_vals if v <= 100_000]
+                        if len(sorted_vals) < 2:
+                            continue
+                        min_val = sorted_vals[0]
+                        max_val = sorted_vals[-1]
+                        if max_val > min_val:
+                            min_str = self._format_number(min_val)
+                            max_str = self._format_number(max_val)
+                            return f"({min_str}-{max_str}) {unit}"
+        return None
+
+    def _format_number(self, value: float) -> str:
+        """Format float with comma decimal separator like original reports."""
+        if value == int(value):
+            return str(int(value))
+        s = f"{value:.4f}".rstrip('0').replace('.', ',')
+        return s
 
     def _match_first(self, text: str, patterns: list[str]) -> str | None:
         """Try patterns and return first match."""
@@ -480,16 +880,16 @@ class ProtocolExtractionService:
             "verification_date", "verifier", "result",
         ]
         optional = ["mit_number", "device_type", "measurement_range"]
-        
+
         score = 0
         for field in required:
             if data.get(field):
                 score += 2
-        
+
         for field in optional:
             if data.get(field):
                 score += 1
-        
+
         max_score = len(required) * 2 + len(optional)
         return min(1.0, score / max_score)
 
@@ -511,9 +911,9 @@ class SmartExtractor:
     def __init__(self) -> None:
         self.service = get_protocol_extraction_service()
 
-    async def extract(self, text: str) -> dict[str, Any]:
+    async def extract(self, text: str, file_name: str | None = None, file_path: str | None = None) -> dict[str, Any]:
         """Extract protocol data using regex + AI hybrid."""
-        return await self.service.extract(text)
+        return await self.service.extract(text, file_name, file_path)
 
 
 def get_smart_extractor():
