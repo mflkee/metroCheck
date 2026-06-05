@@ -19,6 +19,7 @@ jobs:
       - name: Build & deploy staging
         run: |
           cd ~/apps/metroCheck
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml down --remove-orphans
           docker compose -p metrocheck-stg -f docker-compose.staging.yml up -d --build
 
       - name: Apply staging migrations
