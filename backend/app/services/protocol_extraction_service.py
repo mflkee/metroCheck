@@ -49,21 +49,21 @@ class ProtocolExtractionService:
         # Clean all values
         data = {k: self._clean_value(v) for k, v in data.items()}
 
-        # Phase 3: AI fallback for any missing fields
-        missing = [k for k, v in data.items() if not v]
-
-        if missing:
-            try:
-                ai_data = await self._ai_extract_fields(text, missing)
-                filled = {}
-                for field in missing:
-                    if ai_data.get(field) and not data.get(field):
-                        data[field] = ai_data[field]
-                        filled[field] = ai_data[field]
-                if filled:
-                    self._log_ai_fallback(file_name or "unknown", filled, text)
-            except Exception as e:
-                logger.warning("AI fallback failed: %s", e)
+        # Phase 3: AI fallback only if confidence after regex is too low
+        pre_confidence = self._calculate_confidence(data)
+        if pre_confidence < 0.6:
+            missing = [k for k, v in data.items() if not v]
+            if missing:
+                try:
+                    ai_data = await self._ai_extract_fields(text, missing)
+                    for field in missing:
+                        if ai_data.get(field) and not data.get(field):
+                            data[field] = ai_data[field]
+                    filled = {f: data[f] for f in missing if data.get(f)}
+                    if filled:
+                        self._log_ai_fallback(file_name or "unknown", filled, text)
+                except Exception as e:
+                    logger.warning("AI fallback failed: %s", e)
 
         # Recalculate confidence
         confidence = self._calculate_confidence(data)
