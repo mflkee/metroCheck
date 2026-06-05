@@ -4,274 +4,263 @@
 
 ```
                     Сервер (Docker Compose)
-                    ┌──────────────────────────────────────────┐
-                    │  backend_network (bridge)                │
-                    │                                          │
-                    │  ┌──────────┐   ┌──────────┐             │
-                    │  │ postgres │◄──│  redis   │             │
-                    │  │  :5434   │   │  :6382   │             │
-                    │  └────┬─────┘   └──────────┘             │
-                    │       │                                  │
-                    │  ┌────▼──────┐    ┌──────────────┐      │
-                    │  │  backend  │◄──►│     n8n      │      │
-                    │  │  :8002    │    │    :5681     │      │
-                    │  └────┬──────┘    └──────┬───────┘      │
-                    │       │                  │               │
-                    │  ┌────▼──────┐          │               │
-                    │  │    awg    │◄─tinyproxy┘               │
-                    │  │  (NL VPN) │   :8888                   │
-                    │  └───────────┘                           │
-                    └──────────────────────────────────────────┘
-                              │            │
-                    ┌─────────┴──┐    ┌────┴─────────┐
-                    ▼            ▼    ▼               ▼
-              fgis.gost.ru   openrouter.ai      Netbird peer
-              (ARSHIN public)  (AI модели)       (сервер)
-                                                   │
-                                              Netbird mesh VPN
-                                              (WireGuard P2P)
-                                                   │
-                                        ┌──────────┴──────────┐
-                                        │  ПК Зонова (Тюмень) │
-                                        │                     │
-                                        │  ┌───────────────┐  │
-                                        │  │ Chrome +      │  │
-                                        │  │ Extension     │  │
-                                        │  │ (content.js   │  │
-                                        │  │  на fgis.gost)│  │
-                                        │  └───────┬───────┘  │
-                                        │          │ POST     │
-                                        │  ┌───────▼───────┐  │
-                                        │  │ token-agent   │  │
-                                        │  │ :8003         │  │
-                                        │  │ (FastAPI .exe)│  │
-                                        │  └───────┬───────┘  │
-                                        │          │          │
-                                        │  Netbird peer       │
-                                        └────────────────────┘
+                    ┌──────────────────────────────────────────────┐
+                    │  backend_network (bridge)                    │
+                    │                                              │
+                    │  ┌──────────┐      ┌──────────┐              │
+                    │  │ postgres │◄────►│  redis   │              │
+                    │  │ :5434/5  │      │ :6382/3  │              │
+                    │  └────┬─────┘      └──────────┘              │
+                    │       │                                      │
+                    │  ┌────▼─────────────────────────┐            │
+                    │  │         backend               │            │
+                    │  │  FastAPI :8002/9002            │            │
+                    │  │                                │            │
+                    │  │  ┌───────────────────────┐    │            │
+                    │  │  │ JobQueueService        │    │            │
+                    │  │  │ 8-phase pipeline:      │    │            │
+                    │  │  │ public_api → scan →    │    │            │
+                    │  │  │ OCR → extract →        │    │            │
+                    │  │  │ partial_check →        │    │            │
+                    │  │  │ wait_token → lk_api →  │    │            │
+                    │  │  │ full_check → report    │    │            │
+                    │  │  └───────────────────────┘    │            │
+                    │  │                                │            │
+                    │  │  ┌───────────────────────┐    │            │
+                    │  │  │ ArshinService          │    │            │
+                    │  │  │ ├─ public API (no auth)│    │            │
+                    │  │  │ └─ LK API (Bearer)    │    │            │
+                    │  │  └───────────────────────┘    │            │
+                    │  │                                │            │
+                    │  │  ┌───────────────────────┐    │            │
+                    │  │  │ ProtocolScanner        │    │            │
+                    │  │  │ ├─ рекурсивный поиск   │    │            │
+                    │  │  │ └─ Tesseract OCR       │    │            │
+                    │  │  └───────────────────────┘    │            │
+                    │  │                                │            │
+                    │  │  ┌───────────────────────┐    │            │
+                    │  │  │ ExtractionService      │    │            │
+                    │  │  │ ├─ regex (primary)     │    │            │
+                    │  │  │ └─ OpenRouter (fallback)│   │            │
+                    │  │  └───────────────────────┘    │            │
+                    │  └───────────┬───────────────────┘            │
+                    │              │                                │
+                    │  ┌───────────▼────────────┐                   │
+                    │  │    frontend (nginx)     │                   │
+                    │  │    :8081/9081           │                   │
+                    │  └────────────────────────┘                   │
+                    └──────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼──────────────────────┐
+              ▼               ▼                      ▼
+    fgis.gost.ru      openrouter.ai            Synology NAS
+    (АРШИН API)        (AI модели)               (протоколы + токены)
+                                                     │
+                                            Synology Drive Client
+                                                     │
+                                              Сервер (mount):
+                                        /home/mflkee/SynologyDrive/
+                                        ├── 2025/{месяц}/         ← протоколы
+                                        └── tokens/arshin-token.json ← токен
 ```
 
 ## Компоненты
 
 ### Серверная часть (Docker)
 
-| Контейнер | Порт | Назначение |
-|-----------|------|-----------|
-| postgres | 5434 | PostgreSQL 16 |
-| redis | 6382 | Redis 7 (очередь n8n) |
-| backend | 8002 | FastAPI приложение |
-| n8n | 5681 | n8n workflow engine |
-| awg | — | AmneziaWG NL VPN + tinyproxy |
-
-### Клиентская часть (ПК Зонова)
-
-| Компонент | Назначение |
-|-----------|-----------|
-| Chrome Extension | Читает JWT из localStorage на fgis.gost.ru, шлёт на token-agent |
-| token-agent | FastAPI-сервер, кеширует токен, отдаёт по запросу через Netbird |
-| Netbird | P2P mesh VPN (WireGuard), соединяет ПК Зонова с сервером |
+| Контейнер | Порт (prod/stg) | Назначение |
+|-----------|-----------------|------------|
+| postgres | 5434 / 5435 | PostgreSQL 16 |
+| redis | 6382 / 6383 | Redis 7 (очередь + кэш) |
+| backend | 8002 / 9002 | FastAPI приложение |
+| frontend | 8081 / 9081 | nginx статика |
 
 ### Сеть
 
 | Маршрут | Через что | Куда |
 |---------|-----------|------|
-| backend → openrouter.ai | NL VPN (awg:8888) | AI extraction |
-| backend → fgis.gost.ru/public | напрямую (NO_PROXY) | Публичное API АРШИН |
-| backend → token-agent (ПК Зонова) | Netbird mesh VPN | Запрос токена |
-| Chrome Extension → token-agent | localhost:8003 | Отправка токена |
-| n8n → backend:8000 | docker network | Все API вызовы |
+| backend → fgis.gost.ru (public) | HTTPS напрямую | Публичное API АРШИН |
+| backend → fgis.gost.ru (LK) | HTTPS + Bearer token | ЛК АРШИН |
+| backend → openrouter.ai | HTTPS напрямую | AI extraction |
+| Synology Drive (сервер) ↔ NAS | Synology собств. протокол | Синхронизация файлов |
+| сервер ↔ ПК Зонова | Netbird mesh VPN (WireGuard P2P) | Токен АРШИН |
 
-## Полный цикл проверки месяца
+### Клиентская часть (ПК Зонова)
 
-### Шаг 1: Триггер
+| Компонент | Назначение |
+|-----------|-----------|
+| Chrome Extension | Читает JWT из localStorage на fgis.gost.ru, пишет в Synology Drive |
+| Synology Drive Client | Синхронизирует токены + протоколы с NAS |
+| Netbird peer | P2P mesh VPN (WireGuard) для связи с сервером |
 
-```
-Человек → POST /webhook/run-check {year: 2025, month: 12}
-  или → ScheduleTrigger (1-е число каждого месяца 09:00)
-```
-
-### Шаг 2: Получение ARSHIN токена (при необходимости)
-
-```
-Если токен протух:
-  n8n → GET /api/v1/arshin/token-status → {"status": "expired"}
-  n8n → POST /api/v1/arshin/refresh-token → 202 { "task_id": "abc" }
-  n8n → Loop: GET /api/v1/checks/task/abc
-         ↓ пока status = "waiting_token"
-         ↓ Зонов заходит в ЛК → расширение ловит токен → token-agent кеширует
-         ↓ status = "completed"
-```
-
-**Как токен попадает на сервер:**
-1. Зонов открывает `fgis.gost.ru/fundmetrology/cm/lk` в Chrome
-2. Логинится через Госуслуги — SPA получает JWT и сохраняет в localStorage
-3. Content script расширения каждые 3 секунды проверяет localStorage по списку ключей
-4. При обнаружении значения, начинающегося с `eyJ...`, отправляет в background service worker
-5. Service worker делает `POST http://127.0.0.1:8003/token/callback` с токеном
-6. token-agent кеширует токен в памяти на 1 час
-7. Наш сервер через Netbird вызывает `POST http://100.x.x.x:8003/token/request`
-8. Если ответ `{"status": "waiting"}` — сервер спит 30 секунд и повторяет
-9. Получив токен — кеширует на 1 час, ретраит отложенные запросы к LK
-
-### Шаг 3: Сбор данных из АРШИН
+## 8-фазный пайплайн
 
 ```
-n8n → POST backend:8000/api/v1/arshin/fetch-calibrations {year: 2025, month: 12}
-
-ArshinService.fetch_and_save_calibrations(2025, 12):
-  GET https://fgis.gost.ru/fundmetrology/eapi/vri
-    ?org_title=ООО "МКАИР"
-    &verification_date_start=2025-12-01
-    &verification_date_end=2025-12-31
-    &rows=100
-    ↑ напрямую (NO_PROXY), токен не нужен
-
-  Сохраняет каждую запись в таблицу calibrations
+Пользователь → POST /api/v1/jobs/enqueue {year, month}
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   JobQueueService._execute_job()                 │
+│                                                                  │
+│  Phase 1: public_api                                             │
+│    ArshinService.fetch_and_save_calibrations(year, month)        │
+│    → GET fgis.gost.ru/eapi/vri?org_title=МКАИР&date=...         │
+│    → сохраняет в calibrations                                    │
+│    progress: ~5% → 20%                                           │
+│                                                                  │
+│  Phase 2: protocol_scan                                          │
+│    ProtocolScanner.scan(year, month)                             │
+│    → рекурсивный поиск PDF по /protocols/{year}.{month}/         │
+│    → SHA256, регистрация в protocol_files                        │
+│    progress: ~20% → 30%                                          │
+│                                                                  │
+│  Phase 3: protocol_ocr                                           │
+│    ProtocolScanner.extract_text(proto.id)                        │
+│    → Tesseract OCR (rus) с таймаутом 30 сек                     │
+│    → raw_text → protocol_files                                   │
+│    progress: ~30% → 50%                                          │
+│                                                                  │
+│  Phase 4: data_extract                                           │
+│    ProtocolExtractionService.extract(text, filename, path)       │
+│    → regex (primary) + OpenRouter (fallback)                     │
+│    → поля: device_name, type, serial, verifier, method, range... │
+│    → сохраняет в protocol_data                                    │
+│    progress: ~50% → 65%                                          │
+│                                                                  │
+│  Phase 5: partial_check                                          │
+│    CheckService.run_checks(year, month)                          │
+│    → сверка serial_number с calibrations                         │
+│    → проверка полноты, соответствия                               │
+│    progress: ~65% → 80%                                          │
+│                                                                  │
+│  Phase 6: wait_token  ← если токен протух                        │
+│    → мониторинг /shared/tokens/arshin-token.json                 │
+│    → ждём, пока Зонов обновит токен через Synology Drive         │
+│    progress: 80% (фикс)                                          │
+│                                                                  │
+│  Phase 7: lk_api ← только с токеном                              │
+│    ArshinService.fetch_lk_details(), fetch_data2()               │
+│    → обогащение calibrations данными из ЛК                       │
+│    progress: ~80% → 90%                                          │
+│                                                                  │
+│  Phase 8: full_check + report                                    │
+│    CheckService.full_check()                                     │
+│    ReportService.generate_report()                               │
+│    EmailService.send()                                           │
+│    progress: ~90% → 100%                                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Шаг 4: LK детали (требуют токен)
+## API endpoints
 
-```
-n8n → POST backend:8000/api/v1/arshin/fetch-lk-async {year: 2025, month: 12}
-       → 202 { "task_id": "abc" }
+### Управление задачами (`/api/v1/jobs/`)
 
-Backend в фоне:
-  1. Проверяет bearer_token
-  2. Если нет → status = "waiting_token", polling token-agent
-  3. После получения → качает LK детали для всех калибровок
-  4. status = "completed"
+| Метод | Endpoint | Тело | Описание |
+|-------|----------|------|----------|
+| POST | `/enqueue` | `{year, month}` | Создать ручную задачу |
+| POST | `/enqueue-auto` | `{year, month}` | Создать авто-задачу |
+| GET | `/status` | — | Список всех задач |
+| GET | `/{id}` | — | Детали задачи |
+| POST | `/{id}/pause` | — | Пауза |
+| POST | `/{id}/resume` | — | Возобновить |
+| POST | `/{id}/cancel` | — | Отмена |
+| DELETE | `/{id}` | — | Удалить |
+| POST | `/{id}/generate-report` | — | Сгенерировать отчёт |
+| GET | `/{id}/download-report` | — | Скачать отчёт |
 
-n8n → Loop: GET /api/v1/arshin/task/abc → { "status": "completed", "result": {...} }
-```
+### АРШИН (`/api/v1/arshin/`)
 
-### Шаг 5: Сканирование протоколов
-
-Протоколы хранятся на **Synology Drive** (ПК Зонова):
-```
-Метрологическая лаборатория\2_Документы внутреннего происхождения\2_19 Протоколы\2025\12\
-```
-
-На сервер папка монтируется через **Synology Drive Client** (Linux):
-```
-/opt/synology-drive/Протоколы/2025/12/   →  смонтировано в /protocols/
-```
-
-```
-n8n → POST backend:8000/api/v1/protocols/scan {year: 2025, month: 12, path: "/protocols/"}
-  Читает папку /protocols/2025.12/, регистрирует PDF
-```
-
-### Шаг 6: AI extraction
-
-```
-Для каждого PDF (по батчам):
-  n8n → POST backend:8000/api/v1/ai/extract { text, model, fallback_models }
-  FastAPI AI-proxy: fallback chain через NL VPN
-  1. deepseek/deepseek-v4-flash:free (3/3 success, $0)
-  2. inclusionai/ring-2.6-1t:free
-  3. openai/gpt-oss-120b:free
-  4. google/gemma-4-31b-it:free
-  5. qwen/qwen3-next-80b-a3b-instruct:free
-  6. openai/gpt-4o-mini (платная, ~$0.00028/PDF)
-```
-
-### Шаг 7: Проверки (не требуют токена)
-
-```
-n8n → POST backend:8000/api/v1/checks/run_async {year: 2025, month: 12}
-       → 202 { "task_id": "abc" }
-
-CheckService.run_checks:
-  1. Completeness check — все ли калибровки имеют протокол
-  2. Protocol found check — все ли протоколы имеют калибровку
-  3. Data match check — verifier, date, temperature (±2°C), pressure (±3 kPa)
-
-n8n → Loop: GET /api/v1/checks/task/abc → { "status": "completed", "result": {...} }
-```
-
-### Шаг 8: Отчёт
-
-```
-n8n → POST backend:8000/api/v1/reports/generate/{run_id}
-  Формирует Excel (.xlsx), отправляет на почту
-```
-
-## API endpoints (async queue)
-
-| Метод | Endpoint | Тело | Ответ | Описание |
-|-------|----------|------|-------|----------|
-| POST | /api/v1/checks/run_async | `{year, month}` | `202 {task_id}` | Асинхронный запуск проверок |
-| GET | /api/v1/checks/task/{id} | — | `{status, progress, result?}` | Статус задачи (polling) |
-| GET | /api/v1/checks/token-status | — | `{status, expires_in}` | Жив ли ARSHIN токен |
-| POST | /api/v1/arshin/refresh-token | — | `202 {task_id}` | Запросить новый токен у Зонова |
-| POST | /api/v1/arshin/fetch-lk-async | `{year, month}` | `202 {task_id}` | LK детали с ожиданием токена |
-| POST | /api/v1/arshin/fetch-data2-async | `{year, month}` | `202 {task_id}` | LK data2 с ожиданием токена |
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET | `/status` | Статус API АРШИН |
+| GET | `/token-status` | Статус токена ЛК |
+| POST | `/refresh-token` | Запросить новый токен |
+| GET | `/task/{id}` | Статус асинхронной задачи |
+| POST | `/fetch-lk-async` | LK детали (async) |
+| POST | `/fetch-data2-async` | LK data2 (async) |
+| POST | `/fetch-calibrations` | Калибровки (синхр.) |
+| POST | `/fetch-lk-details` | LK детали (синхр.) |
+| POST | `/fetch-lk-data2` | LK data2 (синхр.) |
+| GET | `/scheduler/status` | Статус scheduler |
+| POST | `/scheduler/mode` | Режим manual/auto |
+| POST | `/scheduler/settings` | Настройки scheduler |
 
 ## Структура репозитория
 
 ```
 metroCheck/
-├── chrome-extension/                # расширение Chrome (устанавливает Зонов)
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/routes/       # FastAPI endpoints
+│   │   ├── services/            # Бизнес-логика
+│   │   ├── models/              # SQLAlchemy модели
+│   │   ├── repositories/        # DB слой
+│   │   ├── integrations/        # Внешние API
+│   │   └── core/                # config, database, dependencies
+│   ├── scripts/                 # Утилиты (run_extraction_test.py)
+│   ├── Dockerfile
+│   └── pyproject.toml
+├── chrome-extension/            # Расширение для Chrome (Зонов)
 │   ├── manifest.json
 │   ├── content.js
 │   └── background.js
-├── token-agent/                     # программа для ПК Зонова
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── token-agent.service          # systemd (Linux)
-│   └── build_exe.bat                # сборка .exe (Windows)
-├── backend/                         # FastAPI сервер
-│   ├── app/
-│   │   ├── api/v1/routes/
-│   │   │   ├── ai.py                # AI-proxy (fallback chain)
-│   │   │   ├── arshin.py            # ARSHIN + token endpoints
-│   │   │   ├── checks.py            # async queue + checks
-│   │   │   ├── protocols.py
-│   │   │   ├── reports.py
-│   │   │   └── health.py
-│   │   ├── integrations/
-│   │   │   └── arshin_client.py     # ARSHIN API + token polling
-│   │   ├── services/
-│   │   │   ├── check_service.py
-│   │   │   ├── arshin_service.py
-│   │   │   ├── task_manager.py      # async queue (in-memory)
-│   │   │   └── protocol_scanner.py
-│   │   ├── models/                  # SQLAlchemy модели
-│   │   └── repositories/           # DB репозитории
-│   └── tests/
-│       └── test_check_service.py    # 18 тестов
-├── n8n/
-│   ├── workflows/*.json             # 5 workflow
-│   └── awg-config/                  # NL VPN конфиг
-├── docker-compose.yml
-├── ARCHITECTURE.md
-└── TOKEN_SPEC.md
+├── docs/                        # Документация
+├── docker-compose.yml           # Production стек
+├── docker-compose.staging.yml   # Staging стек
+├── nginx.conf                   # nginx конфиг
+└── .github/workflows/           # CI/CD
+    ├── staging.yml              # Авто-деплой staging
+    ├── deploy.yml               # Production deploy
+    └── promote.yml              # Promote staging→production
 ```
 
-## Protocol storage (Synology Drive)
+## Хранение протоколов (Synology Drive)
 
 ```
-Synology Drive (Windows, ПК Зонова)
-  ↓ синхронизация через Synology Drive Client
-Synology NAS (центральное хранилище)
-  ↓ монтирование на сервере через Synology Drive Client (Linux)
-/opt/synology-drive/Протоколы/2025/12/  (на сервере)
-  ↓ монтировано в Docker контейнер backend
-/protocols/2025/12/  (внутри контейнера)
+ПК Зонова (Windows)
+  └── Synology Drive Client
+       └── Метрологическая лаборатория/2_Документы внутреннего происхождения/
+           2_19 Протоколы/{year}/{month}/
+           └── (PDF + вложенные папки)
+
+NAS (Synology)
+  └── зеркало с ПК Зонова
+
+Сервер (Linux)
+  └── Synology Drive Client
+       └── /home/mflkee/SynologyDrive/2025/{month}/
+            └── смонтировано в контейнер как /protocols/2025.{month}/
 ```
 
-**Путь на Synology Drive (Windows):**
+## CI/CD
+
+### Staging (GitHub Actions)
+- `git push origin main` → auto-deploy на `:9002/:9081/:5435/:6383`
+- `docker compose -f docker-compose.staging.yml down && up -d --build`
+- `alembic upgrade head`
+- Healthcheck через `/health`
+
+### Production
+- **Promote:** GitHub UI → Actions workflow → type "deploy"
+- **Release:** `git push origin release/*` → `deploy.yml`
+- Требуется reviewer (`mflkee`), 5 min wait timer
+
+## Токен АРШИН ЛК
+
 ```
-Метрологическая лаборатория\2_Документы внутреннего происхождения\2_19 Протоколы\{year}\{month}\
+Chrome Extension (content.js)
+  → читает localStorage на fgis.gost.ru
+  → находит JWT (начинается с eyJ...)
+  → background.js → пишет в SynologyDrive/tokens/arshin-token.json
+
+Synology Drive (Windows → NAS → Linux)
+  → синхронизация файла на сервер
+
+Сервер
+  /home/mflkee/SynologyDrive/tokens/arshin-token.json
+  → монтируется в контейнер как /shared/tokens/arshin-token.json
+  → Backend читает, парсит, кеширует
+  → Использует для LK запросов
+  → Архивация использованных токенов в .used файлы
 ```
-
-Внутри могут быть подпапки — сканер рекурсивно ищет PDF.
-
-## Fallback chain AI моделей
-
-- **Selenium отменён** — Chrome Extension вместо него (не мешает работе)
-- **NL VPN** для OpenRouter (AWG, userspace), ARSHIN напрямую через NO_PROXY
-- **Бесплатные AI модели** — deepseek-v4-flash:free обрабатывает 3/3 PDF, $0
-- **async queue** — все долгие операции через task_id + polling (n8n не зависает)
-- **Netbird** — P2P mesh VPN без открытых портов для связи с ПК Зонова
-- **token-agent** — скомпилирован в .exe для Windows (Python не нужен)

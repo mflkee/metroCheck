@@ -21,7 +21,7 @@
 | File | What it contains |
 |------|------------------|
 | `docs/ARCHITECTURE.md` | Full architecture diagram, component map, data flows |
-| `docs/TOKEN_SPEC.md` | Chrome Extension + token-agent + Synology Drive token sync |
+| `docs/TOKEN_SPEC.md` | Chrome Extension + Synology Drive token sync |
 | `docs/Спецификация_приложения.md` | Application requirements specification |
 | `docs/Этапы_проектирования.md` | Design stages |
 | `docs/PORT_MAP.md` | Port mapping, staging/production, token paths |
