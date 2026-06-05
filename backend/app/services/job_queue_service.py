@@ -314,24 +314,14 @@ class JobQueueService:
 
         for idx, proto in enumerate(needs_ocr):
             try:
-                await asyncio.wait_for(scanner.extract_text(proto.id), timeout=30.0)
-                extracted_count += 1
-            except TimeoutError:
-                ocr_errors += 1
-                logger.warning("OCR timeout for protocol %s", proto.id)
-                # Rollback to prevent "transaction already started" error on next iteration
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
+                result = await scanner.extract_text(proto.id)
+                if result.get("error"):
+                    ocr_errors += 1
+                else:
+                    extracted_count += 1
             except Exception as e:
                 ocr_errors += 1
                 logger.warning("OCR failed for protocol %s: %s", proto.id, e)
-                # Rollback to prevent "transaction already started" error on next iteration
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
 
             # Update progress every 5 files
             if idx % 5 == 0 or idx == total - 1:
