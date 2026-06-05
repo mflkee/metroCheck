@@ -428,9 +428,10 @@ class ProtocolExtractionService:
     def _extract_manufacture_year(self, text: str) -> int | None:
         """Extract manufacture year."""
         patterns = [
-            r'Год\s+выпуска[:\s]+(\d{4})',
-            r'Год\s+изготовления[:\s]+(\d{4})',
-            r'Год\s+выпуска\D+(\d{4})',
+            r'(?:\d+\.\s*)?Год\s+выпуска[:\s]+(\d{4})',
+            r'(?:\d+\.\s*)?Дата\s+выпуска[:\s]+(\d{4})',
+            r'(?:\d+\.\s*)?Год\s+изготовления[:\s]+(\d{4})',
+            r'(?:\d+\.\s*)?Год\s+выпуска\D+(\d{4})',
         ]
         year_str = self._match_first(text, patterns)
         if year_str:
@@ -446,11 +447,11 @@ class ProtocolExtractionService:
         """Extract owner organization."""
         # Look for organization name near "Владелец" or standalone
         patterns = [
-            r'Принадлежащее[:\s]+([^\n\r]{3,100})',
-            r'Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
-            r'Владелец[:\s]+([^\n\r]{3,100})',
-            r'Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
-            r'Организация[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Принадлежн(?:ость|ое|ность)[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Владелец[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Организация[:\s]+([^\n\r]{3,100})',
         ]
         owner = self._match_first(text, patterns)
         if owner:
@@ -584,11 +585,19 @@ class ProtocolExtractionService:
 
     def _extract_methodology(self, text: str) -> str | None:
         """Extract verification methodology (multi-line aware)."""
-        # Pattern 1: "Нормативный документ на методику поверки: ..."
-        # Capture multi-line text until a clear boundary.
+        # Pattern 1: multi-line capture until a clear boundary
         boundaries = r'(?:\n\s*наименование\s+и\s+номер\s+документа|\n\s*Средства\s+поверки|\n\s*Условия\s+поверки|Технические\s+характеристики|Заключение|Дата\s+поверки)'
+        labels = (
+            r'(?:\d+\.\s*)?'
+            r'(?:'
+            r'Наименование\s+нормативного\s+документа\s+(?:на\s+методику\s+)?поверк(?:и|е)'
+            r'|Нормативный\s+документ\s+на\s+методику\s+поверки'
+            r'|Документ\s+на\s+методику\s+поверки'
+            r'|Методика\s+поверки'
+            r')'
+        )
         match = re.search(
-            r'(?:Нормативный\s+документ\s+на\s+методику\s+поверки|Документ\s+на\s+методику\s+поверки|Методика\s+поверки)\s*[:\s]+'
+            labels + r'\s*[:\s]+'
             r'(.+?)' + boundaries,
             text,
             re.IGNORECASE | re.DOTALL,
