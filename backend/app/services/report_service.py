@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -134,7 +134,7 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_protocol_sheet(self, ws, protocols) -> None:
-        headers = ["№", "№ протокола", "Наименование", "Тип", "Зав№",
+        headers = ["№", "№ протокола", "Наименование", "Мод.", "Зав№",
                    "№ОТ", "Методика", "Год", "Владелец", "Дата",
                    "Поверитель", "t, °C", "φ, %", "P, кПа", "Диапазон"]
         self._write_headers(ws, headers, "ED7D31")
@@ -168,11 +168,14 @@ class ReportService:
             if c.mi_number:
                 cal_by_serial[c.mi_number.strip()] = c
 
+        # Build set of protocol serials that have a match
+        matched_cal_serials: set[str] = set()
+
         compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
                           "Дата", "Действует до", "№ док-та"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
-        proto_headers = ["№ протокола", "Наименование", "Тип", "Зав№",
+        proto_headers = ["№ протокола", "Наименование", "Мод.", "Зав№",
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P", "Диапазон"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
@@ -237,10 +240,14 @@ class ReportService:
             except (ValueError, TypeError):
                 return str(val)
 
-        # Iterate by protocols (all files in folder order), find matching calibration
-        for idx, proto in enumerate(protocols, 1):
+        row_num = 2
+
+        # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration
+        for proto in protocols:
             serial = (proto.serial_number or "").strip()
             cal = cal_by_serial.get(serial)
+            if cal:
+                matched_cal_serials.add(serial)
             lk_conditions = {}
             if cal and cal.conditions:
                 try:
@@ -256,7 +263,7 @@ class ReportService:
                 "",
                 "",
                 # public headers
-                idx, 
+                row_num - 1,
                 cal.vri_id if cal else "",
                 cal.mit_number if cal else "",
                 cal.mit_title if cal else "",
@@ -332,7 +339,7 @@ class ReportService:
             row_data[COMMENTS_COL - 1] = comments
 
             for col_idx, value in enumerate(row_data, 1):
-                cell = ws.cell(row=idx + 2, column=col_idx, value=value)
+                cell = ws.cell(row=row_num, column=col_idx, value=value)
                 cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
                                    top=Side(style='thin'), bottom=Side(style='thin'))
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -342,13 +349,51 @@ class ReportService:
                 elif col_idx == COMMENTS_COL and mismatches:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(color="9C0006", size=9)
+            row_num += 1
 
-        widths = [
-            5, 38,  # Статус, Расхождения
-            4, 14, 11, 22, 16, 14, 13, 12, 12, 20, 10, 16,
-            16, 7, 7, 8,
-            14, 20, 14, 13, 11, 18, 6, 18, 12, 16, 7, 7, 8, 16, 10,
-        ]
+        # SECOND PASS: ARSHIN entries without a matching protocol
+        for cal in calibrations:
+            cal_serial = (cal.mi_number or "").strip()
+            if cal_serial and cal_serial not in matched_cal_serials:
+                lk_conditions = {}
+                if cal.conditions:
+                    try:
+                        lk_conditions = json.loads(cal.conditions)
+                    except json.JSONDecodeError:
+                        pass
+                row_data = [
+                    "❌",
+                    "НЕТ ПРОТОКОЛА",
+                    row_num - 1,
+                    cal.vri_id or "",
+                    cal.mit_number or "",
+                    cal.mit_title or "",
+                    cal.mit_notation or "",
+                    cal.mi_modification or "",
+                    cal_serial,
+                    cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
+                    cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
+                    cal.result_docnum or "",
+                    cal.verifier or "",
+                    fmt_num(lk_conditions.get("temperature")),
+                    fmt_num(lk_conditions.get("humidity")),
+                    fmt_num(lk_conditions.get("pressure")),
+                    # proto columns — empty
+                    "", "", "", "", "", "", "", "", "", "", "", "", "",
+                ]
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = ws.cell(row=row_num, column=col_idx, value=value)
+                    cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                                       top=Side(style='thin'), bottom=Side(style='thin'))
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    if col_idx == STATUS_COL:
+                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                        cell.font = Font(bold=True, color="9C0006", size=12)
+                    elif col_idx == COMMENTS_COL:
+                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                        cell.font = Font(color="9C0006", size=9)
+                row_num += 1
+
         self._auto_fit_columns(ws)
 
     def _write_headers(self, ws, headers, color) -> None:

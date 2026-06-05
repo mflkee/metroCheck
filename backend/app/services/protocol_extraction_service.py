@@ -197,9 +197,15 @@ class ProtocolExtractionService:
                 parts = [p.strip() for p in name.split(',')]
                 last = parts[-1]
                 before = parts[-2] if len(parts) >= 2 else ''
-                # Keep generic uppercase abbreviations like "ТМ, ТВ, ТМВ" in the name
+                # Pop generic uppercase abbreviations like "ФТ, ТМ, ТВ" → go to type
                 generic_abbrev = re.match(r'^[А-ЯA-Z]{2,4}$', last) and not re.search(r'\d', last)
                 if generic_abbrev:
+                    name = ','.join(parts[:-1]).strip()
+                    break
+                # Pop "ТМ серия", "ТВ серия" style two-word modifications
+                mod_series = re.match(r'^([А-ЯA-Z]{2,4})\s+серия$', last)
+                if mod_series:
+                    name = ','.join(parts[:-1]).strip()
                     break
                 # Don't split a list that uses "и" (e.g. "ТМ, ТВ, ТМВ и ТМТБ")
                 if 'и' in before or 'и' in last:
@@ -235,8 +241,7 @@ class ProtocolExtractionService:
                 if m2:
                     words[-1] = m2.group(1)
                     break
-                # Keep generic uppercase abbreviations that are part of a list
-                # e.g. "ТМ, ТВ, ТМВ и ТМТБ" — don't pop "ТМТБ"
+                # Drop trailing abbreviation like "ФТ", "ТМ" (pop to type)
                 is_generic_abbrev = (
                     re.match(r'^[A-ZА-Я]{2,4}$', last)
                     and not re.search(r'\d', last)
@@ -244,6 +249,13 @@ class ProtocolExtractionService:
                 )
                 if is_generic_abbrev and (prev == 'и' or prev.endswith(',') or prev.lower() == 'и'):
                     break
+                if is_generic_abbrev:
+                    words.pop()
+                    continue
+                # Drop trailing "серия" after abbreviation like "ТМ серия"
+                if last.lower() == 'серия' and re.match(r'^[A-ZА-Я]{2,4}$', prev):
+                    words.pop()
+                    continue
                 # Drop trailing number/word combos like "232.50.160" or "110A" or "МП4-УУ2"
                 if re.match(r'^[A-Za-zА-Яа-яЁё0-9\.\-/]+$', last) and (
                     re.search(r'\d', last) or re.match(r'^[A-ZА-Я]{2,}', last)
@@ -282,7 +294,7 @@ class ProtocolExtractionService:
             # Semicolon: second part is usually type
             if ';' in line:
                 type_part = line.split(';', 1)[1].strip()
-                if len(type_part) > 2:
+                if len(type_part) > 1:
                     return type_part
 
             # Comma: last comma-separated chunk that looks like a model
@@ -295,7 +307,7 @@ class ProtocolExtractionService:
                         continue
                     if re.search(r'\d', part) or re.match(r'^[A-ZА-Я]{2,}', part):
                         clean = re.split(r'\s+(?:если|входят|согласно|состав)', part, flags=re.IGNORECASE)[0]
-                        return clean.strip() if len(clean.strip()) > 2 else None
+                        return clean.strip() if len(clean.strip()) > 1 else None
 
             # No comma/semicolon — trailing model-like tokens
             words = line.split()
@@ -316,7 +328,7 @@ class ProtocolExtractionService:
                     type_words.insert(0, w)
                 else:
                     break
-            if type_words and len(' '.join(type_words)) > 2:
+            if type_words and len(' '.join(type_words)) > 1:
                 # Also include a preceding digit if present (e.g. "2 232.50.160")
                 idx = len(words) - len(type_words)
                 if idx > 0 and re.match(r'^\d+$', words[idx - 1]):
