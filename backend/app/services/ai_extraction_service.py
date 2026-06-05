@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = [
     "moonshotai/kimi-k2.6:free",       # Free, strong at Russian text
+    "google/gemini-2.0-flash-001",     # Free (no rate limit on OpenRouter)
     "nvidia/nemotron-3-super-120b-a12b:free",  # Free fallback
-    "openai/gpt-4o-mini",              # Paid fallback
 ]
 
 EXTRACTION_SYSTEM_PROMPT = (

@@ -87,8 +87,8 @@ class ProtocolExtractionService:
             text=text,
             models=[
                 "moonshotai/kimi-k2.6:free",
+                "google/gemini-2.0-flash-001",
                 "nvidia/nemotron-3-super-120b-a12b:free",
-                "openai/gpt-4o-mini",
             ],
             max_tokens=600,
         )
