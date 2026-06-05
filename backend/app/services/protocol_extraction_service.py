@@ -17,7 +17,7 @@ class ProtocolExtractionService:
         'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12',
     }
 
-    async def extract(self, text: str) -> dict[str, Any]:
+    async def extract(self, text: str, file_name: str | None = None) -> dict[str, Any]:
         """Extract all protocol data using regex + AI hybrid."""
         if not text:
             return {"content": {}, "status": "manual_review", "cost": 0}
@@ -27,7 +27,7 @@ class ProtocolExtractionService:
             "protocol_number": self._extract_protocol_number(text),
             "device_name": None,  # Will try AI
             "device_type": None,  # Will try AI
-            "serial_number": self._extract_serial_number(text),
+            "serial_number": self._extract_serial_number(text, file_name),
             "mit_number": self._extract_mit_number(text),
             "manufacture_year": self._extract_manufacture_year(text),
             "owner": self._extract_owner(text),
@@ -178,8 +178,8 @@ class ProtocolExtractionService:
             return type_val
         return None
 
-    def _extract_serial_number(self, text: str) -> str | None:
-        """Extract serial number."""
+    def _extract_serial_number(self, text: str, file_name: str | None = None) -> str | None:
+        """Extract serial number from text or file name."""
         patterns = [
             # Value on SAME line: "Заводской номер (номера): 64180"
             r'заводской\s+номер\s*\(?(?:номера)?\)?[:\s]+([^\n\r]+)',
@@ -198,9 +198,23 @@ class ProtocolExtractionService:
             serial = serial.strip()
             # Skip if it looks like "Год выпуска" or other labels
             if re.match(r'^(?:Год\s+выпуска|наименование|документ|методика)', serial, re.IGNORECASE):
-                return None
-            return serial if len(serial) > 1 else None
-        return None
+                serial = None
+            elif len(serial) <= 1:
+                serial = None
+        
+        # Fallback: extract from file name
+        if not serial and file_name:
+            # Match patterns like "№ 2062117", "№2062117", "2062117"
+            match = re.search(r'№\s*([A-Za-z0-9\-/]+)', file_name)
+            if match:
+                serial = match.group(1).strip()
+            else:
+                # Try to extract number before extension
+                match = re.search(r'([A-Za-z0-9\-/]+)\s*\([^)]*\)\.pdf', file_name)
+                if match:
+                    serial = match.group(1).strip()
+        
+        return serial
 
     def _extract_mit_number(self, text: str) -> str | None:
         """Extract MIT number like '47279-11'."""

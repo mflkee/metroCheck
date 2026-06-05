@@ -379,7 +379,7 @@ class JobQueueService:
 
                 logger.info("[DEBUG] Protocol %s: starting extraction", proto.id)
                 # Use multi-pass extraction with validation
-                ai_result = await extraction_service.extract(text)
+                ai_result = await extraction_service.extract(text, proto.file_name)
                 logger.info("[DEBUG] Protocol %s: extraction done, status=%s", proto.id, ai_result.get("status"))
                 extracted_data = ai_result.get("content") or {}
 
