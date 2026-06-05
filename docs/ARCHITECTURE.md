@@ -40,8 +40,9 @@
                     │  │                                │            │
                     │  │  ┌───────────────────────┐    │            │
                     │  │  │ ExtractionService      │    │            │
-                    │  │  │ ├─ regex (primary)     │    │            │
-                    │  │  │ └─ OpenRouter (fallback)│   │            │
+│  │  │ ├─ regex (primary)     │    │            │
+│  │  │ └─ OpenRouter (fallback, │   │            │
+│  │  │    все поля при None)   │   │            │
                     │  │  └───────────────────────┘    │            │
                     │  └───────────┬───────────────────┘            │
                     │              │                                │
@@ -122,7 +123,9 @@
 │                                                                  │
 │  Phase 4: data_extract                                           │
 │    ProtocolExtractionService.extract(text, filename, path)       │
-│    → regex (primary) + OpenRouter (fallback)                     │
+│    → regex (primary) + OpenRouter (fallback для любых полей)    │
+│    → AI_FALLBACK лог: file, поля, snippet текста для ручного    │
+│      добавления паттернов                                        │
 │    → поля: device_name, type, serial, verifier, method, range... │
 │    → сохраняет в protocol_data                                    │
 │    progress: ~50% → 65%                                          │
