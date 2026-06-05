@@ -632,14 +632,14 @@ class ProtocolExtractionService:
                 method += '»'
             method = re.sub(r'\s+', ' ', method).strip()
             method = re.sub(r'^[\s"«»\'„.,]+|[\s"«»\'„.,]+$', '', method)
-            if len(method) > 5 and method.lower() != 'поверки':
+            if self._is_valid_methodology(method):
                 return method
 
         # Fallback: content inside «...» or "..." near "Методика поверки"
         match = re.search(r'Методика\s+поверки[^«"]*[«"]([^»"]{10,200})[»"]', text, re.IGNORECASE)
         if match:
             method = match.group(1).strip()
-            if len(method) > 5:
+            if self._is_valid_methodology(method):
                 return method
 
         # Fallback: find methodology reference codes like МИ ..., МП ..., ГОСТ ... near the phrase
@@ -651,7 +651,7 @@ class ProtocolExtractionService:
             method = match.group(1).strip()
             # Trim after closing quote if present
             method = re.split(r'["»]', method)[0].strip()
-            if len(method) > 5:
+            if self._is_valid_methodology(method):
                 return method
 
         # Fallback to single-line patterns
@@ -665,9 +665,38 @@ class ProtocolExtractionService:
             method = re.sub(r'"\s*Методика\s+поверки\s*"', '', method, flags=re.IGNORECASE)
             method = re.sub(r'^[\s"«»\'„.,]+|[\s"«»\'„.,]+$', '', method)
             method = method.strip()
-            if len(method) > 5 and method.lower() != 'поверки':
+            if self._is_valid_methodology(method):
                 return method
         return None
+
+    def _is_valid_methodology(self, value: str | None) -> bool:
+        """Reject garbage methodology fragments."""
+        if not value:
+            return False
+        v = value.strip()
+        if len(v) < 8 or len(v) > 200:
+            return False
+        if v.lower() == 'поверки':
+            return False
+        # Reject section headers or template text fragments
+        garbage = [
+            r'средства\s+поверки',
+            r'условия\s+поверки',
+            r'проведение\s+поверки',
+            r'наименование\s+юридического',
+            r'утвержденн',
+            r'описание\s+средства',
+            r'назначение\s+средства',
+        ]
+        v_lower = v.lower()
+        if any(re.search(g, v_lower) for g in garbage):
+            return False
+        # Must contain a document code or look like a real methodology name
+        has_code = bool(re.search(r'(?:М[ИП]|ГОСТ|РЭ)\s*[\d\.\-/]+', v, re.IGNORECASE))
+        has_digit = bool(re.search(r'\d', v))
+        if not has_code and len(v) > 60:
+            return False
+        return True
 
     def _extract_result(self, text: str) -> str | None:
         """Extract verification result."""
@@ -915,6 +944,7 @@ class ProtocolExtractionService:
         required = [
             "protocol_number", "serial_number", "device_name",
             "verification_date", "verifier", "result",
+            "owner", "verification_method",
         ]
         optional = ["mit_number", "device_type", "measurement_range"]
 
