@@ -71,10 +71,13 @@ class ArshinService:
         month_str = f"{month:02d}"
 
         # Check cache first (unless force refresh) — uses a fresh short session
+        logger.info("fetch_and_save_calibrations: checking cache for %d", year)
         if not force_refresh:
             async with self._fresh_session() as session:
+                logger.info("fetch_and_save_calibrations: fresh session for cache check")
                 cache_repo = CalibrationCacheRepository(session)
                 is_valid = await cache_repo.is_cache_valid(year)
+                logger.info("fetch_and_save_calibrations: cache valid=%s", is_valid)
                 if is_valid:
                     logger.info("Using cached data for year %d (cache valid)", year)
                     cal_repo = CalibrationRepository(session)

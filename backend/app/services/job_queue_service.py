@@ -265,6 +265,7 @@ class JobQueueService:
         stats: dict[str, Any] = {}
 
         # ── Phase 1: Public API ───────────────────────────────────────────
+        logger.info("[job %s] Phase 1: starting public_api", job.id)
         await self._set_phase(job, "public_api", "Загрузка поверок из АРШИН (public API)...", 5, stats)
 
         async def _on_public_api_progress(fetched: int, total: int, saved: int, errors: int) -> None:
@@ -272,9 +273,15 @@ class JobQueueService:
             msg = f"АРШИН: {fetched}/{total} записей, сохранено {saved} за {job.month:02d}.{job.year}"
             await self._set_phase(job, "public_api", msg, pct, stats)
 
-        cal_result = await arshin_service.fetch_and_save_calibrations(
-            job.year, job.month, progress_callback=_on_public_api_progress
-        )
+        logger.info("[job %s] Calling fetch_and_save_calibrations", job.id)
+        try:
+            cal_result = await arshin_service.fetch_and_save_calibrations(
+                job.year, job.month, progress_callback=_on_public_api_progress
+            )
+        except Exception as e:
+            logger.exception("[job %s] fetch_and_save_calibrations failed: %s", job.id, e)
+            raise
+        logger.info("[job %s] fetch_and_save_calibrations returned: %s", job.id, cal_result)
         total_devices = cal_result.get('saved', 0)
         stats["public_api"] = {
             "total": cal_result.get('total', 0),
