@@ -175,7 +175,7 @@ class ArshinService:
                         result = await repo.bulk_upsert(month_items, year, item_month_int)
                         errors += result.get("errors", 0)
                     except Exception as e:
-                        logger.error("Bulk upsert failed for month %d: %s", item_month_int, e)
+                        logger.exception("Bulk upsert failed for month %d (%d items): %s", item_month_int, len(month_items), e)
                         errors += len(month_items)
 
             await _emit_progress(saved_for_month, errors)
