@@ -1,6 +1,7 @@
 """Protocol Extraction Service — regex-based extraction with fallbacks."""
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -18,7 +19,10 @@ class ProtocolExtractionService:
     }
 
     async def extract(self, text: str, file_name: str | None = None, file_path: str | None = None) -> dict[str, Any]:
-        """Extract all protocol data using regex + AI hybrid."""
+        """Extract all protocol data using regex + AI hybrid.
+
+        For image files (JPG/PNG), falls back to vision LLM if regex+OCR fails.
+        """
         if not text:
             return {"content": {}, "status": "manual_review", "cost": 0}
 
@@ -49,32 +53,71 @@ class ProtocolExtractionService:
         # Clean all values
         data = {k: self._clean_value(v) for k, v in data.items()}
 
-        # Phase 3: AI fallback — force for critical fields, or if confidence is low
+        # Phase 3: AI fallback — only when necessary
         missing = [k for k, v in data.items() if not v]
-        critical = {"owner", "verification_method"}
+        hard_critical = {"serial_number", "verification_date", "result"}
         pre_confidence = self._calculate_confidence(data)
-        if missing and (pre_confidence < 0.6 or critical & set(missing)):
+        cost = 0.0
+        model = None
+
+        # Skip LLM if confidence is already high and no hard-critical field is missing
+        should_use_llm = bool(
+            missing
+            and (
+                pre_confidence < 0.7
+                or (hard_critical & set(missing))
+                or {"owner", "verification_method"} & set(missing)
+            )
+        )
+
+        if should_use_llm:
             try:
-                ai_data = await self._ai_extract_fields(text, missing)
+                ai_result = await self._ai_extract_fields(text, missing)
+                ai_data = ai_result.get("content") or {}
                 for field in missing:
                     if ai_data.get(field) and not data.get(field):
                         data[field] = ai_data[field]
                 filled = {f: data[f] for f in missing if data.get(f)}
                 if filled:
                     self._log_ai_fallback(file_name or "unknown", filled, text)
+                    cost = ai_result.get("cost", 0.0)
+                    model = ai_result.get("model")
             except Exception as e:
                 logger.warning("AI fallback failed: %s", e)
 
-        # Recalculate confidence
+        # Phase 4: Vision model fallback for images with poor results
         confidence = self._calculate_confidence(data)
+        if confidence < 0.35 and file_path:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in {".jpg", ".jpeg", ".png"}:
+                try:
+                    from app.services.ai_extraction_service import get_ai_extraction_service
+                    ai_service = get_ai_extraction_service()
+                    vision_result = await ai_service.extract_from_image(
+                        image_path=file_path,
+                        hint_text=text[:2000],
+                    )
+                    if vision_result.get("status") == "success" and vision_result.get("content"):
+                        vision_data = vision_result["content"]
+                        for field in missing:
+                            if vision_data.get(field) and not data.get(field):
+                                data[field] = vision_data[field]
+                        cost = vision_result.get("cost", 0.0)
+                        model = vision_result.get("model")
+                        # Recalculate confidence
+                        confidence = self._calculate_confidence(data)
+                except Exception as e:
+                    logger.warning("Vision model fallback failed for %s: %s", file_path, e)
+
         status = "success" if confidence >= 0.4 else "manual_review"
 
         return {
             "content": data,
             "status": status,
-            "cost": 0,
+            "cost": cost,
             "attempts": 1,
             "confidence": round(confidence, 2),
+            "model_used": model,
         }
 
     async def _ai_extract_fields(self, text: str, fields: list[str]) -> dict[str, Any]:
@@ -85,19 +128,10 @@ class ProtocolExtractionService:
 
         result = await ai_service.extract(
             text=text,
-            models=[
-                "moonshotai/kimi-k2.6:free",
-                "google/gemini-2.0-flash-001",
-                "nvidia/nemotron-3-super-120b-a12b:free",
-            ],
             max_tokens=600,
         )
 
-        content = result.get("content") or {}
-        if not isinstance(content, dict):
-            return {}
-        # Return only the fields we asked for
-        return {f: content.get(f) for f in fields}
+        return result
 
     def _log_ai_fallback(self, file_name: str, filled: dict[str, Any], text: str) -> None:
         """Log AI fallback usage so patterns can be reviewed & added later."""
@@ -148,8 +182,6 @@ class ProtocolExtractionService:
         candidates = []
 
         # Pattern A: line(s) BEFORE "наименование, тип" label
-        # Capture up to two preceding lines; if the immediate line starts with a lowercase
-        # continuation word, join with the previous line.
         match = re.search(
             r'\n([^\n\r]{3,120})\n([^\n\r]{3,120})\n\s*наименование[,\s]*тип',
             text, re.IGNORECASE
@@ -161,7 +193,7 @@ class ProtocolExtractionService:
                 line
                 and line[0].islower()
                 and not re.search(
-                    r'протокол|аккредитации|реестр|уникальный|номер|заводской|год|владел|принадлеж',
+                    r'протокол|аккредитации|реестр|уникальный|номер|заводской|год|владел|принадлеж|документ|методик|норматив',
                     prev_line,
                     re.IGNORECASE,
                 )
@@ -173,7 +205,7 @@ class ProtocolExtractionService:
             if match:
                 candidates.append(match.group(1).strip())
 
-        # Pattern B: "Наименование прибора X" on same line
+        # Pattern B: "Наименование прибора X"
         match = re.search(r'Наименование\s+прибора[:\s]+([^\n\r]{2,100})', text, re.IGNORECASE)
         if match:
             candidates.append(match.group(1).strip())
@@ -183,7 +215,7 @@ class ProtocolExtractionService:
         if match:
             candidates.append(match.group(1).strip())
 
-        # Pattern D: old explicit labels
+        # Pattern D: explicit labels
         for pattern in [
             r'Наименование\s+средства\s+измерений[:\s]+([^\n\r]{2,100})',
             r'Наименование\s+СИ[:\s]+([^\n\r]{2,100})',
@@ -193,38 +225,67 @@ class ProtocolExtractionService:
             if match:
                 candidates.append(match.group(1).strip())
 
-        # Pick best candidate: not starting with junk words, reasonable length
-        junk_prefixes = ('прибора', 'средства', 'нормативного', 'документа')
+        # Helpers
+        junk_prefixes = ('прибора', 'средства', 'нормативного', 'документа', 'методики', 'поверки')
+        device_keywords = (
+            'преобразователь', 'датчик', 'термометр', 'термопреобразователь',
+            'уровнемер', 'расходомер', 'счетчик', 'манометр', 'вольтметр',
+            'амперметр', 'анализатор', 'система', 'измеритель', 'регулятор',
+            'клапан', 'преобразователи', 'датчики', 'термометры',
+        )
+
+        def _split_glued_words(name: str) -> str:
+            # Split Cyrillic word glued to Latin/digits: "давленияМетран" -> "давления Метран"
+            # Use explicit ranges without IGNORECASE so only real script transitions match.
+            name = re.sub(r'([а-яё])([A-Za-z0-9])', r'\1 \2', name)
+            name = re.sub(r'([A-Za-z0-9])([а-яё])', r'\1 \2', name)
+            # Also handle Latin glued to Cyrillic capital if any
+            name = re.sub(r'([А-ЯЁ])([A-Za-z0-9])', r'\1 \2', name)
+            name = re.sub(r'([A-Za-z0-9])([А-ЯЁ])', r'\1 \2', name)
+            return name
+
+        def _score_candidate(name: str) -> int:
+            lower = name.lower()
+            score = 0
+            if any(k in lower for k in device_keywords):
+                score += 3
+            if re.search(r'[а-яё]{4,}', lower):
+                score += 1
+            if re.match(r'^(протокол|аккред|реестр|уникальный|заводской|год|владел|принадлеж|документ|методик|норматив)', lower):
+                score -= 5
+            if len(name) >= 10 and len(name) <= 120:
+                score += 1
+            return score
+
+        scored = []
         for raw in candidates:
             name = raw
             name = re.sub(r'^средств[ао]\s+измерений[:\s]*', '', name, flags=re.IGNORECASE)
             name = re.sub(r'^прибора\s+', '', name, flags=re.IGNORECASE)
             name = re.sub(r'^типа', '', name, flags=re.IGNORECASE).strip()
 
+            # Split glued words first
+            name = _split_glued_words(name)
+
             # Split by semicolon: first part is usually the name
             if ';' in name:
                 name = name.split(';')[0].strip()
 
-            # Split by comma only when the trailing chunk is a clear model code and
-            # the comma is not part of a list (no conjunction like "и" before it).
+            # Split by comma for model codes
             while ',' in name:
                 parts = [p.strip() for p in name.split(',')]
                 last = parts[-1]
                 before = parts[-2] if len(parts) >= 2 else ''
-                # Pop generic uppercase abbreviations like "ФТ, ТМ, ТВ" → go to type
                 generic_abbrev = re.match(r'^[А-ЯA-Z]{2,4}$', last) and not re.search(r'\d', last)
                 if generic_abbrev:
                     name = ','.join(parts[:-1]).strip()
                     break
-                # Pop "ТМ серия", "ТВ серия" style two-word modifications
                 mod_series = re.match(r'^([А-ЯA-Z]{2,4})\s+серия$', last)
                 if mod_series:
                     name = ','.join(parts[:-1]).strip()
                     break
-                # Don't split a list that uses "и" (e.g. "ТМ, ТВ, ТМВ и ТМТБ")
                 if 'и' in before or 'и' in last:
                     break
-                # If last part has digits, dashes, dots or mixed code like "МП4-УУ2" -> type
                 if len(last) <= 30 and (
                     re.search(r'\d', last)
                     or re.search(r'[-/]', last)
@@ -234,20 +295,15 @@ class ProtocolExtractionService:
                 else:
                     break
 
-            # Remove trailing model tokens: last 1-2 words if they contain digits or look like codes
-            # e.g. "... EJX 110A" or "... 2 232.50.160"
+            # Remove trailing model tokens
             words = name.split()
             while len(words) >= 2:
                 last = words[-1]
                 prev = words[-2]
-                # If last word is a glued alphanumeric token like "измерительный3051S",
-                # keep only the alphabetic prefix in the name.
                 m = re.match(r'^([A-Za-zА-Яа-яЁё]{3,})(\d[\w\.\-/]*)$', last)
                 if m:
                     words[-1] = m.group(1)
                     break
-                # Also split glued tokens where a common prefix is stuck to a model suffix,
-                # e.g. "типаAPR" -> keep "типа" in the name, "APR" goes to type extraction.
                 common_prefixes = ('измерительный', 'преобразователь', 'давления', 'уровня',
                                    'температуры', 'расхода', 'типа', 'модель', 'серии', 'серия', 'тип')
                 prefix_re = '|'.join(re.escape(p) for p in common_prefixes)
@@ -255,7 +311,6 @@ class ProtocolExtractionService:
                 if m2:
                     words[-1] = m2.group(1)
                     break
-                # Drop trailing abbreviation like "ФТ", "ТМ" (pop to type)
                 is_generic_abbrev = (
                     re.match(r'^[A-ZА-Я]{2,4}$', last)
                     and not re.search(r'\d', last)
@@ -266,16 +321,13 @@ class ProtocolExtractionService:
                 if is_generic_abbrev:
                     words.pop()
                     continue
-                # Drop trailing "серия" after abbreviation like "ТМ серия"
                 if last.lower() == 'серия' and re.match(r'^[A-ZА-Я]{2,4}$', prev):
                     words.pop()
                     continue
-                # Drop trailing number/word combos like "232.50.160" or "110A" or "МП4-УУ2"
                 if re.match(r'^[A-Za-zА-Яа-яЁё0-9\.\-/]+$', last) and (
                     re.search(r'\d', last) or re.match(r'^[A-ZА-Я]{2,}', last)
                 ):
                     words.pop()
-                # Drop "2 232.50.160" style two-word trailing model
                 elif len(words) >= 3 and re.match(r'^\d+$', prev) and re.match(r'^\d[\d\.]+$', last):
                     words.pop()
                     words.pop()
@@ -285,9 +337,14 @@ class ProtocolExtractionService:
 
             if name.lower().startswith(junk_prefixes):
                 continue
-            if len(name) > 2:
-                return name
-        return None
+            if len(name) <= 2:
+                continue
+            scored.append((_score_candidate(name), name))
+
+        if not scored:
+            return None
+        scored.sort(key=lambda x: (-x[0], -len(x[1])))
+        return scored[0][1]
 
     def _extract_device_type(self, text: str) -> str | None:
         """Extract device type/modification."""
@@ -325,7 +382,7 @@ class ProtocolExtractionService:
 
             # No comma/semicolon — trailing model-like tokens
             words = line.split()
-            type_words = []
+            type_words: list[str] = []
             # Collect trailing words that look like model codes
             for w in reversed(words):
                 # Handle glued tokens like "измерительный3051S" or "типаAPR"
@@ -684,12 +741,12 @@ class ProtocolExtractionService:
         if not has_code:
             has_code = bool(re.search(r'[A-ZА-Яa-zа-я]{2,}\.\d+(?:\.\d+)+\s*(?:М[ИП])?\b', v))
         has_digit = bool(re.search(r'\d', v))
-        if not has_code and not has_digit:
-            # Allow descriptive methodology names (product + "Методика поверки")
-            if not (15 <= len(v) <= 80
-                    and re.search(r'[а-яё]', v, re.IGNORECASE)
-                    and len(v.split()) >= 2):
-                return False
+        if not has_code and not has_digit and not (
+            15 <= len(v) <= 80
+            and re.search(r'[а-яё]', v, re.IGNORECASE)
+            and len(v.split()) >= 2
+        ):
+            return False
         if not has_code and len(v) > 80:
             return False
         # Reject section headers or template text fragments
@@ -872,8 +929,8 @@ class ProtocolExtractionService:
                     if unit is None:
                         data_start = len(header_texts)
                         for ridx in range(data_start, min(data_start + 3, len(table))):
-                            for cell in table[ridx]:
-                                c = str(cell or '').replace('\n', ' ').strip().lower()
+                            for raw_cell in table[ridx]:
+                                c = str(raw_cell or '').replace('\n', ' ').strip().lower()
                                 for alias, canonical in unit_aliases.items():
                                     if alias.lower() in c:
                                         unit = canonical

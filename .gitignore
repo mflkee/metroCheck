@@ -55,3 +55,8 @@ data/**/.git/
 # Local development reports
 reports/*.xlsx
 *.sql
+
+# Test suite artifacts
+test_suite/.arshin_cache/
+test_suite/.llm_cache/
+test_suite/reports/

@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 import multiprocessing
 import os
 from collections.abc import Callable
@@ -13,8 +14,175 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.protocol_file import ProtocolFile
 from app.repositories.protocol_file_repository import ProtocolFileRepository
 
+logger = logging.getLogger(__name__)
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 SUPPORTED_EXTENSIONS = {".pdf"} | IMAGE_EXTENSIONS
+
+# Magic byte signatures for file type detection
+_MAGIC_SIGNATURES: dict[str, list[bytes]] = {
+    "application/pdf": [
+        b"%PDF-",
+    ],
+    "image/jpeg": [
+        b"\xff\xd8\xff",
+    ],
+    "image/png": [
+        b"\x89PNG\r\n\x1a\n",
+    ],
+    "image/tiff": [
+        b"\x49\x49\x2a\x00",  # Little-endian TIFF
+        b"\x4d\x4d\x00\x2a",  # Big-endian TIFF
+    ],
+    "image/bmp": [
+        b"BM",
+    ],
+    "image/webp": [
+        b"RIFF",
+    ],
+}
+
+# Minimum DPI thresholds for acceptable OCR quality
+MIN_DPI = 150
+RECOMMENDED_DPI = 300
+
+
+def detect_file_type(file_path: str) -> str | None:
+    """Detect file MIME type using magic bytes, not extension.
+
+    Returns MIME type string (e.g. 'application/pdf', 'image/jpeg')
+    or None if unrecognized.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(12)
+    except OSError:
+        return None
+
+    for mime_type, signatures in _MAGIC_SIGNATURES.items():
+        for sig in signatures:
+            if header.startswith(sig):
+                # WEBP needs extra check: RIFF prefix + WEBP identifier at offset 8
+                if mime_type == "image/webp":
+                    if len(header) >= 12 and header[8:12] == b"WEBP":
+                        return mime_type
+                    continue
+                return mime_type
+
+    # Fallback: check extension as last resort
+    ext = os.path.splitext(file_path)[1].lower()
+    ext_map = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".tiff": "image/tiff",
+        ".tif": "image/tiff",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+    }
+    return ext_map.get(ext)
+
+
+def preprocess_image(img: "Image.Image") -> "Image.Image":
+    """Apply image preprocessing for better OCR results.
+
+    Steps:
+    1. Convert to grayscale
+    2. Increase contrast (autocontrast)
+    3. Apply sharpening filter
+    """
+    from PIL import Image, ImageFilter, ImageOps
+
+    if img.mode != "L":
+        img = img.convert("L")
+
+    img = ImageOps.autocontrast(img, cutoff=2)
+
+    img = img.filter(ImageFilter.SHARPEN)
+
+    return img
+
+
+def _check_rotation(img: "Image.Image") -> "Image.Image":
+    """Detect and correct text orientation using Tesseract OSD.
+
+    Only rotates if confidence is high enough (> 50%).
+    """
+    import pytesseract
+
+    try:
+        osd = pytesseract.image_to_osd(img, output_type=pytesseract.Output.DICT)
+        rotation = osd.get("orientation", 0)
+        confidence = osd.get("orientation_conf", 0)
+
+        if confidence > 5.0 and rotation != 0:
+            logger.info("Auto-rotating image by %d degrees (confidence: %.0f%%)", rotation, confidence)
+            if rotation == 90:
+                img = img.rotate(-90, expand=True)
+            elif rotation == 180:
+                img = img.rotate(180, expand=True)
+            elif rotation == 270:
+                img = img.rotate(90, expand=True)
+    except Exception as e:
+        logger.debug("OSD rotation detection failed: %s", e)
+
+    return img
+
+
+def estimate_image_quality(img: "Image.Image") -> dict[str, Any]:
+    """Estimate image quality metrics for OCR suitability.
+
+    Returns dict with:
+        - dpi: estimated DPI (horizontal, vertical)
+        - width_px, height_px: pixel dimensions
+        - is_acceptable: whether quality is sufficient for OCR
+        - issues: list of quality issues found
+    """
+    from PIL.ExifTags import Base as ExifBase
+
+    width, height = img.size
+    dpi_h = dpi_v = 0
+    issues = []
+
+    # Try to get DPI from EXIF
+    try:
+        exif = img.getexif()
+        if exif:
+            for tag_id, value in exif.items():
+                tag_name = ExifBase(tag_id).name if tag_id in ExifBase else None
+                if tag_name == "XResolution":
+                    dpi_h = int(float(value))
+                elif tag_name == "YResolution":
+                    dpi_v = int(float(value))
+    except Exception:
+        pass
+
+    # If no EXIF DPI, try PIL info dict
+    if not dpi_h:
+        dpi_info = img.info.get("dpi", (0, 0))
+        dpi_h = int(dpi_info[0]) if dpi_info[0] else 0
+        dpi_v = int(dpi_info[1]) if dpi_info[1] else 0
+
+    # Quality checks
+    if dpi_h and dpi_h < MIN_DPI:
+        issues.append(f"low_dpi_{dpi_h}")
+    if width < 800 or height < 800:
+        issues.append(f"low_resolution_{width}x{height}")
+    if width > 8000 or height > 8000:
+        issues.append("resolution_too_high_may_timeout")
+
+    is_acceptable = len(issues) == 0 or all(
+        i.startswith("low_dpi_") and int(i.split("_")[-1]) >= 100 for i in issues
+    )
+
+    return {
+        "dpi": (dpi_h, dpi_v),
+        "width_px": width,
+        "height_px": height,
+        "is_acceptable": is_acceptable,
+        "issues": issues,
+    }
 
 
 def _extract_text_process(file_path: str, queue: Any) -> None:
@@ -24,13 +192,18 @@ def _extract_text_process(file_path: str, queue: Any) -> None:
     from pdf2image import convert_from_path
     from PIL import Image
 
-    ext = os.path.splitext(file_path)[1].lower()
+    file_type = detect_file_type(file_path)
+
     try:
-        if ext in IMAGE_EXTENSIONS:
+        if file_type and file_type.startswith("image/"):
             with Image.open(file_path) as img:
+                quality = estimate_image_quality(img)
+                img = _check_rotation(img)
+                img = preprocess_image(img)
                 full_text = pytesseract.image_to_string(img, lang="rus+eng")
             pages = 1
-        else:
+
+        elif file_type == "application/pdf":
             text_parts = []
             with pdfplumber.open(file_path) as pdf:
                 for page in pdf.pages:
@@ -39,13 +212,28 @@ def _extract_text_process(file_path: str, queue: Any) -> None:
                         text_parts.append(page_text)
             full_text = "\n".join(text_parts)
             pages = len(text_parts)
+
             if not full_text.strip():
                 images = convert_from_path(file_path)
                 pages = len(images)
-                ocr_parts = [pytesseract.image_to_string(img, lang="rus+eng") for img in images]
+                ocr_parts = []
+                for img in images:
+                    img = _check_rotation(img)
+                    img = preprocess_image(img)
+                    ocr_parts.append(pytesseract.image_to_string(img, lang="rus+eng"))
                 full_text = "\n".join(ocr_parts)
+        else:
+            # Unknown file type — try as image anyway (Tesseract is forgiving)
+            logger.warning("Unknown file type for %s, attempting OCR as image", file_path)
+            with Image.open(file_path) as img:
+                img = _check_rotation(img)
+                img = preprocess_image(img)
+                full_text = pytesseract.image_to_string(img, lang="rus+eng")
+            pages = 1
+
         queue.put({"text": full_text, "pages": pages, "error": None})
     except Exception as e:
+        logger.error("OCR failed for %s: %s", file_path, e)
         queue.put({"error": str(e), "text": "", "pages": 0})
 
 
@@ -109,7 +297,8 @@ class ProtocolScanner:
         total = 0
         for _root, _dirs, files in os.walk(target_folder):
             for file in files:
-                if os.path.splitext(file)[1].lower() in SUPPORTED_EXTENSIONS:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in SUPPORTED_EXTENSIONS:
                     total += 1
 
         found = 0
@@ -125,6 +314,17 @@ class ProtocolScanner:
                 file_path = os.path.join(root, file)
                 relative_path = os.path.relpath(file_path, self.base_path)
                 found += 1
+
+                # Verify file type with magic bytes
+                detected_type = detect_file_type(file_path)
+                image_types = {"image/jpeg", "image/png", "image/tiff", "image/bmp"}
+                if detected_type not in image_types and detected_type != "application/pdf":
+                    logger.warning(
+                        "File %s has extension %s but magic bytes indicate type=%s, skipping",
+                        file, ext, detected_type,
+                    )
+                    errors += 1
+                    continue
 
                 try:
                     existing = await self.repo.get_by_path(relative_path)
