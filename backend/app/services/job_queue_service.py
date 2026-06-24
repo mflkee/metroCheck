@@ -265,8 +265,6 @@ class JobQueueService:
         stats: dict[str, Any] = {}
 
         # ── Phase 1: Public API ───────────────────────────────────────────
-        print(f"[DEBUG job {job.id}] Phase 1: starting public_api")
-        logger.info("[job %s] Phase 1: starting public_api", job.id)
         await self._set_phase(job, "public_api", "Загрузка поверок из АРШИН (public API)...", 5, stats)
 
         async def _on_public_api_progress(fetched: int, total: int, saved: int, errors: int) -> None:
@@ -274,18 +272,9 @@ class JobQueueService:
             msg = f"АРШИН: {fetched}/{total} записей, сохранено {saved} за {job.month:02d}.{job.year}"
             await self._set_phase(job, "public_api", msg, pct, stats)
 
-        print(f"[DEBUG job {job.id}] Calling fetch_and_save_calibrations")
-        logger.info("[job %s] Calling fetch_and_save_calibrations", job.id)
-        try:
-            cal_result = await arshin_service.fetch_and_save_calibrations(
-                job.year, job.month, progress_callback=_on_public_api_progress
-            )
-        except Exception as e:
-            print(f"[DEBUG job {job.id}] fetch_and_save_calibrations FAILED: {e}")
-            logger.exception("[job %s] fetch_and_save_calibrations failed: %s", job.id, e)
-            raise
-        print(f"[DEBUG job {job.id}] fetch_and_save_calibrations returned: {cal_result}")
-        logger.info("[job %s] fetch_and_save_calibrations returned: %s", job.id, cal_result)
+        cal_result = await arshin_service.fetch_and_save_calibrations(
+            job.year, job.month, progress_callback=_on_public_api_progress
+        )
         total_devices = cal_result.get('saved', 0)
         stats["public_api"] = {
             "total": cal_result.get('total', 0),
@@ -729,13 +718,18 @@ _queue_service_instance: JobQueueService | None = None
 
 
 def get_queue_service(db: AsyncSession | None = None) -> JobQueueService:
+    """Get a queue service instance.
+
+    If a db session is provided, return a dedicated instance bound to that
+    session (used by API endpoints). Otherwise fall back to the worker/scheduler
+    singleton initialized at startup.
+    """
+    if db is not None:
+        return JobQueueService(db)
     global _queue_service_instance
     if _queue_service_instance is not None:
         return _queue_service_instance
-    if db is None:
-        raise RuntimeError("Queue service not initialized. Call init_queue_service(db) first.")
-    _queue_service_instance = JobQueueService(db)
-    return _queue_service_instance
+    raise RuntimeError("Queue service not initialized. Call init_queue_service(db) first.")
 
 
 def init_queue_service(db: AsyncSession) -> JobQueueService:
