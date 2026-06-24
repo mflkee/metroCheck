@@ -12,7 +12,7 @@ from typing import Sequence, Union
 revision: str = 'f8a4h6i0k1l2'
 down_revision: Union[str, None] = 'e7f3g5h8i9j0'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = ('3a9de0aad3b0',)
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:

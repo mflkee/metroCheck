@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from openpyxl import Workbook
@@ -170,11 +170,12 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
-        # Build calibrations lookup by serial number
-        cal_by_serial = {}
+        # Build calibrations lookup by serial number (multiple records possible)
+        cal_by_serial: dict[str, list] = {}
         for c in calibrations:
             if c.mi_number:
-                cal_by_serial[c.mi_number.strip()] = c
+                serial = c.mi_number.strip()
+                cal_by_serial.setdefault(serial, []).append(c)
 
         # Build set of protocol serials that have a match
         matched_cal_serials: set[str] = set()
@@ -248,15 +249,52 @@ class ReportService:
             except (ValueError, TypeError):
                 return str(val)
 
+        def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
+            if not a or not b:
+                return False
+            return abs((a - b).days) <= days
+
         row_num = 3  # Start data after header rows (row 1 = groups, row 2 = column names)
         display_num = 1
 
-        # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration
+        # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration(s)
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
-            cal = cal_by_serial.get(serial)
-            if cal:
+            cal_list = cal_by_serial.get(serial, [])
+            if cal_list:
                 matched_cal_serials.add(serial)
+
+            # Determine date status against ALL calibrations for this serial
+            date_status = "no_arshin"  # green / yellow / red / no_arshin
+            best_cal = None
+            if cal_list and proto.verification_date:
+                proto_date = proto.verification_date
+                # Check green: matches any verification_date
+                green_cals = [c for c in cal_list if _dates_within(c.verification_date, proto_date)]
+                if green_cals:
+                    date_status = "green"
+                    best_cal = green_cals[0]
+                else:
+                    # Check yellow: matches any valid_date
+                    yellow_cals = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
+                    if yellow_cals:
+                        date_status = "yellow"
+                        best_cal = yellow_cals[0]
+                    else:
+                        date_status = "red"
+                        # Pick latest verification_date for display
+                        best_cal = max(
+                            [c for c in cal_list if c.verification_date],
+                            key=lambda c: c.verification_date,
+                            default=cal_list[0],
+                        )
+            elif cal_list:
+                date_status = "green"
+                best_cal = cal_list[0]
+            else:
+                date_status = "no_arshin"
+
+            cal = best_cal
             lk_conditions = {}
             if cal and cal.conditions:
                 try:
@@ -303,33 +341,45 @@ class ReportService:
 
             mismatches = []
 
-            if not cal:
+            if not cal_list:
                 mismatches.append("НЕТ В АРШИН")
-
-            if cal and proto.verification_date and cal.verification_date:
-                proto_date = proto.verification_date.strftime("%d.%m.%Y")
-                cal_date = cal.verification_date.strftime("%d.%m.%Y")
-                if proto_date != cal_date:
-                    mismatches.append(f"Дата: {cal_date} vs {proto_date}")
-
-            if cal and proto.verifier and cal.verifier:
-                norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
-                norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
-                if norm_proto_verifier != norm_cal_verifier:
-                    mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
-
-            if cal and proto.serial_number and serial:
-                if proto.serial_number.strip() != serial:
-                    mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
-
-            if mismatches:
-                status = "❌"
-                status_color = "FFC7CE"
-                status_font_color = "9C0006"
             else:
+                if len(cal_list) > 1:
+                    mismatches.append(f"Записей в АРШИН: {len(cal_list)}")
+
+                if date_status == "yellow":
+                    proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
+                    valid_strs = [c.valid_date.strftime("%d.%m.%Y") for c in cal_list if c.valid_date]
+                    mismatches.append(f"Дата протокола ({proto_date_str}) = действует до в АРШИН ({', '.join(valid_strs)})")
+                elif date_status == "red":
+                    proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
+                    verif_strs = [c.verification_date.strftime("%d.%m.%Y") for c in cal_list if c.verification_date]
+                    mismatches.append(f"Дата: АРШИН {', '.join(verif_strs)} vs протокол {proto_date_str}")
+
+                # Check verifier against best_cal
+                if cal and proto.verifier and cal.verifier:
+                    norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
+                    norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
+                    if norm_proto_verifier != norm_cal_verifier:
+                        mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
+
+                if proto.serial_number and serial:
+                    if proto.serial_number.strip() != serial:
+                        mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
+
+            # Status symbol and color
+            if date_status == "green" and not mismatches:
                 status = "✓"
                 status_color = "C6EFCE"
                 status_font_color = "006100"
+            elif date_status == "green" and mismatches or date_status == "yellow":
+                status = "⚠"
+                status_color = "FFEB9C"
+                status_font_color = "9C5700"
+            else:
+                status = "❌"
+                status_color = "FFC7CE"
+                status_font_color = "9C0006"
 
             row_data[STATUS_COL - 1] = status
             comments = "; ".join(mismatches) if mismatches else ""
@@ -344,8 +394,12 @@ class ReportService:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
                     cell.font = Font(bold=True, color=status_font_color, size=12)
                 elif col_idx == COMMENTS_COL and mismatches:
-                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                    cell.font = Font(color="9C0006", size=9)
+                    if date_status == "yellow":
+                        cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                        cell.font = Font(color="9C5700", size=9)
+                    else:
+                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                        cell.font = Font(color="9C0006", size=9)
             row_num += 1
             display_num += 1
 

@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     tesseract-ocr \
     tesseract-ocr-rus \
+    tesseract-ocr-osd \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
