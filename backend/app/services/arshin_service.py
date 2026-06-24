@@ -132,25 +132,37 @@ class ArshinService:
 
             await _emit_progress()
 
-        # Save all fetched items in batches
+        # Save all fetched items in batches using bulk upsert.
+        # Use a fresh DB session because the previous one sat idle during network fetch.
+        await self.db.close()
+        from app.core.database import AsyncSessionLocal
+        self.db = AsyncSessionLocal()
+        self.repo = CalibrationRepository(self.db)
+
         saved_for_month = 0
         errors = 0
-        batch_size = 500
+        batch_size = 1000
 
         for batch_start in range(0, len(all_items), batch_size):
             batch = all_items[batch_start:batch_start + batch_size]
+
+            # Group batch by actual item month for correct DB partitioning
+            rows_by_month: dict[int, list[dict]] = {}
             for item in batch:
                 vdate = item.get("verification_date", "")
                 item_month = self._extract_month(vdate)
                 item_month_int = int(item_month) if item_month else month
+                rows_by_month.setdefault(item_month_int, []).append(item)
+                if item_month == month_str:
+                    saved_for_month += 1
 
+            for item_month_int, month_items in rows_by_month.items():
                 try:
-                    await self.repo.create_or_update(item, year, item_month_int)
-                    if item_month == month_str:
-                        saved_for_month += 1
+                    result = await self.repo.bulk_upsert(month_items, year, item_month_int)
+                    errors += result.get("errors", 0)
                 except Exception as e:
-                    errors += 1
-                    logger.warning("Failed to save calibration %s: %s", item.get("vri_id"), e)
+                    logger.error("Bulk upsert failed for month %d: %s", item_month_int, e)
+                    errors += len(month_items)
 
             await _emit_progress(saved_for_month, errors)
 
