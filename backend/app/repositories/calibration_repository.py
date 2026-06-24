@@ -1,8 +1,10 @@
 """Calibration repository."""
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calibration import Calibration
@@ -14,6 +16,82 @@ class CalibrationRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    @staticmethod
+    def _parse_date(value: str | None) -> Any:
+        """Parse date from 'DD.MM.YYYY' or 'YYYY-MM-DD'."""
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%d.%m.%Y").date()
+        except ValueError:
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError:
+                return None
+
+    @staticmethod
+    def _bool_or_none(val):
+        if val is None:
+            return None
+        return bool(val)
+
+    def _item_to_row(self, data: dict[str, Any], year: int, month: int) -> dict[str, Any]:
+        """Convert ARSHIN API item to DB row dict."""
+        return {
+            "vri_id": str(data.get("vri_id", "")),
+            "mi_number": (data.get("mi_number") or "").strip(),
+            "mit_number": data.get("mit_number"),
+            "mit_title": data.get("mit_title"),
+            "mit_notation": data.get("mit_notation"),
+            "mi_modification": data.get("mi_modification"),
+            "verification_date": self._parse_date(data.get("verification_date")),
+            "valid_date": self._parse_date(data.get("valid_date")),
+            "result_docnum": data.get("result_docnum"),
+            "result": data.get("result"),
+            "applicability": self._bool_or_none(data.get("applicability")),
+            "org_title": data.get("org_title", 'ООО "МКАИР"'),
+            "year": year,
+            "month": month,
+        }
+
+    async def bulk_upsert(self, items: list[dict[str, Any]], year: int, month: int) -> dict[str, int]:
+        """Bulk upsert calibration records.
+
+        Returns dict with saved_count and errors_count.
+        """
+        if not items:
+            return {"saved": 0, "errors": 0}
+
+        rows = []
+        errors = 0
+        for item in items:
+            try:
+                rows.append(self._item_to_row(item, year, month))
+            except Exception as e:
+                errors += 1
+                logger = __import__("logging").getLogger(__name__)
+                logger.warning("Failed to prepare calibration row %s: %s", item.get("vri_id"), e)
+
+        if not rows:
+            return {"saved": 0, "errors": errors}
+
+        stmt = insert(Calibration).values(rows)
+        update_cols = [
+            "mi_number", "mit_number", "mit_title", "mit_notation",
+            "mi_modification", "verification_date", "valid_date",
+            "result_docnum", "result", "applicability", "org_title",
+            "year", "month",
+        ]
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["vri_id"],
+            set_={col: stmt.excluded[col] for col in update_cols},
+        )
+
+        await self.db.execute(stmt)
+        await self.db.commit()
+
+        return {"saved": len(rows), "errors": errors}
+
     async def create_or_update(self, data: dict[str, Any], year: int, month: int) -> Calibration:
         """Create or update calibration from ARSHIN API data."""
         vri_id = str(data.get("vri_id", ""))
@@ -24,36 +102,17 @@ class CalibrationRepository:
         result = await self.db.execute(select(Calibration).where(Calibration.vri_id == vri_id))
         existing = result.scalar_one_or_none()
 
-        from datetime import datetime
-
-        # Parse dates
-        def parse_date(value: str | None) -> Any:
-            if not value:
-                return None
-            try:
-                return datetime.strptime(value, "%d.%m.%Y").date()
-            except ValueError:
-                try:
-                    return datetime.strptime(value, "%Y-%m-%d").date()
-                except ValueError:
-                    return None
-
-        def bool_or_none(val):
-            if val is None:
-                return None
-            return bool(val)
-
         if existing:
             existing.mi_number = (data.get("mi_number") or "").strip()
             existing.mit_number = data.get("mit_number")
             existing.mit_title = data.get("mit_title")
             existing.mit_notation = data.get("mit_notation")
             existing.mi_modification = data.get("mi_modification")
-            existing.verification_date = parse_date(data.get("verification_date"))
-            existing.valid_date = parse_date(data.get("valid_date"))
+            existing.verification_date = self._parse_date(data.get("verification_date"))
+            existing.valid_date = self._parse_date(data.get("valid_date"))
             existing.result_docnum = data.get("result_docnum")
             existing.result = data.get("result")
-            existing.applicability = bool_or_none(data.get("applicability"))
+            existing.applicability = self._bool_or_none(data.get("applicability"))
             existing.org_title = data.get("org_title", 'ООО "МКАИР"')
             existing.year = year
             existing.month = month
@@ -66,11 +125,11 @@ class CalibrationRepository:
                 mit_title=data.get("mit_title"),
                 mit_notation=data.get("mit_notation"),
                 mi_modification=data.get("mi_modification"),
-                verification_date=parse_date(data.get("verification_date")),
-                valid_date=parse_date(data.get("valid_date")),
+                verification_date=self._parse_date(data.get("verification_date")),
+                valid_date=self._parse_date(data.get("valid_date")),
                 result_docnum=data.get("result_docnum"),
                 result=data.get("result"),
-                applicability=bool_or_none(data.get("applicability")),
+                applicability=self._bool_or_none(data.get("applicability")),
                 org_title=data.get("org_title", 'ООО "МКАИР"'),
                 year=year,
                 month=month,
@@ -112,7 +171,7 @@ class CalibrationRepository:
 
     async def get_by_serial(self, serial_number: str, year: int | None = None, month: int | None = None) -> Calibration | None:
         """Get calibration by serial number.
-        
+
         Args:
             serial_number: Serial number to search
             year: Optional year filter
