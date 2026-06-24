@@ -87,7 +87,7 @@ class ArshinService:
         async def _emit_progress(saved: int = 0, errors: int = 0) -> None:
             nonlocal last_progress_emit
             fetched = len(all_items)
-            if progress_callback and (fetched - last_progress_emit >= 100 or fetched >= total):
+            if progress_callback and (fetched - last_progress_emit >= 100 or fetched >= total or saved > 0 or errors > 0):
                 await progress_callback(fetched, total, saved, errors)
                 last_progress_emit = fetched
 
@@ -133,12 +133,6 @@ class ArshinService:
             await _emit_progress()
 
         # Save all fetched items in batches using bulk upsert.
-        # Use a fresh DB session because the previous one sat idle during network fetch.
-        await self.db.close()
-        from app.core.database import AsyncSessionLocal
-        self.db = AsyncSessionLocal()
-        self.repo = CalibrationRepository(self.db)
-
         saved_for_month = 0
         errors = 0
         batch_size = 1000
