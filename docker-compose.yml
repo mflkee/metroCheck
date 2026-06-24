@@ -46,7 +46,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
-      FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
+      FASTAPI_API_KEY: ${FASTAPI_API_KEY:-CHANGE_ME_API_KEY}
       APP_ENV: ${APP_ENV:-development}
       TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
       METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
