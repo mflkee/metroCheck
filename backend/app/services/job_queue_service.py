@@ -267,7 +267,14 @@ class JobQueueService:
         # ── Phase 1: Public API ───────────────────────────────────────────
         await self._set_phase(job, "public_api", "Загрузка поверок из АРШИН (public API)...", 5, stats)
 
-        cal_result = await arshin_service.fetch_and_save_calibrations(job.year, job.month)
+        async def _on_public_api_progress(fetched: int, total: int, saved: int, errors: int) -> None:
+            pct = min(5 + int(fetched / max(total, 1) * 15), 19)
+            msg = f"АРШИН: {fetched}/{total} записей, сохранено {saved} за {job.month:02d}.{job.year}"
+            await self._set_phase(job, "public_api", msg, pct, stats)
+
+        cal_result = await arshin_service.fetch_and_save_calibrations(
+            job.year, job.month, progress_callback=_on_public_api_progress
+        )
         total_devices = cal_result.get('saved', 0)
         stats["public_api"] = {
             "total": cal_result.get('total', 0),

@@ -2,17 +2,19 @@
 
 import asyncio
 import logging
-from datetime import date
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.arshin_client import ArshinClient
-from app.repositories.calibration_repository import CalibrationRepository
 from app.repositories.calibration_cache_repository import CalibrationCacheRepository
+from app.repositories.calibration_repository import CalibrationRepository
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[int, int, int, int], Any]  # fetched, total, saved_for_month, errors
 
 
 class ArshinService:
@@ -23,25 +25,40 @@ class ArshinService:
         self.repo = CalibrationRepository(db)
         self.cache_repo = CalibrationCacheRepository(db)
 
-    async def fetch_and_save_calibrations(self, year: int, month: int, force_refresh: bool = False) -> dict[str, Any]:
-        """Fetch all calibrations for a year with caching.
-        
+    def _extract_month(self, vdate: str) -> str:
+        """Extract MM from 'DD.MM.YYYY' or 'YYYY-MM-DD'."""
+        if len(vdate) >= 7 and vdate[2] == ".":
+            return vdate[3:5]
+        if len(vdate) >= 7:
+            return vdate[5:7]
+        return ""
+
+    async def fetch_and_save_calibrations(
+        self,
+        year: int,
+        month: int,
+        force_refresh: bool = False,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        """Fetch all calibrations for a year with caching and incremental save.
+
         Args:
             year: Year to fetch
-            month: Month to filter (only saves records for this month)
+            month: Month to filter (only counts records for this month)
             force_refresh: If True, ignore cache and fetch fresh data
-            
+            progress_callback: Optional async callback(fetched, total, saved, errors)
+
         Returns:
             Dict with total, saved, errors, and cache status
         """
         org = 'ООО "МКАИР"'
-        
+        month_str = f"{month:02d}"
+
         # Check cache first (unless force refresh)
         if not force_refresh:
             is_valid = await self.cache_repo.is_cache_valid(year)
             if is_valid:
                 logger.info("Using cached data for year %d (cache valid)", year)
-                # Count how many records we have for this month
                 month_records = await self.repo.get_by_month(year, month)
                 return {
                     "total": len(month_records),
@@ -53,18 +70,26 @@ class ArshinService:
                     "message": f"Использованы кэшированные данные ({len(month_records)} записей за {month:02d}.{year})",
                 }
 
-        # Fetch fresh data from API
         logger.info("Fetching fresh data from ARSHIN API for year %d", year)
-        
+
         total = await self.client.get_calibration_count(org, year=year)
         if total == 0:
             return {"total": 0, "saved": 0, "errors": 0, "message": "No calibrations found", "cached": False}
 
-        all_items: list[dict] = []
         start = 0
-        page_size = 100  # API limit, don't exceed
+        page_size = 100
         consecutive_failures = 0
-        max_consecutive_failures = 20
+        max_consecutive_failures = 10
+        fetched = 0
+        saved_for_month = 0
+        errors = 0
+        last_progress_emit = 0
+
+        async def _emit_progress() -> None:
+            nonlocal last_progress_emit
+            if progress_callback and fetched - last_progress_emit >= 25:
+                await progress_callback(fetched, total, saved_for_month, errors)
+                last_progress_emit = fetched
 
         while start < total:
             if consecutive_failures >= max_consecutive_failures:
@@ -74,65 +99,72 @@ class ArshinService:
                 )
                 break
 
-            await asyncio.sleep(0.3)  # Уменьшили задержку
+            await asyncio.sleep(0.3)
 
             try:
                 data = await self.client.search_calibrations(org, year=year, start=start, rows=page_size)
                 items = data.get("result", {}).get("items", [])
-                all_items.extend(items)
-                start += len(items)
                 consecutive_failures = 0
+
+                if not items:
+                    # Empty page but total says there is more — advance by page_size
+                    # to avoid infinite loop on API quirks
+                    logger.warning("Empty page at start=%d, advancing", start)
+                    start += page_size
+                    continue
+
+                # Save incrementally
+                for item in items:
+                    vdate = item.get("verification_date", "")
+                    item_month = self._extract_month(vdate)
+                    item_month_int = int(item_month) if item_month else month
+
+                    try:
+                        await self.repo.create_or_update(item, year, item_month_int)
+                        if item_month == month_str:
+                            saved_for_month += 1
+                    except Exception as e:
+                        errors += 1
+                        logger.warning("Failed to save calibration %s: %s", item.get("vri_id"), e)
+
+                fetched += len(items)
+                start += len(items)
+
+                # Grow page size up to API limit
                 page_size = min(page_size * 2, 100)
+
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
                     logger.warning("Rate limited (429), waiting 10s...")
                     await asyncio.sleep(10)
                     continue
                 logger.warning("Failed start=%d page_size=%d: %s", start, page_size, e)
-                if page_size > 5:
-                    page_size = max(page_size // 2, 100)
-                else:
-                    start += 1
                 consecutive_failures += 1
+                # Advance by smaller step on error; don't loop forever on same start
+                start += max(page_size // 4, 1)
+                page_size = max(page_size // 2, 10)
             except Exception as e:
                 logger.warning("Failed start=%d page_size=%d: %s", start, page_size, e)
-                start += 1
                 consecutive_failures += 1
+                start += max(page_size // 4, 1)
+                page_size = max(page_size // 2, 10)
 
-        # Save all items to DB (for all months)
-        saved = 0
-        errors = 0
-        month_str = f"{month:02d}"
-        
-        for item in all_items:
-            vdate = item.get("verification_date", "")
-            # verification_date format: "DD.MM.YYYY" or "YYYY-MM-DD"
-            item_month = vdate[3:5] if len(vdate) >= 7 and vdate[2] == "." else vdate[5:7] if len(vdate) >= 7 else ""
-            
-            try:
-                # Сохраняем все записи за год (для всех месяцев)
-                item_year = year
-                item_month_int = int(item_month) if item_month else month
-                await self.repo.create_or_update(item, item_year, item_month_int)
-                
-                # Считаем только записи за нужный месяц
-                if item_month == month_str:
-                    saved += 1
-            except Exception as e:
-                errors += 1
-                logger.warning("Failed to save calibration %s: %s", item.get("vri_id"), e)
+            await _emit_progress()
 
-        # Update cache
-        await self.cache_repo.update_cache(year, total)
-        
+        await _emit_progress()
+
+        # Update cache only if we fetched most of the data
+        if fetched >= total * 0.8:
+            await self.cache_repo.update_cache(year, total)
+
         return {
             "total": total,
-            "saved": saved,
+            "saved": saved_for_month,
             "errors": errors,
             "year": year,
             "month": month,
             "cached": False,
-            "message": f"Загружено {total} записей за {year} год, сохранено {saved} за {month:02d}.{year}",
+            "message": f"Загружено {fetched}/{total} записей за {year} год, сохранено {saved_for_month} за {month:02d}.{year}",
         }
 
     async def fetch_lk_details(self, year: int, month: int) -> dict[str, Any]:
