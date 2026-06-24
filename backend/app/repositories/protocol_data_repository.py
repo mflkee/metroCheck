@@ -39,10 +39,12 @@ class ProtocolDataRepository:
         return result.scalar_one_or_none()
 
     async def get_by_month(self, year: int, month: int) -> list[ProtocolData]:
-        """Get all protocol data for a given month."""
+        """Get all protocol data for a given month with related file info."""
+        from sqlalchemy.orm import selectinload
         from app.models.protocol_file import ProtocolFile
         result = await self.db.execute(
             select(ProtocolData)
+            .options(selectinload(ProtocolData.protocol_file))
             .join(ProtocolFile)
             .where(ProtocolFile.year == year)
             .where(ProtocolFile.month == month)

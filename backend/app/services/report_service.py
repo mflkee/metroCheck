@@ -73,8 +73,11 @@ class ReportService:
         protocols = await self.proto_repo.get_by_month(year, month)
 
         wb = Workbook()
-        ws_public = wb.active
-        ws_public.title = "1. ARSHIN Public API"
+        ws_summary = wb.active
+        ws_summary.title = "0. Сводка"
+        self._fill_summary_sheet(ws_summary, calibrations, protocols, year, month)
+
+        ws_public = wb.create_sheet("1. ARSHIN Public API")
         self._fill_public_sheet(ws_public, calibrations)
 
         ws_lk = wb.create_sheet("2. ARSHIN LK")
@@ -101,6 +104,337 @@ class ReportService:
             "total_protocols": len(protocols),
             "is_interim": True,
         }
+
+    def _fill_summary_sheet(
+        self,
+        ws,
+        calibrations: list,
+        protocols: list,
+        year: int,
+        month: int,
+    ) -> None:
+        """Fill summary sheet with overall stats, per-owner breakdown, performed checks and protocol uniqueness."""
+        from collections import defaultdict
+        from openpyxl.utils import get_column_letter
+
+        def norm_owner(val: str | None) -> str:
+            if not val:
+                return "Владелец не определён"
+            return str(val).strip()
+
+        def fmt_num(val):
+            if val is None:
+                return ""
+            try:
+                return f"{float(val):.1f}"
+            except (ValueError, TypeError):
+                return str(val)
+
+        def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
+            if not a or not b:
+                return False
+            return abs((a - b).days) <= days
+
+        # Build calibrations lookup by serial number
+        cal_by_serial: dict[str, list] = defaultdict(list)
+        for c in calibrations:
+            if c.mi_number:
+                cal_by_serial[c.mi_number.strip()].append(c)
+
+        # Match protocols to calibrations
+        matched_serials: set[str] = set()
+        matched_protocols: list = []
+        extra_protocols: list = []
+        for proto in protocols:
+            serial = (proto.serial_number or "").strip()
+            cal_list = cal_by_serial.get(serial, [])
+            if cal_list:
+                matched_serials.add(serial)
+                matched_protocols.append((proto, cal_list))
+            else:
+                extra_protocols.append(proto)
+
+        missing_cals = [c for c in calibrations if c.mi_number and c.mi_number.strip() not in matched_serials]
+
+        # Errors/warnings per matched pair
+        error_count = 0
+        warning_count = 0
+        per_owner: dict[str, dict[str, int]] = defaultdict(lambda: {
+            "protocols": 0, "matched": 0, "missing": 0, "extra": 0,
+            "errors": 0, "warnings": 0,
+        })
+
+        for proto, cal_list in matched_protocols:
+            owner = norm_owner(proto.owner)
+            per_owner[owner]["protocols"] += 1
+            per_owner[owner]["matched"] += 1
+
+            # Determine date status
+            date_status = "no_arshin"
+            best_cal = None
+            if proto.verification_date:
+                proto_date = proto.verification_date
+                green = [c for c in cal_list if _dates_within(c.verification_date, proto_date)]
+                if green:
+                    date_status = "green"
+                    best_cal = green[0]
+                else:
+                    yellow = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
+                    if yellow:
+                        date_status = "yellow"
+                        best_cal = yellow[0]
+                    else:
+                        date_status = "red"
+                        best_cal = max(
+                            [c for c in cal_list if c.verification_date],
+                            key=lambda c: c.verification_date,
+                            default=cal_list[0],
+                        )
+            else:
+                date_status = "green"
+                best_cal = cal_list[0]
+
+            cal = best_cal
+            pair_errors = 0
+            pair_warnings = 0
+
+            if date_status == "red":
+                pair_errors += 1
+            elif date_status == "yellow":
+                pair_warnings += 1
+
+            # Verifier check (only if both sides have data)
+            if cal and cal.verifier and proto.verifier:
+                norm_proto = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", proto.verifier)
+                norm_cal = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", cal.verifier)
+                if norm_proto != norm_cal:
+                    pair_errors += 1
+
+            # Conditions check
+            lk_conditions = {}
+            if cal and cal.conditions:
+                try:
+                    lk_conditions = json.loads(cal.conditions)
+                except json.JSONDecodeError:
+                    pass
+
+            for field, threshold in (("temperature", 2.0), ("humidity", 10.0), ("pressure", 3.0)):
+                proto_val = getattr(proto, field, None)
+                cal_val = lk_conditions.get(field)
+                if proto_val is not None and cal_val is not None:
+                    try:
+                        if abs(float(proto_val) - float(cal_val)) > threshold:
+                            pair_errors += 1
+                    except (ValueError, TypeError):
+                        pass
+
+            if pair_errors:
+                error_count += pair_errors
+                per_owner[owner]["errors"] += pair_errors
+            if pair_warnings:
+                warning_count += pair_warnings
+                per_owner[owner]["warnings"] += pair_warnings
+
+        # Extra protocols attribution
+        for proto in extra_protocols:
+            owner = norm_owner(proto.owner)
+            per_owner[owner]["protocols"] += 1
+            per_owner[owner]["extra"] += 1
+
+        # Missing protocols attribution: we don't know owner, put into 'Владелец не определён'
+        for _cal in missing_cals:
+            per_owner["Владелец не определён"]["missing"] += 1
+
+        # Protocol number uniqueness
+        proto_by_number: dict[str, list] = defaultdict(list)
+        for proto in protocols:
+            num = (proto.protocol_number or "").strip()
+            if num:
+                proto_by_number[num].append(proto)
+        duplicate_numbers = {num: items for num, items in proto_by_number.items() if len(items) > 1}
+
+        # --- Styling helpers ---
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        section_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        section_font = Font(bold=True, color="FFFFFF", size=12)
+        good_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        good_font = Font(color="006100", bold=True)
+        warn_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        warn_font = Font(color="9C5700", bold=True)
+        bad_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        bad_font = Font(color="9C0006", bold=True)
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin"),
+        )
+
+        def write_cell(r: int, c: int, value, *, fill=None, font=None, alignment=None):
+            cell = ws.cell(row=r, column=c, value=value)
+            cell.border = thin_border
+            if fill:
+                cell.fill = fill
+            if font:
+                cell.font = font
+            if alignment:
+                cell.alignment = alignment
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            return cell
+
+        row = 1
+
+        # Title
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        write_cell(row, 1, f"Сводка проверки протоколов за {month:02d}.{year}",
+                   fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 25
+        row += 2
+
+        # Section 1: General summary
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        write_cell(row, 1, "1. Общая сводка", fill=header_fill, font=header_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        summary_items = [
+            ("Всего поверок в АРШИН", len(calibrations)),
+            ("Всего протоколов в папке", len(protocols)),
+            ("Сопоставлено (совпадает серийник)", len(matched_protocols)),
+            ("Отсутствуют протоколы (есть в АРШИН, нет файла)", len(missing_cals)),
+            ("Лишние протоколы (есть файл, нет в АРШИН)", len(extra_protocols)),
+            ("Ошибки сопоставления", error_count),
+            ("Предупреждения", warning_count),
+            ("Дублирующихся номеров протоколов", len(duplicate_numbers)),
+        ]
+        for label, value in summary_items:
+            write_cell(row, 1, label)
+            write_cell(row, 2, value)
+            if "Отсутствуют" in label and value:
+                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
+            elif "Лишние" in label and value:
+                write_cell(row, 2, value, fill=warn_fill, font=warn_font)
+            elif "Ошибки" in label and value:
+                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
+            elif "Дублирующихся" in label and value:
+                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
+            row += 1
+        row += 1
+
+        # Section 2: Per owner breakdown
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1, "2. Разбивка по Заказчикам (владельцам)", fill=header_fill, font=header_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        owner_headers = [
+            "Заказчик", "Протоколов", "Сопоставлено",
+            "Отсутствует", "Лишние", "Ошибки", "Предупреждения", "Статус",
+        ]
+        for col_idx, h in enumerate(owner_headers, 1):
+            write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+        ws.row_dimensions[row].height = 30
+        row += 1
+
+        # Sort owners: real owners first, undefined last
+        sorted_owners = sorted(
+            per_owner.items(),
+            key=lambda x: (x[0] == "Владелец не определён", x[0]),
+        )
+        for owner, stats in sorted_owners:
+            write_cell(row, 1, owner)
+            write_cell(row, 2, stats["protocols"])
+            write_cell(row, 3, stats["matched"])
+            write_cell(row, 4, stats["missing"])
+            write_cell(row, 5, stats["extra"])
+            write_cell(row, 6, stats["errors"])
+            write_cell(row, 7, stats["warnings"])
+            if stats["errors"] or stats["missing"]:
+                status = "Требует внимания"
+                status_fill = bad_fill
+                status_font = bad_font
+            elif stats["warnings"] or stats["extra"]:
+                status = "Есть замечания"
+                status_fill = warn_fill
+                status_font = warn_font
+            else:
+                status = "OK"
+                status_fill = good_fill
+                status_font = good_font
+            write_cell(row, 8, status, fill=status_fill, font=status_font,
+                       alignment=Alignment(horizontal="center", vertical="center"))
+            row += 1
+        row += 1
+
+        # Section 3: Performed checks
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        write_cell(row, 1, "3. Выполненные проверки", fill=header_fill, font=header_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        check_headers = ["№", "Проверка", "Описание", "Статус"]
+        for col_idx, h in enumerate(check_headers, 1):
+            write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+        ws.row_dimensions[row].height = 30
+        row += 1
+
+        performed_checks = [
+            ("Наличие протокола", "Для каждой поверки из АРШИН ищется файл протокола по заводскому номеру."),
+            ("Сопоставление с АРШИН", "Для каждого файла протокола проверяется наличие записи в АРШИН по серийному номеру."),
+            ("Дата поверки", "Сравнивается дата поверки в протоколе с датой поверки/действия до в АРШИН (±1 день)."),
+            ("ФИО поверителя", "Сравнивается ФИО поверителя в АРШИН (ЛК) и в протоколе."),
+            ("Условия окружающей среды", "Сравниваются температура, влажность и давление в АРШИН (ЛК) и в протоколе."),
+            ("Уникальность номера протокола", "Проверяется отсутствие дублей номеров протоколов среди загруженных файлов."),
+        ]
+        for idx, (check_name, check_desc) in enumerate(performed_checks, 1):
+            write_cell(row, 1, idx)
+            write_cell(row, 2, check_name)
+            write_cell(row, 3, check_desc)
+            if check_name == "Уникальность номера протокола" and duplicate_numbers:
+                write_cell(row, 4, "Найдены дубли", fill=bad_fill, font=bad_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            else:
+                write_cell(row, 4, "Выполнена", fill=good_fill, font=good_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            row += 1
+        row += 1
+
+        # Section 4: Protocol number uniqueness details
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        write_cell(row, 1, "4. Дубли номеров протоколов", fill=header_fill, font=header_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        if duplicate_numbers:
+            dup_headers = ["Номер протокола", "Количество файлов", "Список файлов"]
+            for col_idx, h in enumerate(dup_headers, 1):
+                write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                           alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+            ws.row_dimensions[row].height = 30
+            row += 1
+            for num, items in sorted(duplicate_numbers.items()):
+                write_cell(row, 1, num)
+                write_cell(row, 2, len(items))
+                file_list = ", ".join(
+                    f"{p.protocol_file.file_path if p.protocol_file else '—'}"
+                    for p in items
+                )
+                write_cell(row, 3, file_list)
+                row += 1
+        else:
+            write_cell(row, 1, "Дубли не найдены", fill=good_fill, font=good_font)
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+            row += 1
+
+        # Auto-fit columns
+        self._auto_fit_columns(ws)
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
