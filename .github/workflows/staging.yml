@@ -21,7 +21,7 @@ jobs:
           cd ~/apps/metroCheck
           # Remove stale containers by name to avoid name conflict
           docker rm -f metroCheck_postgres_stg metroCheck_redis_stg metroCheck_backend_stg metroCheck_frontend_stg 2>/dev/null || true
-          docker compose -p metrocheck-stg -f docker-compose.staging.yml up -d --build
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging up -d --build
 
       - name: Apply staging migrations
         run: |
@@ -31,7 +31,7 @@ jobs:
             docker exec metroCheck_postgres_stg pg_isready -U mkair -d mkair_stg 2>/dev/null && break
             sleep 1
           done
-          docker compose -p metrocheck-stg -f docker-compose.staging.yml run --no-deps --rm backend alembic upgrade head
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging run --no-deps --rm backend alembic upgrade head
 
       - name: Staging health check
         run: |
@@ -49,4 +49,4 @@ jobs:
         if: always()
         run: |
           cd ~/apps/metroCheck
-          docker compose -p metrocheck-stg -f docker-compose.staging.yml ps
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging ps

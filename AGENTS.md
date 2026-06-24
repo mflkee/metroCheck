@@ -6,7 +6,7 @@
 |-------|-------|
 | **What** | Automated verification protocol checker for `OOO "MKAIR"` |
 | **Stack** | FastAPI + SQLAlchemy async + PostgreSQL 16 + Redis 7 + nginx |
-| **Server** | `mkair-server` — Netbird VPN `100.89.59.195` (password: `7405`) |
+| **Server** | `mkair-server-tmn` — Netbird VPN `100.89.18.223`, public `80.91.19.151` (password: `7405`) |
 | **User** | `mflkee` on server, `Zonov` on PC in Tyumen (token provider) |
 | **Monitor** | Grafana `192.168.1.84:8090`, Prometheus `127.0.0.1:9091` |
 
@@ -52,13 +52,13 @@ Phases 7-8: **token required** (LK details, full verification)
 
 ```bash
 # Connect
-sshpass -p '7405' ssh mflkee@mkair-server -o StrictHostKeyChecking=no
+sshpass -p '7405' ssh mflkee@mkair-server-tmn -o StrictHostKeyChecking=no
 
 # Docker status (all containers)
-sshpass -p '7405' ssh mflkee@mkair-server -o StrictHostKeyChecking=no 'docker ps'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn -o StrictHostKeyChecking=no 'docker ps'
 
 # Service logs
-sshpass -p '7405' ssh mflkee@mkair-server -o StrictHostKeyChecking=no 'docker logs metroCheck_backend --tail 50'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn -o StrictHostKeyChecking=no 'docker logs metroCheck_backend --tail 50'
 ```
 
 ---
@@ -66,7 +66,8 @@ sshpass -p '7405' ssh mflkee@mkair-server -o StrictHostKeyChecking=no 'docker lo
 ## 5. CI/CD — Two Circuits
 
 ### Circuit A: Staging (auto-deploy)
-- **Ports:** Backend `:9002`, Frontend `:9081`, DB `:5435`, Redis `:6383`
+- **Ports:** Backend `:9002`, Frontend `:9081`, DB `:5436`, Redis `:6383`
+- **Env file:** `.env.staging` (must contain `OPENROUTER_API_KEY`, `FASTAPI_API_KEY`)
 - **Trigger:** `git push origin main` → GitHub Actions → `staging.yml`
 - **DB:** `mkair_stg` (separate from production)
 - **Purpose:** test changes before production
@@ -127,33 +128,33 @@ cd ~/projects/metroCheck && git add . && git commit -m "..." && git push origin 
 
 ### Check staging health
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'curl -s http://localhost:9002/health'
-sshpass -p '7405' ssh mflkee@mkair-server 'curl -s http://localhost:9081/'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'curl -s http://localhost:9002/health'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'curl -s http://localhost:9081/'
 ```
 
 ### Restart staging backend
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'cd ~/apps/metroCheck && docker compose -f docker-compose.staging.yml up -d --build'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'cd ~/apps/metroCheck && docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging up -d --build'
 ```
 
 ### Check job queue (is a check running?)
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'curl http://localhost:9002/api/v1/jobs/queue'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'curl http://localhost:9002/api/v1/jobs/queue'
 ```
 
 ### Check token status
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'curl http://localhost:9002/api/v1/arshin/token-status'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'curl http://localhost:9002/api/v1/arshin/token-status'
 ```
 
 ### View backend logs
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'docker logs metroCheck_backend_stg --tail 30'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'docker logs metroCheck_backend_stg --tail 30'
 ```
 
 ### View AI fallback logs (to find regex patterns to add)
 ```bash
-sshpass -p '7405' ssh mflkee@mkair-server 'docker logs metroCheck_backend_stg --tail 500 2>&1 | grep AI_FALLBACK'
+sshpass -p '7405' ssh mflkee@mkair-server-tmn 'docker logs metroCheck_backend_stg --tail 500 2>&1 | grep AI_FALLBACK'
 ```
 
 ### Promote to production
