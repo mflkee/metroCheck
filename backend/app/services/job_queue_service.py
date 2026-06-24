@@ -571,18 +571,25 @@ class JobQueueService:
         total_devices: int | None = None,
         processed_devices: int | None = None,
     ) -> None:
-        """Update job phase and stats."""
+        """Update job phase and stats using a fresh session to avoid
+        concurrent use of the shared queue service session."""
+        from app.core.database import AsyncSessionLocal
+        from app.repositories.job_repository import JobRepository
+
         stats_json = json.dumps(stats, ensure_ascii=False, default=str)
-        await self.repo.update_status(
-            job.id,
-            status="running",
-            progress=progress,
-            progress_percent=percent,
-            phase_stats=stats_json,
-            current_phase=phase,
-            total_devices=total_devices if total_devices is not None else job.total_devices,
-            processed_devices=processed_devices if processed_devices is not None else job.processed_devices,
-        )
+        async with AsyncSessionLocal() as session:
+            repo = JobRepository(session)
+            await repo.update_status(
+                job.id,
+                status="running",
+                progress=progress,
+                progress_percent=percent,
+                phase_stats=stats_json,
+                current_phase=phase,
+                total_devices=total_devices if total_devices is not None else job.total_devices,
+                processed_devices=processed_devices if processed_devices is not None else job.processed_devices,
+            )
+            await session.commit()
 
     async def _wait_for_token(self, job: Job, client: ArshinClient) -> None:
         """Wait for token and update job status."""
