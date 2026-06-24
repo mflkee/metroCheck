@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data_stg:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_STG_PORT:-5435}:5432"
+      - "${POSTGRES_STG_PORT:-5436}:5432"
     networks:
       - backend_network_stg
     healthcheck:
