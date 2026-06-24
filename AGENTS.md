@@ -126,6 +126,11 @@ When you receive a task (feature, fix, refactor, debug, chore):
 cd ~/projects/metroCheck && git add . && git commit -m "..." && git push origin main
 ```
 
+### Staging UI access
+- **URL:** `http://192.168.1.128:9081` (local network) or via Netbird `http://100.89.18.223:9081`
+- **API key:** `metrocheck-secret-key` (hardcoded in frontend, must match `FASTAPI_API_KEY` in `.env.staging`)
+- **Note:** Public IP `80.91.19.151:9081` is not accessible because the server is behind NAT. Use local/Netbird IP or set up an NPM proxy host.
+
 ### Check staging health
 ```bash
 sshpass -p '7405' ssh mflkee@mkair-server-tmn 'curl -s http://localhost:9002/health'
