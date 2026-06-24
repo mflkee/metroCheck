@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.integrations.arshin_client import ArshinClient
 from app.repositories.calibration_cache_repository import CalibrationCacheRepository
 from app.repositories.calibration_repository import CalibrationRepository
@@ -18,12 +20,26 @@ ProgressCallback = Callable[[int, int, int, int], Any]  # fetched, total, saved_
 
 
 class ArshinService:
-    """Service for fetching and processing ARSHIN calibration data with caching."""
+    """Service for fetching and processing ARSHIN calibration data with caching.
 
-    def __init__(self, db: AsyncSession) -> None:
+    Uses short-lived DB sessions for each DB operation to avoid holding a
+    connection idle during long ARSHIN API calls.
+    """
+
+    def __init__(self, db: AsyncSession | None = None) -> None:
         self.client = ArshinClient()
-        self.repo = CalibrationRepository(db)
-        self.cache_repo = CalibrationCacheRepository(db)
+        # db is kept for backward compatibility but not used directly;
+        # every DB operation opens its own fresh session.
+        self._legacy_db = db
+
+    @asynccontextmanager
+    async def _fresh_session(self) -> AsyncGenerator[AsyncSession, None]:
+        """Create a fresh DB session and ensure it is closed."""
+        session = AsyncSessionLocal()
+        try:
+            yield session
+        finally:
+            await session.close()
 
     def _extract_month(self, vdate: str) -> str:
         """Extract MM from 'DD.MM.YYYY' or 'YYYY-MM-DD'."""
@@ -54,21 +70,24 @@ class ArshinService:
         org = 'ООО "МКАИР"'
         month_str = f"{month:02d}"
 
-        # Check cache first (unless force refresh)
+        # Check cache first (unless force refresh) — uses a fresh short session
         if not force_refresh:
-            is_valid = await self.cache_repo.is_cache_valid(year)
-            if is_valid:
-                logger.info("Using cached data for year %d (cache valid)", year)
-                month_records = await self.repo.get_by_month(year, month)
-                return {
-                    "total": len(month_records),
-                    "saved": len(month_records),
-                    "errors": 0,
-                    "year": year,
-                    "month": month,
-                    "cached": True,
-                    "message": f"Использованы кэшированные данные ({len(month_records)} записей за {month:02d}.{year})",
-                }
+            async with self._fresh_session() as session:
+                cache_repo = CalibrationCacheRepository(session)
+                is_valid = await cache_repo.is_cache_valid(year)
+                if is_valid:
+                    logger.info("Using cached data for year %d (cache valid)", year)
+                    cal_repo = CalibrationRepository(session)
+                    month_records = await cal_repo.get_by_month(year, month)
+                    return {
+                        "total": len(month_records),
+                        "saved": len(month_records),
+                        "errors": 0,
+                        "year": year,
+                        "month": month,
+                        "cached": True,
+                        "message": f"Использованы кэшированные данные ({len(month_records)} записей за {month:02d}.{year})",
+                    }
 
         logger.info("Fetching fresh data from ARSHIN API for year %d", year)
 
@@ -76,7 +95,7 @@ class ArshinService:
         if total == 0:
             return {"total": 0, "saved": 0, "errors": 0, "message": "No calibrations found", "cached": False}
 
-        # Fetch all pages first (no DB writes during network phase)
+        # Fetch all pages first (no DB connection held during network phase)
         all_items: list[dict] = []
         start = 0
         page_size = 100
@@ -132,7 +151,7 @@ class ArshinService:
 
             await _emit_progress()
 
-        # Save all fetched items in batches using bulk upsert.
+        # Save all fetched items in batches using bulk upsert with a fresh session.
         saved_for_month = 0
         errors = 0
         batch_size = 1000
@@ -140,7 +159,6 @@ class ArshinService:
         for batch_start in range(0, len(all_items), batch_size):
             batch = all_items[batch_start:batch_start + batch_size]
 
-            # Group batch by actual item month for correct DB partitioning
             rows_by_month: dict[int, list[dict]] = {}
             for item in batch:
                 vdate = item.get("verification_date", "")
@@ -150,21 +168,25 @@ class ArshinService:
                 if item_month == month_str:
                     saved_for_month += 1
 
-            for item_month_int, month_items in rows_by_month.items():
-                try:
-                    result = await self.repo.bulk_upsert(month_items, year, item_month_int)
-                    errors += result.get("errors", 0)
-                except Exception as e:
-                    logger.error("Bulk upsert failed for month %d: %s", item_month_int, e)
-                    errors += len(month_items)
+            async with self._fresh_session() as session:
+                repo = CalibrationRepository(session)
+                for item_month_int, month_items in rows_by_month.items():
+                    try:
+                        result = await repo.bulk_upsert(month_items, year, item_month_int)
+                        errors += result.get("errors", 0)
+                    except Exception as e:
+                        logger.error("Bulk upsert failed for month %d: %s", item_month_int, e)
+                        errors += len(month_items)
 
             await _emit_progress(saved_for_month, errors)
 
         fetched = len(all_items)
 
-        # Update cache only if we fetched most of the data
+        # Update cache only if we fetched most of the data — fresh session
         if fetched >= total * 0.8:
-            await self.cache_repo.update_cache(year, total)
+            async with self._fresh_session() as session:
+                cache_repo = CalibrationCacheRepository(session)
+                await cache_repo.update_cache(year, total)
 
         return {
             "total": total,
@@ -178,7 +200,8 @@ class ArshinService:
 
     async def fetch_lk_details(self, year: int, month: int) -> dict[str, Any]:
         """Fetch LK details for all calibrations without them."""
-        calibrations = await self.repo.get_without_lk_details(year, month)
+        async with self._fresh_session() as session:
+            calibrations = await CalibrationRepository(session).get_without_lk_details(year, month)
 
         updated = 0
         errors = 0
@@ -187,19 +210,18 @@ class ArshinService:
                 continue
 
             try:
-                # Step 1: Search by document number to get LK record id
                 search_result = await self.client.get_lk_details_by_docnum(cal.result_docnum)
                 if not search_result:
                     continue
 
-                # Step 2: Fetch detailed record using LK id (not vri_id!)
                 lk_id = search_result.get("id")
                 if not lk_id:
                     continue
 
                 detail = await self.client.get_lk_data2_by_id(lk_id)
                 if detail:
-                    await self.repo.update_lk_details(cal.id, detail)
+                    async with self._fresh_session() as session:
+                        await CalibrationRepository(session).update_lk_details(cal.id, detail)
                     updated += 1
             except Exception:
                 errors += 1
@@ -212,7 +234,8 @@ class ArshinService:
         Deprecated: all data now fetched in fetch_lk_details.
         Kept for pipeline compatibility.
         """
-        calibrations = await self.repo.get_without_data2(year, month)
+        async with self._fresh_session() as session:
+            calibrations = await CalibrationRepository(session).get_without_data2(year, month)
 
         updated = 0
         errors = 0
@@ -221,7 +244,6 @@ class ArshinService:
                 continue
 
             try:
-                # Re-fetch using the same flow as fetch_lk_details
                 search_result = await self.client.get_lk_details_by_docnum(cal.result_docnum)
                 if not search_result:
                     continue
@@ -232,7 +254,8 @@ class ArshinService:
 
                 detail = await self.client.get_lk_data2_by_id(lk_id)
                 if detail:
-                    await self.repo.update_data2(cal.id, detail)
+                    async with self._fresh_session() as session:
+                        await CalibrationRepository(session).update_data2(cal.id, detail)
                     updated += 1
             except Exception:
                 errors += 1
