@@ -40,7 +40,7 @@ class ArshinService:
         force_refresh: bool = False,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
-        """Fetch all calibrations for a year with caching and incremental save.
+        """Fetch all calibrations for a year with caching and batch save.
 
         Args:
             year: Year to fetch
@@ -76,19 +76,19 @@ class ArshinService:
         if total == 0:
             return {"total": 0, "saved": 0, "errors": 0, "message": "No calibrations found", "cached": False}
 
+        # Fetch all pages first (no DB writes during network phase)
+        all_items: list[dict] = []
         start = 0
         page_size = 100
         consecutive_failures = 0
         max_consecutive_failures = 10
-        fetched = 0
-        saved_for_month = 0
-        errors = 0
         last_progress_emit = 0
 
-        async def _emit_progress() -> None:
+        async def _emit_progress(saved: int = 0, errors: int = 0) -> None:
             nonlocal last_progress_emit
-            if progress_callback and fetched - last_progress_emit >= 25:
-                await progress_callback(fetched, total, saved_for_month, errors)
+            fetched = len(all_items)
+            if progress_callback and (fetched - last_progress_emit >= 100 or fetched >= total):
+                await progress_callback(fetched, total, saved, errors)
                 last_progress_emit = fetched
 
         while start < total:
@@ -107,30 +107,12 @@ class ArshinService:
                 consecutive_failures = 0
 
                 if not items:
-                    # Empty page but total says there is more — advance by page_size
-                    # to avoid infinite loop on API quirks
                     logger.warning("Empty page at start=%d, advancing", start)
                     start += page_size
                     continue
 
-                # Save incrementally
-                for item in items:
-                    vdate = item.get("verification_date", "")
-                    item_month = self._extract_month(vdate)
-                    item_month_int = int(item_month) if item_month else month
-
-                    try:
-                        await self.repo.create_or_update(item, year, item_month_int)
-                        if item_month == month_str:
-                            saved_for_month += 1
-                    except Exception as e:
-                        errors += 1
-                        logger.warning("Failed to save calibration %s: %s", item.get("vri_id"), e)
-
-                fetched += len(items)
+                all_items.extend(items)
                 start += len(items)
-
-                # Grow page size up to API limit
                 page_size = min(page_size * 2, 100)
 
             except httpx.HTTPStatusError as e:
@@ -140,7 +122,6 @@ class ArshinService:
                     continue
                 logger.warning("Failed start=%d page_size=%d: %s", start, page_size, e)
                 consecutive_failures += 1
-                # Advance by smaller step on error; don't loop forever on same start
                 start += max(page_size // 4, 1)
                 page_size = max(page_size // 2, 10)
             except Exception as e:
@@ -151,7 +132,29 @@ class ArshinService:
 
             await _emit_progress()
 
-        await _emit_progress()
+        # Save all fetched items in batches
+        saved_for_month = 0
+        errors = 0
+        batch_size = 500
+
+        for batch_start in range(0, len(all_items), batch_size):
+            batch = all_items[batch_start:batch_start + batch_size]
+            for item in batch:
+                vdate = item.get("verification_date", "")
+                item_month = self._extract_month(vdate)
+                item_month_int = int(item_month) if item_month else month
+
+                try:
+                    await self.repo.create_or_update(item, year, item_month_int)
+                    if item_month == month_str:
+                        saved_for_month += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning("Failed to save calibration %s: %s", item.get("vri_id"), e)
+
+            await _emit_progress(saved_for_month, errors)
+
+        fetched = len(all_items)
 
         # Update cache only if we fetched most of the data
         if fetched >= total * 0.8:
