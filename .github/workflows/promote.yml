@@ -35,8 +35,8 @@ jobs:
       - name: Build & deploy production
         run: |
           cd ~/apps/metroCheck
-          docker compose -p metrocheck-prod down
-          docker compose -p metrocheck-prod up -d --build
+          docker compose -p metrocheck down
+          docker compose -p metrocheck up -d --build
 
       - name: Apply production migrations
         run: |
@@ -45,7 +45,7 @@ jobs:
             docker exec metroCheck_postgres pg_isready -U mkair -d mkair 2>/dev/null && break
             sleep 1
           done
-          docker compose -p metrocheck-prod run --no-deps --rm backend alembic upgrade head
+          docker compose -p metrocheck run --no-deps --rm backend alembic upgrade head
 
       - name: Production health check
         run: |
@@ -63,4 +63,4 @@ jobs:
         if: always()
         run: |
           cd ~/apps/metroCheck
-          docker compose -p metrocheck-prod ps
+          docker compose -p metrocheck ps
