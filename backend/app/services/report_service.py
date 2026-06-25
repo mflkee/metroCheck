@@ -279,55 +279,56 @@ class ReportService:
             if alignment:
                 cell.alignment = alignment
             else:
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                cell.alignment = Alignment(horizontal="left", vertical="center")
             return cell
+
+        def set_section_title(r: int, text: str, colspan: int = 8):
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=colspan)
+            write_cell(r, 1, text, fill=section_fill, font=section_font,
+                       alignment=Alignment(horizontal="left", vertical="center"))
+            ws.row_dimensions[r].height = 24
+
+        def write_colored_value(r: int, c: int, value, kind: str):
+            if kind == "bad":
+                write_cell(r, c, value, fill=bad_fill, font=bad_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            elif kind == "warn":
+                write_cell(r, c, value, fill=warn_fill, font=warn_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            elif kind == "good":
+                write_cell(r, c, value, fill=good_fill, font=good_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            else:
+                write_cell(r, c, value, alignment=Alignment(horizontal="center", vertical="center"))
 
         row = 1
 
         # Title
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
-        write_cell(row, 1, f"Сводка проверки протоколов за {month:02d}.{year}",
-                   fill=section_fill, font=section_font,
-                   alignment=Alignment(horizontal="center", vertical="center"))
-        ws.row_dimensions[row].height = 25
+        set_section_title(row, f"Сводка проверки протоколов за {month:02d}.{year}", colspan=8)
         row += 2
 
         # Section 1: General summary
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
-        write_cell(row, 1, "1. Общая сводка", fill=header_fill, font=header_font,
-                   alignment=Alignment(horizontal="left", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        set_section_title(row, "1. Общая сводка")
         row += 1
 
         summary_items = [
-            ("Всего поверок в АРШИН", len(calibrations)),
-            ("Всего протоколов в папке", len(protocols)),
-            ("Сопоставлено (совпадает серийник)", len(matched_protocols)),
-            ("Отсутствуют протоколы (есть в АРШИН, нет файла)", len(missing_cals)),
-            ("Лишние протоколы (есть файл, нет в АРШИН)", len(extra_protocols)),
-            ("Ошибки сопоставления", error_count),
-            ("Предупреждения", warning_count),
-            ("Дублирующихся номеров протоколов", len(duplicate_numbers)),
+            ("Всего поверок в АРШИН", len(calibrations), "plain"),
+            ("Всего протоколов в папке", len(protocols), "plain"),
+            ("Сопоставлено (совпадает серийник)", len(matched_protocols), "good"),
+            ("Отсутствуют протоколы (есть в АРШИН, нет файла)", len(missing_cals), "bad"),
+            ("Лишние протоколы (есть файл, нет в АРШИН)", len(extra_protocols), "warn"),
+            ("Ошибки сопоставления", error_count, "bad"),
+            ("Предупреждения", warning_count, "warn"),
+            ("Дублирующихся номеров протоколов", len(duplicate_numbers), "bad"),
         ]
-        for label, value in summary_items:
+        for label, value, kind in summary_items:
             write_cell(row, 1, label)
-            write_cell(row, 2, value)
-            if "Отсутствуют" in label and value:
-                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
-            elif "Лишние" in label and value:
-                write_cell(row, 2, value, fill=warn_fill, font=warn_font)
-            elif "Ошибки" in label and value:
-                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
-            elif "Дублирующихся" in label and value:
-                write_cell(row, 2, value, fill=bad_fill, font=bad_font)
+            write_colored_value(row, 2, value, kind if value else "plain")
             row += 1
         row += 1
 
         # Section 2: Per owner breakdown
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
-        write_cell(row, 1, "2. Разбивка по Заказчикам (владельцам)", fill=header_fill, font=header_font,
-                   alignment=Alignment(horizontal="left", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        set_section_title(row, "2. Разбивка по Заказчикам (владельцам)")
         row += 1
 
         owner_headers = [
@@ -336,8 +337,8 @@ class ReportService:
         ]
         for col_idx, h in enumerate(owner_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
-        ws.row_dimensions[row].height = 30
+                       alignment=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 22
         row += 1
 
         # Sort owners: real owners first, undefined last
@@ -347,41 +348,34 @@ class ReportService:
         )
         for owner, stats in sorted_owners:
             write_cell(row, 1, owner)
-            write_cell(row, 2, stats["protocols"])
-            write_cell(row, 3, stats["matched"])
-            write_cell(row, 4, stats["missing"])
-            write_cell(row, 5, stats["extra"])
-            write_cell(row, 6, stats["errors"])
-            write_cell(row, 7, stats["warnings"])
+            write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
+            write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
+            write_colored_value(row, 4, stats["missing"], "bad" if stats["missing"] else "plain")
+            write_colored_value(row, 5, stats["extra"], "warn" if stats["extra"] else "plain")
+            write_colored_value(row, 6, stats["errors"], "bad" if stats["errors"] else "plain")
+            write_colored_value(row, 7, stats["warnings"], "warn" if stats["warnings"] else "plain")
             if stats["errors"] or stats["missing"]:
                 status = "Требует внимания"
-                status_fill = bad_fill
-                status_font = bad_font
+                status_kind = "bad"
             elif stats["warnings"] or stats["extra"]:
                 status = "Есть замечания"
-                status_fill = warn_fill
-                status_font = warn_font
+                status_kind = "warn"
             else:
                 status = "OK"
-                status_fill = good_fill
-                status_font = good_font
-            write_cell(row, 8, status, fill=status_fill, font=status_font,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+                status_kind = "good"
+            write_colored_value(row, 8, status, status_kind)
             row += 1
         row += 1
 
         # Section 3: Performed checks
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
-        write_cell(row, 1, "3. Выполненные проверки", fill=header_fill, font=header_font,
-                   alignment=Alignment(horizontal="left", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        set_section_title(row, "3. Выполненные проверки")
         row += 1
 
         check_headers = ["№", "Проверка", "Описание", "Статус"]
         for col_idx, h in enumerate(check_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
-        ws.row_dimensions[row].height = 30
+                       alignment=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 22
         row += 1
 
         performed_checks = [
@@ -389,41 +383,71 @@ class ReportService:
             ("Сопоставление с АРШИН", "Для каждого файла протокола проверяется наличие записи в АРШИН по серийному номеру."),
             ("Дата поверки", "Сравнивается дата поверки в протоколе с датой поверки/действия до в АРШИН (±1 день)."),
             ("ФИО поверителя", "Сравнивается ФИО поверителя в АРШИН (ЛК) и в протоколе."),
-            ("Условия окружающей среды", "Сравниваются температура, влажность и давление в АРШИН (ЛК) и в протоколе."),
+            ("Условия окружающей среды", "Сравниваются температура (±2°C), влажность (±10%) и давление (±3 кПа) в АРШИН (ЛК) и в протоколе."),
             ("Уникальность номера протокола", "Проверяется отсутствие дублей номеров протоколов среди загруженных файлов."),
         ]
         for idx, (check_name, check_desc) in enumerate(performed_checks, 1):
-            write_cell(row, 1, idx)
+            write_cell(row, 1, idx, alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 2, check_name)
             write_cell(row, 3, check_desc)
             if check_name == "Уникальность номера протокола" and duplicate_numbers:
-                write_cell(row, 4, "Найдены дубли", fill=bad_fill, font=bad_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                write_colored_value(row, 4, "Найдены дубли", "bad")
             else:
-                write_cell(row, 4, "Выполнена", fill=good_fill, font=good_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                write_colored_value(row, 4, "Выполнена", "good")
+            row += 1
+        row += 1
+
+        # Section 3a: Errors/warnings legend
+        set_section_title(row, "3a. Расшифровка ошибок и предупреждений")
+        row += 1
+
+        legend_headers = ["Тип", "Что фиксируется"]
+        for col_idx, h in enumerate(legend_headers, 1):
+            write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                       alignment=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        legend_items = [
+            (
+                "Ошибка",
+                "Критичное расхождение: дата поверки не совпадает ни с датой поверки, ни с датой действия до; ФИО поверителя различается; условия окружающей среды (t, φ, P) расходятся более чем на допустимый порог.",
+            ),
+            (
+                "Предупреждение",
+                "Некритичное замечание: дата в протоколе совпадает с датой действия до в АРШИН, но не с датой поверки (возможная путаница дат).",
+            ),
+            (
+                "Отсутствует протокол",
+                "Есть запись в АРШИН, но не найден файл протокола по серийному номеру.",
+            ),
+            (
+                "Лишний протокол",
+                "Есть файл протокола, но нет соответствующей записи в АРШИН по серийному номеру.",
+            ),
+        ]
+        for label, desc in legend_items:
+            write_cell(row, 1, label)
+            write_cell(row, 2, desc)
             row += 1
         row += 1
 
         # Section 4: Protocol number uniqueness details
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
-        write_cell(row, 1, "4. Дубли номеров протоколов", fill=header_fill, font=header_font,
-                   alignment=Alignment(horizontal="left", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        set_section_title(row, "4. Дубли номеров протоколов")
         row += 1
 
         if duplicate_numbers:
             dup_headers = ["Номер протокола", "Количество файлов", "Список файлов"]
             for col_idx, h in enumerate(dup_headers, 1):
                 write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                           alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
-            ws.row_dimensions[row].height = 30
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            ws.row_dimensions[row].height = 22
             row += 1
             for num, items in sorted(duplicate_numbers.items()):
                 write_cell(row, 1, num)
-                write_cell(row, 2, len(items))
+                write_cell(row, 2, len(items), alignment=Alignment(horizontal="center", vertical="center"))
                 file_list = ", ".join(
-                    f"{p.protocol_file.file_path if p.protocol_file else '—'}"
+                    f"{p.protocol_file.relative_path if p.protocol_file else '—'}"
                     for p in items
                 )
                 write_cell(row, 3, file_list)
@@ -433,8 +457,16 @@ class ReportService:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
             row += 1
 
-        # Auto-fit columns
+        # Auto-fit columns (remove wrap_text so words don't break)
         self._auto_fit_columns(ws)
+        # Disable wrap text on all cells in summary sheet
+        for row_cells in ws.iter_rows():
+            for cell in row_cells:
+                cell.alignment = Alignment(
+                    horizontal=cell.alignment.horizontal or "left",
+                    vertical=cell.alignment.vertical or "center",
+                    wrap_text=False,
+                )
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
