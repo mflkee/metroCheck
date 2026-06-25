@@ -344,8 +344,7 @@ class ReportService:
 
         owner_table_start = row
         for owner, stats in sorted_owners:
-            cell = write_cell(row, 1, owner, font=link_font)
-            cell.hyperlink = "#'4. Сравнение'!A1"
+            write_cell(row, 1, owner)
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
