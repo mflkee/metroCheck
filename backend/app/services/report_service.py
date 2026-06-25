@@ -7,7 +7,10 @@ from datetime import date, datetime
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -50,15 +53,12 @@ class ReportService:
         """Extract measurement range from protocol text."""
         if not text:
             return ""
-        # Pattern: find "Диапазон измерений" then "от X до Y" within 300 chars
-        # Handles multi-line PDF layout (e.g., "Диапазон измерений в рабочих\n3\nот 4 до 400 м³/ч\nусловиях:")
         match = re.search(
             r'Диапазон\s+измерений.{0,300}?от\s+([\d.,]+)\s+до\s+([\d.,]+)\s+([^\n]{1,30})',
             text, re.IGNORECASE | re.DOTALL
         )
         if match:
             return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
-        # Fallback: standalone "от X до Y"
         match = re.search(
             r'от\s+([\d.,]+)\s+до\s+([\d.,]+)\s+([^\n]{1,30})',
             text, re.IGNORECASE
@@ -113,27 +113,53 @@ class ReportService:
         year: int,
         month: int,
     ) -> None:
-        """Fill summary sheet with overall stats, per-owner breakdown, performed checks and protocol uniqueness."""
+        """Fill summary dashboard sheet with KPIs, charts, per-owner breakdown, performed checks and duplicates."""
         from collections import defaultdict
-        from openpyxl.utils import get_column_letter
 
         def norm_owner(val: str | None) -> str:
             if not val:
                 return "Владелец не определён"
             return str(val).strip()
 
-        def fmt_num(val):
-            if val is None:
-                return ""
-            try:
-                return f"{float(val):.1f}"
-            except (ValueError, TypeError):
-                return str(val)
-
         def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
             if not a or not b:
                 return False
             return abs((a - b).days) <= days
+
+        def write_cell(r: int, c: int, value, *, fill=None, font=None, alignment=None, border=True):
+            cell = ws.cell(row=r, column=c, value=value)
+            if border:
+                cell.border = thin_border
+            if fill:
+                cell.fill = fill
+            if font:
+                cell.font = font
+            cell.alignment = alignment or Alignment(horizontal="left", vertical="center", wrap_text=False)
+            return cell
+
+        def set_col_widths(widths: dict[int, int]):
+            for col, width in widths.items():
+                ws.column_dimensions[get_column_letter(col)].width = width
+
+        # Colors
+        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=10)
+        section_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        section_font = Font(bold=True, color="FFFFFF", size=12)
+        good_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        good_font = Font(color="006100", bold=True)
+        warn_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        warn_font = Font(color="9C5700", bold=True)
+        bad_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        bad_font = Font(color="9C0006", bold=True)
+        kpi_label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        kpi_label_font = Font(color="305496", bold=True, size=9)
+        kpi_value_font = Font(color="305496", bold=True, size=16)
+        link_font = Font(color="0563C1", underline="single")
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin"),
+        )
 
         # Build calibrations lookup by serial number
         cal_by_serial: dict[str, list] = defaultdict(list)
@@ -169,7 +195,6 @@ class ReportService:
             per_owner[owner]["protocols"] += 1
             per_owner[owner]["matched"] += 1
 
-            # Determine date status
             date_status = "no_arshin"
             best_cal = None
             if proto.verification_date:
@@ -203,14 +228,12 @@ class ReportService:
             elif date_status == "yellow":
                 pair_warnings += 1
 
-            # Verifier check (only if both sides have data)
             if cal and cal.verifier and proto.verifier:
                 norm_proto = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", proto.verifier)
                 norm_cal = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", cal.verifier)
                 if norm_proto != norm_cal:
                     pair_errors += 1
 
-            # Conditions check
             lk_conditions = {}
             if cal and cal.conditions:
                 try:
@@ -235,13 +258,11 @@ class ReportService:
                 warning_count += pair_warnings
                 per_owner[owner]["warnings"] += pair_warnings
 
-        # Extra protocols attribution
         for proto in extra_protocols:
             owner = norm_owner(proto.owner)
             per_owner[owner]["protocols"] += 1
             per_owner[owner]["extra"] += 1
 
-        # Missing protocols attribution: we don't know owner, put into 'Владелец не определён'
         for _cal in missing_cals:
             per_owner["Владелец не определён"]["missing"] += 1
 
@@ -253,125 +274,155 @@ class ReportService:
                 proto_by_number[num].append(proto)
         duplicate_numbers = {num: items for num, items in proto_by_number.items() if len(items) > 1}
 
-        # --- Styling helpers ---
-        header_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=11)
-        section_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        section_font = Font(bold=True, color="FFFFFF", size=12)
-        good_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        good_font = Font(color="006100", bold=True)
-        warn_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-        warn_font = Font(color="9C5700", bold=True)
-        bad_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        bad_font = Font(color="9C0006", bold=True)
-        thin_border = Border(
-            left=Side(style="thin"), right=Side(style="thin"),
-            top=Side(style="thin"), bottom=Side(style="thin"),
+        # Determine owner statuses
+        sorted_owners = sorted(
+            per_owner.items(),
+            key=lambda x: (x[0] == "Владелец не определён", x[0]),
         )
-
-        def write_cell(r: int, c: int, value, *, fill=None, font=None, alignment=None):
-            cell = ws.cell(row=r, column=c, value=value)
-            cell.border = thin_border
-            if fill:
-                cell.fill = fill
-            if font:
-                cell.font = font
-            if alignment:
-                cell.alignment = alignment
+        owner_statuses = {}
+        status_groups = {"OK": 0, "Есть замечания": 0, "Требует внимания": 0}
+        for owner, stats in sorted_owners:
+            if stats["errors"] or stats["missing"]:
+                status = "Требует внимания"
+                status_groups["Требует внимания"] += 1
+            elif stats["warnings"] or stats["extra"]:
+                status = "Есть замечания"
+                status_groups["Есть замечания"] += 1
             else:
-                cell.alignment = Alignment(horizontal="left", vertical="center")
-            return cell
+                status = "OK"
+                status_groups["OK"] += 1
+            owner_statuses[owner] = status
 
-        def set_section_title(r: int, text: str, colspan: int = 8):
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=colspan)
-            write_cell(r, 1, text, fill=section_fill, font=section_font,
-                       alignment=Alignment(horizontal="left", vertical="center"))
-            ws.row_dimensions[r].height = 24
-
-        def write_colored_value(r: int, c: int, value, kind: str):
-            if kind == "bad":
-                write_cell(r, c, value, fill=bad_fill, font=bad_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
-            elif kind == "warn":
-                write_cell(r, c, value, fill=warn_fill, font=warn_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
-            elif kind == "good":
-                write_cell(r, c, value, fill=good_fill, font=good_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
-            else:
-                write_cell(r, c, value, alignment=Alignment(horizontal="center", vertical="center"))
+        # --- Layout ---
+        set_col_widths({1: 36, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 16,
+                        10: 14, 11: 14, 12: 14, 13: 14})
 
         row = 1
 
         # Title
-        set_section_title(row, f"Сводка проверки протоколов за {month:02d}.{year}", colspan=8)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=13)
+        write_cell(row, 1, f"Сводка проверки протоколов за {month:02d}.{year}",
+                   fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 30
         row += 2
 
-        # Section 1: General summary
-        set_section_title(row, "1. Общая сводка")
-        row += 1
-
-        summary_items = [
-            ("Всего поверок в АРШИН", len(calibrations), "plain"),
-            ("Всего протоколов в папке", len(protocols), "plain"),
-            ("Сопоставлено (совпадает серийник)", len(matched_protocols), "good"),
-            ("Отсутствуют протоколы (есть в АРШИН, нет файла)", len(missing_cals), "bad"),
-            ("Лишние протоколы (есть файл, нет в АРШИН)", len(extra_protocols), "warn"),
-            ("Ошибки сопоставления", error_count, "bad"),
+        # KPI row
+        kpi_items = [
+            ("Всего поверок АРШИН", len(calibrations), "plain"),
+            ("Всего протоколов", len(protocols), "plain"),
+            ("Сопоставлено", len(matched_protocols), "good"),
+            ("Отсутствует", len(missing_cals), "bad"),
+            ("Лишние", len(extra_protocols), "warn"),
+            ("Ошибки", error_count, "bad"),
             ("Предупреждения", warning_count, "warn"),
-            ("Дублирующихся номеров протоколов", len(duplicate_numbers), "bad"),
+            ("Дублей номеров", len(duplicate_numbers), "bad"),
         ]
-        for label, value, kind in summary_items:
-            write_cell(row, 1, label)
-            write_colored_value(row, 2, value, kind if value else "plain")
-            row += 1
+        for col_idx, (label, value, kind) in enumerate(kpi_items, 1):
+            write_cell(row, col_idx, label, fill=kpi_label_fill, font=kpi_label_font,
+                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+            ws.row_dimensions[row].height = 30
+            value_fill = good_fill if kind == "good" else (warn_fill if kind == "warn" else (bad_fill if kind == "bad" else None))
+            value_font = good_font if kind == "good" else (warn_font if kind == "warn" else (bad_font if kind == "bad" else kpi_value_font))
+            write_cell(row + 1, col_idx, value, fill=value_fill, font=value_font,
+                       alignment=Alignment(horizontal="center", vertical="center"))
+            ws.row_dimensions[row + 1].height = 35
+        row += 3
+
+        # Section: Per owner breakdown (left)
+        section_row = row
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1, "Разбивка по Заказчикам", fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 24
         row += 1
 
-        # Section 2: Per owner breakdown
-        set_section_title(row, "2. Разбивка по Заказчикам (владельцам)")
-        row += 1
-
-        owner_headers = [
-            "Заказчик", "Протоколов", "Сопоставлено",
-            "Отсутствует", "Лишние", "Ошибки", "Предупреждения", "Статус",
-        ]
+        owner_headers = ["Заказчик", "Протоколов", "Сопоставлено", "Отсутствует", "Лишние", "Ошибки", "Предупрежд.", "Статус"]
         for col_idx, h in enumerate(owner_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
         ws.row_dimensions[row].height = 22
         row += 1
 
-        # Sort owners: real owners first, undefined last
-        sorted_owners = sorted(
-            per_owner.items(),
-            key=lambda x: (x[0] == "Владелец не определён", x[0]),
-        )
+        owner_table_start = row
         for owner, stats in sorted_owners:
-            write_cell(row, 1, owner)
+            cell = write_cell(row, 1, owner, font=link_font)
+            # Hyperlink to comparison sheet filtered by owner
+            if owner != "Владелец не определён":
+                escaped_owner = owner.replace('"', '&quot;')
+                cell.hyperlink = f"#'4. Сравнение'!A1?filter=Владелец={escaped_owner}"
+                cell.tooltip = f"Открыть сравнение для {owner}"
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
-            write_colored_value(row, 4, stats["missing"], "bad" if stats["missing"] else "plain")
-            write_colored_value(row, 5, stats["extra"], "warn" if stats["extra"] else "plain")
-            write_colored_value(row, 6, stats["errors"], "bad" if stats["errors"] else "plain")
-            write_colored_value(row, 7, stats["warnings"], "warn" if stats["warnings"] else "plain")
-            if stats["errors"] or stats["missing"]:
-                status = "Требует внимания"
-                status_kind = "bad"
-            elif stats["warnings"] or stats["extra"]:
-                status = "Есть замечания"
-                status_kind = "warn"
+            write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
+            write_cell(row, 5, stats["extra"], alignment=Alignment(horizontal="center", vertical="center"))
+            write_cell(row, 6, stats["errors"], alignment=Alignment(horizontal="center", vertical="center"))
+            write_cell(row, 7, stats["warnings"], alignment=Alignment(horizontal="center", vertical="center"))
+            status = owner_statuses[owner]
+            if status == "OK":
+                write_cell(row, 8, status, fill=good_fill, font=good_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            elif status == "Есть замечания":
+                write_cell(row, 8, status, fill=warn_fill, font=warn_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
             else:
-                status = "OK"
-                status_kind = "good"
-            write_colored_value(row, 8, status, status_kind)
+                write_cell(row, 8, status, fill=bad_fill, font=bad_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
             row += 1
+        owner_table_end = row - 1
+
+        # Chart 1: Pie chart of owner statuses (top right)
+        pie_data_row = section_row + 1
+        ws.cell(row=pie_data_row, column=10, value="Статус")
+        ws.cell(row=pie_data_row, column=11, value="Количество")
+        for idx, (status, count) in enumerate(status_groups.items(), 1):
+            ws.cell(row=pie_data_row + idx, column=10, value=status)
+            ws.cell(row=pie_data_row + idx, column=11, value=count)
+
+        pie = PieChart()
+        pie.title = "Распределение по статусам"
+        labels = Reference(ws, min_col=10, min_row=pie_data_row + 1, max_row=pie_data_row + len(status_groups))
+        data = Reference(ws, min_col=11, min_row=pie_data_row, max_row=pie_data_row + len(status_groups))
+        pie.add_data(data, titles_from_data=True)
+        pie.set_categories(labels)
+        pie.dataLabels = DataLabelList()
+        pie.dataLabels.showPercent = True
+        pie.width = 12
+        pie.height = 10
+        ws.add_chart(pie, "J" + str(section_row + 1))
+
+        # Chart 2: Bar chart protocols per owner (below pie)
+        bar_data_row = pie_data_row + len(status_groups) + 3
+        ws.cell(row=bar_data_row, column=10, value="Заказчик")
+        ws.cell(row=bar_data_row, column=11, value="Протоколов")
+        for idx, (owner, stats) in enumerate(sorted_owners, 1):
+            display_owner = owner if len(owner) <= 25 else owner[:22] + "..."
+            ws.cell(row=bar_data_row + idx, column=10, value=display_owner)
+            ws.cell(row=bar_data_row + idx, column=11, value=stats["protocols"])
+
+        bar = BarChart()
+        bar.type = "col"
+        bar.title = "Протоколов по Заказчикам"
+        bar.y_axis.title = "Количество"
+        bar.x_axis.title = "Заказчик"
+        bar_data = Reference(ws, min_col=11, min_row=bar_data_row, max_row=bar_data_row + len(sorted_owners))
+        bar_cats = Reference(ws, min_col=10, min_row=bar_data_row + 1, max_row=bar_data_row + len(sorted_owners))
+        bar.add_data(bar_data, titles_from_data=True)
+        bar.set_categories(bar_cats)
+        bar.width = 12
+        bar.height = 10
+        ws.add_chart(bar, "J" + str(bar_data_row - 1))
+
+        row += 2
+
+        # Section: Performed checks
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1, "Выполненные проверки", fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 24
         row += 1
 
-        # Section 3: Performed checks
-        set_section_title(row, "3. Выполненные проверки")
-        row += 1
-
-        check_headers = ["№", "Проверка", "Описание", "Статус"]
+        check_headers = ["Проверка", "Что сравнивается", "Допуск / Примечание"]
         for col_idx, h in enumerate(check_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -379,29 +430,33 @@ class ReportService:
         row += 1
 
         performed_checks = [
-            ("Наличие протокола", "Для каждой поверки из АРШИН ищется файл протокола по заводскому номеру."),
-            ("Сопоставление с АРШИН", "Для каждого файла протокола проверяется наличие записи в АРШИН по серийному номеру."),
-            ("Дата поверки", "Сравнивается дата поверки в протоколе с датой поверки/действия до в АРШИН (±1 день)."),
-            ("ФИО поверителя", "Сравнивается ФИО поверителя в АРШИН (ЛК) и в протоколе."),
-            ("Условия окружающей среды", "Сравниваются температура (±2°C), влажность (±10%) и давление (±3 кПа) в АРШИН (ЛК) и в протоколе."),
-            ("Уникальность номера протокола", "Проверяется отсутствие дублей номеров протоколов среди загруженных файлов."),
+            ("Наличие протокола", "Поверка АРШИН ↔ файл протокола", "Поиск по заводскому номеру"),
+            ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН", "Поиск по серийному номеру"),
+            ("Дата поверки", "Дата в протоколе ↔ дата в АРШИН", "±1 день"),
+            ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН", "Предупреждение, если совпадает"),
+            ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе", "Точное совпадение после нормализации"),
+            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе", "t ±2°C, φ ±10%, P ±3 кПа"),
+            ("Уникальность номера протокола", "Номера протоколов между собой", "Не должно повторяться"),
         ]
-        for idx, (check_name, check_desc) in enumerate(performed_checks, 1):
-            write_cell(row, 1, idx, alignment=Alignment(horizontal="center", vertical="center"))
-            write_cell(row, 2, check_name)
-            write_cell(row, 3, check_desc)
+        for check_name, desc, note in performed_checks:
+            write_cell(row, 1, check_name)
+            write_cell(row, 2, desc)
             if check_name == "Уникальность номера протокола" and duplicate_numbers:
-                write_colored_value(row, 4, "Найдены дубли", "bad")
+                write_cell(row, 3, "Найдены дубли", fill=bad_fill, font=bad_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
             else:
-                write_colored_value(row, 4, "Выполнена", "good")
+                write_cell(row, 3, note)
             row += 1
         row += 1
 
-        # Section 3a: Errors/warnings legend
-        set_section_title(row, "3a. Расшифровка ошибок и предупреждений")
+        # Section: Legend
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1, "Расшифровка ошибок и предупреждений", fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 24
         row += 1
 
-        legend_headers = ["Тип", "Что фиксируется"]
+        legend_headers = ["Тип", "Описание"]
         for col_idx, h in enumerate(legend_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -409,31 +464,27 @@ class ReportService:
         row += 1
 
         legend_items = [
-            (
-                "Ошибка",
-                "Критичное расхождение: дата поверки не совпадает ни с датой поверки, ни с датой действия до; ФИО поверителя различается; условия окружающей среды (t, φ, P) расходятся более чем на допустимый порог.",
-            ),
-            (
-                "Предупреждение",
-                "Некритичное замечание: дата в протоколе совпадает с датой действия до в АРШИН, но не с датой поверки (возможная путаница дат).",
-            ),
-            (
-                "Отсутствует протокол",
-                "Есть запись в АРШИН, но не найден файл протокола по серийному номеру.",
-            ),
-            (
-                "Лишний протокол",
-                "Есть файл протокола, но нет соответствующей записи в АРШИН по серийному номеру.",
-            ),
+            ("Ошибка", "Дата не совпадает ни с verification_date, ни с valid_date; ФИО поверителя различается; условия окружающей среды расходятся больше допуска."),
+            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат)."),
+            ("Отсутствует протокол", "Запись есть в АРШИН, файл протокола не найден по серийному номеру."),
+            ("Лишний протокол", "Файл протокола есть, записи в АРШИН по серийному номеру нет."),
         ]
         for label, desc in legend_items:
-            write_cell(row, 1, label)
+            if label == "Ошибка":
+                write_cell(row, 1, label, fill=bad_fill, font=bad_font)
+            elif label == "Предупреждение":
+                write_cell(row, 1, label, fill=warn_fill, font=warn_font)
+            else:
+                write_cell(row, 1, label)
             write_cell(row, 2, desc)
             row += 1
         row += 1
 
-        # Section 4: Protocol number uniqueness details
-        set_section_title(row, "4. Дубли номеров протоколов")
+        # Section: Duplicates
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1, "Дубли номеров протоколов", fill=section_fill, font=section_font,
+                   alignment=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 24
         row += 1
 
         if duplicate_numbers:
@@ -457,16 +508,13 @@ class ReportService:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
             row += 1
 
-        # Auto-fit columns (remove wrap_text so words don't break)
-        self._auto_fit_columns(ws)
-        # Disable wrap text on all cells in summary sheet
-        for row_cells in ws.iter_rows():
-            for cell in row_cells:
-                cell.alignment = Alignment(
-                    horizontal=cell.alignment.horizontal or "left",
-                    vertical=cell.alignment.vertical or "center",
-                    wrap_text=False,
-                )
+        # Final auto-fit for description columns only
+        for col in [1, 2, 3]:
+            max_len = 0
+            for cell in ws[get_column_letter(col)]:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[get_column_letter(col)].width = min(max_len + 2, 55)
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
@@ -562,8 +610,6 @@ class ReportService:
             ("Протокол", "ED7D31", len(proto_headers)),
         ]
 
-        from openpyxl.utils import get_column_letter
-
         col_start = 1
         for title, color, span in group_titles:
             col_end = col_start + span - 1
@@ -620,7 +666,7 @@ class ReportService:
                 return False
             return abs((a - b).days) <= days
 
-        row_num = 3  # Start data after header rows (row 1 = groups, row 2 = column names)
+        row_num = 3
         display_num = 1
 
         # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration(s)
@@ -631,24 +677,21 @@ class ReportService:
                 matched_cal_serials.add(serial)
 
             # Determine date status against ALL calibrations for this serial
-            date_status = "no_arshin"  # green / yellow / red / no_arshin
+            date_status = "no_arshin"
             best_cal = None
             if cal_list and proto.verification_date:
                 proto_date = proto.verification_date
-                # Check green: matches any verification_date
                 green_cals = [c for c in cal_list if _dates_within(c.verification_date, proto_date)]
                 if green_cals:
                     date_status = "green"
                     best_cal = green_cals[0]
                 else:
-                    # Check yellow: matches any valid_date
                     yellow_cals = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
                     if yellow_cals:
                         date_status = "yellow"
                         best_cal = yellow_cals[0]
                     else:
                         date_status = "red"
-                        # Pick latest verification_date for display
                         best_cal = max(
                             [c for c in cal_list if c.verification_date],
                             key=lambda c: c.verification_date,
@@ -671,10 +714,8 @@ class ReportService:
             full_name = self._combine_name_type(proto.device_name, proto.device_type)
 
             row_data = [
-                # compare columns (status + comments) filled later
                 "",
                 "",
-                # public headers
                 display_num,
                 cal.vri_id if cal else "",
                 cal.mit_number if cal else "",
@@ -685,12 +726,10 @@ class ReportService:
                 cal.verification_date.strftime("%d.%m.%Y") if cal and cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal and cal.valid_date else "",
                 cal.result_docnum if cal else "",
-                # lk headers
                 cal.verifier or "" if cal else "",
                 fmt_num(lk_conditions.get("temperature")) if cal else "",
                 fmt_num(lk_conditions.get("humidity")) if cal else "",
                 fmt_num(lk_conditions.get("pressure")) if cal else "",
-                # proto headers
                 proto.protocol_number or "",
                 full_name,
                 proto.serial_number or "",
@@ -796,7 +835,6 @@ class ReportService:
                     fmt_num(lk_conditions.get("temperature")),
                     fmt_num(lk_conditions.get("humidity")),
                     fmt_num(lk_conditions.get("pressure")),
-                    # proto columns — empty
                     "", "", "", "", "", "", "", "", "", "", "",
                 ]
                 for col_idx, value in enumerate(row_data, 1):
