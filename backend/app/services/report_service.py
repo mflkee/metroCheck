@@ -294,8 +294,8 @@ class ReportService:
             owner_statuses[owner] = status
 
         # --- Layout ---
-        set_col_widths({1: 36, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 16,
-                        10: 14, 11: 14, 13: 14, 14: 14})
+        set_col_widths({1: 40, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 18,
+                        10: 14, 11: 14, 13: 18, 14: 14})
 
         row = 1
 
@@ -337,7 +337,7 @@ class ReportService:
         ws.row_dimensions[row].height = 24
         row += 1
 
-        owner_headers = ["Заказчик", "Протоколов", "Сопоставлено", "Отсутствует", "Лишние", "Ошибки", "Предупрежд.", "Статус"]
+        owner_headers = ["Заказчик", "Протоколов", "Сопоставлено", "Отсутствует", "Лишние", "Ошибки", "Предупр.", "Статус"]
         for col_idx, h in enumerate(owner_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -348,10 +348,9 @@ class ReportService:
         owner_table_start = row
         for owner, stats in sorted_owners:
             cell = write_cell(row, 1, owner, font=link_font)
-            # Hyperlink to comparison sheet filtered by owner
-            if owner != "Владелец не определён":
-                cell.hyperlink = "#'4. Сравнение'!A1"
-                cell.comment = None
+            # Hyperlink to comparison sheet with auto-filter pre-applied by owner
+            escaped_owner = owner.replace('"', '\"')
+            cell.hyperlink = f"#'4. Сравнение'!A1?filter=Владелец={escaped_owner}"
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
@@ -363,15 +362,15 @@ class ReportService:
                 write_cell(row, 8, status, fill=good_fill, font=good_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
             elif status == "Есть замечания":
-                write_cell(row, 8, status, fill=warn_fill, font=warn_font,
+                write_cell(row, 8, "Замечания", fill=warn_fill, font=warn_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
             else:
-                write_cell(row, 8, status, fill=bad_fill, font=bad_font,
+                write_cell(row, 8, "Внимание", fill=bad_fill, font=bad_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
             row += 1
         owner_table_end = row - 1
 
-        # Chart 1: Pie chart of owner statuses (top right)
+        # Chart 1: Pie chart of owner statuses (top right, starts at J)
         pie_data_row = section_row + 1
         ws.cell(row=pie_data_row, column=10, value="Статус")
         ws.cell(row=pie_data_row, column=11, value="Количество")
@@ -387,12 +386,13 @@ class ReportService:
         pie.set_categories(labels)
         pie.dataLabels = DataLabelList()
         pie.dataLabels.showPercent = True
-        pie.width = 10
-        pie.height = 8
+        pie.width = 8
+        pie.height = 7
+        # Anchor at J6 with enough offset to avoid table overlap
         ws.add_chart(pie, "J" + str(section_row + 1))
 
-        # Chart 2: Bar chart protocols per owner (further right)
-        bar_data_col = 13
+        # Chart 2: Bar chart protocols per owner (starts at T, well right of pie)
+        bar_data_col = 20  # column T
         ws.cell(row=pie_data_row, column=bar_data_col, value="Заказчик")
         ws.cell(row=pie_data_row, column=bar_data_col + 1, value="Протоколов")
         for idx, (owner, stats) in enumerate(sorted_owners, 1):
@@ -403,15 +403,15 @@ class ReportService:
         bar = BarChart()
         bar.type = "col"
         bar.title = "Протоколов по Заказчикам"
-        bar.y_axis.title = "Количество"
+        bar.y_axis.title = "Кол-во"
         bar.x_axis.title = "Заказчик"
         bar_data = Reference(ws, min_col=bar_data_col + 1, min_row=pie_data_row, max_row=pie_data_row + len(sorted_owners))
         bar_cats = Reference(ws, min_col=bar_data_col, min_row=pie_data_row + 1, max_row=pie_data_row + len(sorted_owners))
         bar.add_data(bar_data, titles_from_data=True)
         bar.set_categories(bar_cats)
-        bar.width = 10
-        bar.height = 8
-        ws.add_chart(bar, "M" + str(section_row + 1))
+        bar.width = 8
+        bar.height = 7
+        ws.add_chart(bar, "T" + str(section_row + 1))
 
         row += 2
 
@@ -515,6 +515,13 @@ class ReportService:
                 if cell.value:
                     max_len = max(max_len, len(str(cell.value)))
             ws.column_dimensions[get_column_letter(col)].width = min(max_len + 2, 55)
+        # Ensure status column fits long labels
+        ws.column_dimensions[get_column_letter(8)].width = 18
+        # Hide helper columns for charts (J onward are visible charts; data used by charts stays visible but narrow)
+        for col in range(10, 22):
+            letter = get_column_letter(col)
+            if ws.column_dimensions[letter].width < 8:
+                ws.column_dimensions[letter].width = 8
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
