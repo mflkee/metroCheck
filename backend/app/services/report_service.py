@@ -351,7 +351,7 @@ class ReportService:
             if owner != "Владелец не определён":
                 escaped_owner = owner.replace('"', '&quot;')
                 cell.hyperlink = f"#'4. Сравнение'!A1?filter=Владелец={escaped_owner}"
-                cell.tooltip = f"Открыть сравнение для {owner}"
+                cell.comment = None  # tooltip not supported directly
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
