@@ -7,10 +7,9 @@ from datetime import date, datetime
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, PieChart, Reference
-from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -294,13 +293,12 @@ class ReportService:
             owner_statuses[owner] = status
 
         # --- Layout ---
-        set_col_widths({1: 40, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 18,
-                        10: 14, 11: 14, 13: 18, 14: 14})
+        set_col_widths({1: 40, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 14})
 
         row = 1
 
         # Title
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=13)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
         write_cell(row, 1, f"Сводка проверки протоколов за {month:02d}.{year}",
                    fill=section_fill, font=section_font,
                    alignment=Alignment(horizontal="center", vertical="center"))
@@ -320,7 +318,7 @@ class ReportService:
         ]
         for col_idx, (label, value, kind) in enumerate(kpi_items, 1):
             write_cell(row, col_idx, label, fill=kpi_label_fill, font=kpi_label_font,
-                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+                       alignment=Alignment(horizontal="center", vertical="center", wrap_text=False))
             ws.row_dimensions[row].height = 30
             value_fill = good_fill if kind == "good" else (warn_fill if kind == "warn" else (bad_fill if kind == "bad" else None))
             value_font = good_font if kind == "good" else (warn_font if kind == "warn" else (bad_font if kind == "bad" else kpi_value_font))
@@ -329,7 +327,7 @@ class ReportService:
             ws.row_dimensions[row + 1].height = 35
         row += 3
 
-        # Section: Per owner breakdown (left)
+        # Section: Per owner breakdown
         section_row = row
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
         write_cell(row, 1, "Разбивка по Заказчикам", fill=section_fill, font=section_font,
@@ -344,13 +342,10 @@ class ReportService:
         ws.row_dimensions[row].height = 22
         row += 1
 
-        # Prepare chart data in hidden columns N+ before writing rows so formulas don't matter
         owner_table_start = row
         for owner, stats in sorted_owners:
             cell = write_cell(row, 1, owner, font=link_font)
-            # Hyperlink to comparison sheet with auto-filter pre-applied by owner
-            escaped_owner = owner.replace('"', '\"')
-            cell.hyperlink = f"#'4. Сравнение'!A1?filter=Владелец={escaped_owner}"
+            cell.hyperlink = "#'4. Сравнение'!A1"
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
@@ -369,50 +364,6 @@ class ReportService:
                            alignment=Alignment(horizontal="center", vertical="center"))
             row += 1
         owner_table_end = row - 1
-
-        # Chart 1: Pie chart of owner statuses (top right, starts at J)
-        pie_data_row = section_row + 1
-        ws.cell(row=pie_data_row, column=10, value="Статус")
-        ws.cell(row=pie_data_row, column=11, value="Количество")
-        for idx, (status, count) in enumerate(status_groups.items(), 1):
-            ws.cell(row=pie_data_row + idx, column=10, value=status)
-            ws.cell(row=pie_data_row + idx, column=11, value=count)
-
-        pie = PieChart()
-        pie.title = "Распределение по статусам"
-        labels = Reference(ws, min_col=10, min_row=pie_data_row + 1, max_row=pie_data_row + len(status_groups))
-        data = Reference(ws, min_col=11, min_row=pie_data_row, max_row=pie_data_row + len(status_groups))
-        pie.add_data(data, titles_from_data=True)
-        pie.set_categories(labels)
-        pie.dataLabels = DataLabelList()
-        pie.dataLabels.showPercent = True
-        pie.width = 8
-        pie.height = 7
-        # Anchor at J6 with enough offset to avoid table overlap
-        ws.add_chart(pie, "J" + str(section_row + 1))
-
-        # Chart 2: Bar chart protocols per owner (starts at T, well right of pie)
-        bar_data_col = 20  # column T
-        ws.cell(row=pie_data_row, column=bar_data_col, value="Заказчик")
-        ws.cell(row=pie_data_row, column=bar_data_col + 1, value="Протоколов")
-        for idx, (owner, stats) in enumerate(sorted_owners, 1):
-            display_owner = owner if len(owner) <= 25 else owner[:22] + "..."
-            ws.cell(row=pie_data_row + idx, column=bar_data_col, value=display_owner)
-            ws.cell(row=pie_data_row + idx, column=bar_data_col + 1, value=stats["protocols"])
-
-        bar = BarChart()
-        bar.type = "col"
-        bar.title = "Протоколов по Заказчикам"
-        bar.y_axis.title = "Кол-во"
-        bar.x_axis.title = "Заказчик"
-        bar_data = Reference(ws, min_col=bar_data_col + 1, min_row=pie_data_row, max_row=pie_data_row + len(sorted_owners))
-        bar_cats = Reference(ws, min_col=bar_data_col, min_row=pie_data_row + 1, max_row=pie_data_row + len(sorted_owners))
-        bar.add_data(bar_data, titles_from_data=True)
-        bar.set_categories(bar_cats)
-        bar.width = 8
-        bar.height = 7
-        ws.add_chart(bar, "T" + str(section_row + 1))
-
         row += 2
 
         # Section: Performed checks
@@ -508,20 +459,18 @@ class ReportService:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
             row += 1
 
-        # Final auto-fit for description columns only
-        for col in [1, 2, 3]:
+        # Auto-fit all columns by content (cap to avoid extremely wide)
+        for col in range(1, 9):
+            letter = get_column_letter(col)
             max_len = 0
-            for cell in ws[get_column_letter(col)]:
+            for cell in ws[letter]:
                 if cell.value:
                     max_len = max(max_len, len(str(cell.value)))
-            ws.column_dimensions[get_column_letter(col)].width = min(max_len + 2, 55)
-        # Ensure status column fits long labels
-        ws.column_dimensions[get_column_letter(8)].width = 18
-        # Hide helper columns for charts (J onward are visible charts; data used by charts stays visible but narrow)
-        for col in range(10, 22):
-            letter = get_column_letter(col)
-            if ws.column_dimensions[letter].width < 8:
-                ws.column_dimensions[letter].width = 8
+            ws.column_dimensions[letter].width = min(max_len + 2, 60)
+
+        # Make sure merged section titles span A:H correctly
+        # Ensure status column width for "Внимание"
+        ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 12)
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
