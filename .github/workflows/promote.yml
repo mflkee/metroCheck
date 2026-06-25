@@ -35,6 +35,7 @@ jobs:
       - name: Build & deploy production
         run: |
           cd ~/apps/metroCheck
+          docker compose -p metrocheck-prod down
           docker compose -p metrocheck-prod up -d --build
 
       - name: Apply production migrations
