@@ -295,7 +295,7 @@ class ReportService:
 
         # --- Layout ---
         set_col_widths({1: 36, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 16,
-                        10: 14, 11: 14, 12: 14, 13: 14})
+                        10: 14, 11: 14, 13: 14, 14: 14})
 
         row = 1
 
@@ -344,14 +344,14 @@ class ReportService:
         ws.row_dimensions[row].height = 22
         row += 1
 
+        # Prepare chart data in hidden columns N+ before writing rows so formulas don't matter
         owner_table_start = row
         for owner, stats in sorted_owners:
             cell = write_cell(row, 1, owner, font=link_font)
             # Hyperlink to comparison sheet filtered by owner
             if owner != "Владелец не определён":
-                escaped_owner = owner.replace('"', '&quot;')
-                cell.hyperlink = f"#'4. Сравнение'!A1?filter=Владелец={escaped_owner}"
-                cell.comment = None  # tooltip not supported directly
+                cell.hyperlink = "#'4. Сравнение'!A1"
+                cell.comment = None
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
@@ -387,31 +387,31 @@ class ReportService:
         pie.set_categories(labels)
         pie.dataLabels = DataLabelList()
         pie.dataLabels.showPercent = True
-        pie.width = 12
-        pie.height = 10
+        pie.width = 10
+        pie.height = 8
         ws.add_chart(pie, "J" + str(section_row + 1))
 
-        # Chart 2: Bar chart protocols per owner (below pie)
-        bar_data_row = pie_data_row + len(status_groups) + 3
-        ws.cell(row=bar_data_row, column=10, value="Заказчик")
-        ws.cell(row=bar_data_row, column=11, value="Протоколов")
+        # Chart 2: Bar chart protocols per owner (further right)
+        bar_data_col = 13
+        ws.cell(row=pie_data_row, column=bar_data_col, value="Заказчик")
+        ws.cell(row=pie_data_row, column=bar_data_col + 1, value="Протоколов")
         for idx, (owner, stats) in enumerate(sorted_owners, 1):
             display_owner = owner if len(owner) <= 25 else owner[:22] + "..."
-            ws.cell(row=bar_data_row + idx, column=10, value=display_owner)
-            ws.cell(row=bar_data_row + idx, column=11, value=stats["protocols"])
+            ws.cell(row=pie_data_row + idx, column=bar_data_col, value=display_owner)
+            ws.cell(row=pie_data_row + idx, column=bar_data_col + 1, value=stats["protocols"])
 
         bar = BarChart()
         bar.type = "col"
         bar.title = "Протоколов по Заказчикам"
         bar.y_axis.title = "Количество"
         bar.x_axis.title = "Заказчик"
-        bar_data = Reference(ws, min_col=11, min_row=bar_data_row, max_row=bar_data_row + len(sorted_owners))
-        bar_cats = Reference(ws, min_col=10, min_row=bar_data_row + 1, max_row=bar_data_row + len(sorted_owners))
+        bar_data = Reference(ws, min_col=bar_data_col + 1, min_row=pie_data_row, max_row=pie_data_row + len(sorted_owners))
+        bar_cats = Reference(ws, min_col=bar_data_col, min_row=pie_data_row + 1, max_row=pie_data_row + len(sorted_owners))
         bar.add_data(bar_data, titles_from_data=True)
         bar.set_categories(bar_cats)
-        bar.width = 12
-        bar.height = 10
-        ws.add_chart(bar, "J" + str(bar_data_row - 1))
+        bar.width = 10
+        bar.height = 8
+        ws.add_chart(bar, "M" + str(section_row + 1))
 
         row += 2
 
