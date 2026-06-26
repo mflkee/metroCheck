@@ -183,16 +183,35 @@ class ReportService:
             top=Side(style="thin"), bottom=Side(style="thin"),
         )
 
-        # Build calibrations lookup by serial number (original + normalized)
+        # Build calibrations lookup by (serial, mit_number) pair (original + normalized serial)
+        cal_by_pair: dict[tuple[str, str], list] = defaultdict(list)
         cal_by_serial: dict[str, list] = defaultdict(list)
         cal_by_norm_serial: dict[str, list] = defaultdict(list)
         for c in calibrations:
             if c.mi_number:
                 serial = c.mi_number.strip()
+                mit = (c.mit_number or "").strip()
                 cal_by_serial[serial].append(c)
                 norm = self._normalize_serial(serial)
                 if norm:
                     cal_by_norm_serial[norm].append(c)
+                    if mit:
+                        cal_by_pair[(norm, mit)].append(c)
+
+        def _find_cal_list(proto) -> list:
+            """Find matching calibrations for a protocol by serial+mit_number, falling back to serial only."""
+            serial = (proto.serial_number or "").strip()
+            mit = (proto.mit_number or "").strip()
+            norm_serial = self._normalize_serial(serial)
+            if norm_serial and mit:
+                pair_list = cal_by_pair.get((norm_serial, mit), [])
+                if pair_list:
+                    return pair_list
+            # Fallback to serial-only match
+            cal_list = cal_by_serial.get(serial, [])
+            if not cal_list and norm_serial:
+                cal_list = cal_by_norm_serial.get(norm_serial, [])
+            return cal_list
 
         # Match protocols to calibrations
         matched_serials: set[str] = set()
@@ -202,9 +221,7 @@ class ReportService:
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
             norm_serial = self._normalize_serial(serial)
-            cal_list = cal_by_serial.get(serial, [])
-            if not cal_list and norm_serial:
-                cal_list = cal_by_norm_serial.get(norm_serial, [])
+            cal_list = _find_cal_list(proto)
             if cal_list:
                 matched_serials.add(serial)
                 matched_protocols.append((proto, cal_list))
@@ -218,8 +235,26 @@ class ReportService:
             if file_name_serial and serial and self._normalize_serial(file_name_serial) != norm_serial:
                 serial_mismatch_count += 1
 
-        missing_cals = [c for c in calibrations if c.mi_number and c.mi_number.strip() not in matched_serials
-                        and self._normalize_serial(c.mi_number.strip()) not in cal_by_norm_serial]
+        missing_cals = []
+        for c in calibrations:
+            if not c.mi_number:
+                continue
+            cal_serial = c.mi_number.strip()
+            cal_norm = self._normalize_serial(cal_serial)
+            cal_mit = (c.mit_number or "").strip()
+            # A calibration is missing if no protocol matched it by pair or by serial
+            pair_matched = bool(cal_mit) and any(
+                self._normalize_serial((p.serial_number or "").strip()) == cal_norm
+                and (p.mit_number or "").strip() == cal_mit
+                for p in protocols
+            )
+            serial_matched = any(
+                (p.serial_number or "").strip() == cal_serial
+                or self._normalize_serial((p.serial_number or "").strip()) == cal_norm
+                for p in protocols
+            )
+            if not pair_matched and not serial_matched:
+                missing_cals.append(c)
 
         # Errors/warnings per matched pair
         error_count = 0
@@ -602,16 +637,34 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
-        # Build calibrations lookup by serial number (multiple records possible)
-        cal_by_serial: dict[str, list] = {}
-        cal_by_norm_serial: dict[str, list] = {}
+        # Build calibrations lookup by (serial, mit_number) pair and by serial
+        cal_by_pair: dict[tuple[str, str], list] = defaultdict(list)
+        cal_by_serial: dict[str, list] = defaultdict(list)
+        cal_by_norm_serial: dict[str, list] = defaultdict(list)
         for c in calibrations:
             if c.mi_number:
                 serial = c.mi_number.strip()
+                mit = (c.mit_number or "").strip()
                 cal_by_serial.setdefault(serial, []).append(c)
                 norm = self._normalize_serial(serial)
                 if norm:
                     cal_by_norm_serial.setdefault(norm, []).append(c)
+                    if mit:
+                        cal_by_pair[(norm, mit)].append(c)
+
+        def _find_cal_list(proto) -> list:
+            """Find matching calibrations by serial+mit_number, falling back to serial only."""
+            serial = (proto.serial_number or "").strip()
+            mit = (proto.mit_number or "").strip()
+            norm_serial = self._normalize_serial(serial)
+            if norm_serial and mit:
+                pair_list = cal_by_pair.get((norm_serial, mit), [])
+                if pair_list:
+                    return pair_list
+            cal_list = cal_by_serial.get(serial, [])
+            if not cal_list and norm_serial:
+                cal_list = cal_by_norm_serial.get(norm_serial, [])
+            return cal_list
 
         # Build set of protocol serials that have a match
         matched_cal_serials: set[str] = set()
@@ -695,9 +748,8 @@ class ReportService:
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
             norm_serial = self._normalize_serial(serial)
-            cal_list = cal_by_serial.get(serial, [])
-            if not cal_list and norm_serial:
-                cal_list = cal_by_norm_serial.get(norm_serial, [])
+            mit = (proto.mit_number or "").strip()
+            cal_list = _find_cal_list(proto)
             if cal_list:
                 matched_cal_serials.add(serial)
 
@@ -779,8 +831,11 @@ class ReportService:
             if not cal_list:
                 mismatches.append("НЕТ В АРШИН")
             else:
+                # Multiple records warning only when they are truly for the same (serial, mit_number)
                 if len(cal_list) > 1:
-                    mismatches.append(f"Записей в АРШИН: {len(cal_list)}")
+                    vri_ids = [c.vri_id for c in cal_list if c.vri_id]
+                    vri_part = f" ({', '.join(vri_ids)})" if vri_ids else ""
+                    mismatches.append(f"Записей в АРШИН: {len(cal_list)}{vri_part}")
 
                 if date_status == "yellow":
                     proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
@@ -852,45 +907,59 @@ class ReportService:
         # SECOND PASS: ARSHIN entries without a matching protocol
         for cal in calibrations:
             cal_serial = (cal.mi_number or "").strip()
-            if cal_serial and cal_serial not in matched_cal_serials:
-                lk_conditions = {}
-                if cal.conditions:
-                    try:
-                        lk_conditions = json.loads(cal.conditions)
-                    except json.JSONDecodeError:
-                        pass
-                row_data = [
-                    "❌",
-                    "НЕТ ПРОТОКОЛА",
-                    display_num,
-                    cal.vri_id or "",
-                    cal.mit_number or "",
-                    cal.mit_title or "",
-                    cal.mit_notation or "",
-                    cal.mi_modification or "",
-                    cal_serial,
-                    cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
-                    cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
-                    cal.result_docnum or "",
-                    cal.verifier or "",
-                    fmt_num(lk_conditions.get("temperature")),
-                    fmt_num(lk_conditions.get("humidity")),
-                    fmt_num(lk_conditions.get("pressure")),
-                    "", "", "", "", "", "", "", "", "", "", "",
-                ]
-                for col_idx, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_num, column=col_idx, value=value)
-                    cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                                       top=Side(style='thin'), bottom=Side(style='thin'))
-                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                    if col_idx == STATUS_COL:
-                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                        cell.font = Font(bold=True, color="9C0006", size=12)
-                    elif col_idx == COMMENTS_COL:
-                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                        cell.font = Font(color="9C0006", size=9)
-                row_num += 1
-                display_num += 1
+            cal_norm = self._normalize_serial(cal_serial)
+            cal_mit = (cal.mit_number or "").strip()
+            # Skip if a protocol matched this calibration by pair or by serial
+            pair_matched = bool(cal_mit) and any(
+                self._normalize_serial((p.serial_number or "").strip()) == cal_norm
+                and (p.mit_number or "").strip() == cal_mit
+                for p in protocols
+            )
+            serial_matched = any(
+                (p.serial_number or "").strip() == cal_serial
+                or self._normalize_serial((p.serial_number or "").strip()) == cal_norm
+                for p in protocols
+            )
+            if not cal_serial or pair_matched or serial_matched:
+                continue
+            lk_conditions = {}
+            if cal.conditions:
+                try:
+                    lk_conditions = json.loads(cal.conditions)
+                except json.JSONDecodeError:
+                    pass
+            row_data = [
+                "❌",
+                "НЕТ ПРОТОКОЛА",
+                display_num,
+                cal.vri_id or "",
+                cal.mit_number or "",
+                cal.mit_title or "",
+                cal.mit_notation or "",
+                cal.mi_modification or "",
+                cal_serial,
+                cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
+                cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
+                cal.result_docnum or "",
+                cal.verifier or "",
+                fmt_num(lk_conditions.get("temperature")),
+                fmt_num(lk_conditions.get("humidity")),
+                fmt_num(lk_conditions.get("pressure")),
+                "", "", "", "", "", "", "", "", "", "",
+            ]
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_idx, value=value)
+                cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                                   top=Side(style='thin'), bottom=Side(style='thin'))
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                if col_idx == STATUS_COL:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                    cell.font = Font(bold=True, color="9C0006", size=12)
+                elif col_idx == COMMENTS_COL:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                    cell.font = Font(color="9C0006", size=9)
+            row_num += 1
+            display_num += 1
 
         self._auto_fit_columns(ws)
 
