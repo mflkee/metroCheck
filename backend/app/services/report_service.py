@@ -231,6 +231,7 @@ class ReportService:
 
         for proto, cal_list in matched_protocols:
             owner = norm_owner(proto.owner)
+            serial = (proto.serial_number or "").strip()
             per_owner[owner]["protocols"] += 1
             per_owner[owner]["matched"] += 1
 
