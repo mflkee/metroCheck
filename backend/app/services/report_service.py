@@ -583,10 +583,14 @@ class ReportService:
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
         # Build calibrations lookup by serial number (multiple records possible)
         cal_by_serial: dict[str, list] = {}
+        cal_by_norm_serial: dict[str, list] = {}
         for c in calibrations:
             if c.mi_number:
                 serial = c.mi_number.strip()
                 cal_by_serial.setdefault(serial, []).append(c)
+                norm = self._normalize_serial(serial)
+                if norm:
+                    cal_by_norm_serial.setdefault(norm, []).append(c)
 
         # Build set of protocol serials that have a match
         matched_cal_serials: set[str] = set()
