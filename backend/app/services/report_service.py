@@ -213,48 +213,24 @@ class ReportService:
                 cal_list = cal_by_norm_serial.get(norm_serial, [])
             return cal_list
 
-        # Match protocols to calibrations
-        matched_serials: set[str] = set()
+        # Match protocols to calibrations, tracking which calibrations are consumed
+        consumed_cal_ids: set[str] = set()
         matched_protocols: list = []
         extra_protocols: list = []
-        serial_mismatch_count = 0
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
             norm_serial = self._normalize_serial(serial)
             cal_list = _find_cal_list(proto)
             if cal_list:
-                matched_serials.add(serial)
                 matched_protocols.append((proto, cal_list))
+                for c in cal_list:
+                    if c.vri_id:
+                        consumed_cal_ids.add(c.vri_id)
             else:
                 extra_protocols.append(proto)
 
-            # Check serial from filename vs protocol
-            file_name_serial = ""
-            if proto.protocol_file and proto.protocol_file.file_name:
-                file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
-            if file_name_serial and serial and self._normalize_serial(file_name_serial) != norm_serial:
-                serial_mismatch_count += 1
-
-        missing_cals = []
-        for c in calibrations:
-            if not c.mi_number:
-                continue
-            cal_serial = c.mi_number.strip()
-            cal_norm = self._normalize_serial(cal_serial)
-            cal_mit = (c.mit_number or "").strip()
-            # A calibration is missing if no protocol matched it by pair or by serial
-            pair_matched = bool(cal_mit) and any(
-                self._normalize_serial((p.serial_number or "").strip()) == cal_norm
-                and (p.mit_number or "").strip() == cal_mit
-                for p in protocols
-            )
-            serial_matched = any(
-                (p.serial_number or "").strip() == cal_serial
-                or self._normalize_serial((p.serial_number or "").strip()) == cal_norm
-                for p in protocols
-            )
-            if not pair_matched and not serial_matched:
-                missing_cals.append(c)
+        # missing_cals = calibrations whose VRI ID was NOT consumed by any protocol match
+        missing_cals = [c for c in calibrations if c.mi_number and c.vri_id and c.vri_id not in consumed_cal_ids]
 
         # Errors/warnings per matched pair
         error_count = 0
@@ -378,7 +354,7 @@ class ReportService:
             owner_statuses[owner] = status
 
         # --- Layout ---
-        set_col_widths({1: 43.87, 2: 60, 3: 38, 4: 15.04, 5: 13.03, 6: 13, 7: 16, 8: 13})
+        set_col_widths({1: 45, 2: 60, 3: 38, 4: 17, 5: 17, 6: 13, 7: 18, 8: 20})
 
         row = 1
 
@@ -667,8 +643,8 @@ class ReportService:
                 cal_list = cal_by_norm_serial.get(norm_serial, [])
             return cal_list
 
-        # Build set of protocol serials that have a match
-        matched_cal_serials: set[str] = set()
+        # Track calibrations consumed during first pass (by VRI ID)
+        consumed_cal_ids: set[str] = set()
 
         compare_headers = ["Статус", "Расхождения"]
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
@@ -752,7 +728,9 @@ class ReportService:
             mit = (proto.mit_number or "").strip()
             cal_list = _find_cal_list(proto)
             if cal_list:
-                matched_cal_serials.add(serial)
+                for c in cal_list:
+                    if c.vri_id:
+                        consumed_cal_ids.add(c.vri_id)
 
             # Determine date status against ALL calibrations for this serial
             date_status = "no_arshin"
@@ -902,26 +880,18 @@ class ReportService:
                     else:
                         cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                         cell.font = Font(color="9C0006", size=9)
+            if comments:
+                lines_needed = max(1, comments.count(';') + 1, len(comments) // 50)
+                ws.row_dimensions[row_num].height = max(20, min(lines_needed * 15, 150))
+            else:
+                ws.row_dimensions[row_num].height = 20
             row_num += 1
             display_num += 1
 
-        # SECOND PASS: ARSHIN entries without a matching protocol
+        # SECOND PASS: ARSHIN entries that were NOT consumed by any protocol match
         for cal in calibrations:
             cal_serial = (cal.mi_number or "").strip()
-            cal_norm = self._normalize_serial(cal_serial)
-            cal_mit = (cal.mit_number or "").strip()
-            # Skip if a protocol matched this calibration by pair or by serial
-            pair_matched = bool(cal_mit) and any(
-                self._normalize_serial((p.serial_number or "").strip()) == cal_norm
-                and (p.mit_number or "").strip() == cal_mit
-                for p in protocols
-            )
-            serial_matched = any(
-                (p.serial_number or "").strip() == cal_serial
-                or self._normalize_serial((p.serial_number or "").strip()) == cal_norm
-                for p in protocols
-            )
-            if not cal_serial or pair_matched or serial_matched:
+            if not cal_serial or (cal.vri_id and cal.vri_id in consumed_cal_ids):
                 continue
             lk_conditions = {}
             if cal.conditions:
@@ -959,6 +929,7 @@ class ReportService:
                 elif col_idx == COMMENTS_COL:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(color="9C0006", size=9)
+            ws.row_dimensions[row_num].height = 20
             row_num += 1
             display_num += 1
 
