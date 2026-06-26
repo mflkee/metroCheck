@@ -874,16 +874,25 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _extract_serial_from_filename(self, file_name: str) -> str:
-        """Extract serial number from protocol filename."""
+        """Extract serial number from protocol filename.
+
+        Expected filename patterns:
+            2025-10-06 № 009922 (МПИ-2).pdf  -> 009922
+            2025.10.29 - 971041 (МПИ-2).pdf  -> 971041
+            2025-10-01 № 735323116А16.pdf    -> 735323116А16
+        """
         import re
-        # Try pattern: '... (Зав№).pdf' or '... № S12345 ...'
-        match = re.search(r'\(([^()]+)\)\s*\.pdf$', file_name, re.IGNORECASE)
+        base = re.sub(r"\.pdf$", "", file_name, flags=re.IGNORECASE).strip()
+        # Remove trailing parenthesized groups like (МПИ-2)
+        base = re.sub(r"\s*\([^()]+\)\s*$", "", base)
+        # Pattern: optional date prefix, then '№' or '-' followed by serial
+        match = re.search(r"(?:№|[-–—])\s*([A-Za-zА-Яа-я0-9\-]+)$", base)
         if match:
             return match.group(1).strip()
-        # Fallback: last parenthesized group
-        match = re.search(r'\(([^()]+)\)', file_name)
-        if match:
-            return match.group(1).strip()
+        # Fallback: last whitespace-separated token
+        tokens = base.split()
+        if tokens:
+            return tokens[-1].strip()
         return ""
 
     def _write_headers(self, ws, headers, color) -> None:
