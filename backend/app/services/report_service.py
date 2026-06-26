@@ -790,7 +790,7 @@ class ReportService:
                             pass
 
             # Check serial from filename vs protocol
-            if file_name_serial and serial and _normalize_serial(file_name_serial) != _normalize_serial(serial):
+            if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
                 mismatches.append(f"Зав№ файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
                 # Does not change status to error; treated as warning context
 
