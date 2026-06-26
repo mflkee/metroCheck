@@ -118,7 +118,13 @@ class ReportService:
         def norm_owner(val: str | None) -> str:
             if not val:
                 return "Владелец не определён"
-            return str(val).strip()
+            owner = str(val).strip()
+            # Strip INN/KPP and trailing digits/spaces
+            import re as _re
+            owner = _re.split(r"\s*[Ии][Нн][Нн]\s*/?\s*[Кк][Пп][Пп]?", owner)[0].strip()
+            owner = _re.split(r"\s*[Ии][Нн][Нн]", owner)[0].strip()
+            owner = _re.sub(r"\s+\d[\d\s]*$", "", owner).strip()
+            return owner or "Владелец не определён"
 
         def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
             if not a or not b:
@@ -154,7 +160,6 @@ class ReportService:
         kpi_label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
         kpi_label_font = Font(color="305496", bold=True, size=9)
         kpi_value_font = Font(color="305496", bold=True, size=16)
-        link_font = Font(color="0563C1", underline="single")
         thin_border = Border(
             left=Side(style="thin"), right=Side(style="thin"),
             top=Side(style="thin"), bottom=Side(style="thin"),
@@ -293,7 +298,7 @@ class ReportService:
             owner_statuses[owner] = status
 
         # --- Layout ---
-        set_col_widths({1: 39, 2: 60, 3: 38, 4: 13, 5: 8, 6: 13, 7: 16, 8: 13})
+        set_col_widths({1: 43.87, 2: 60, 3: 38, 4: 15.04, 5: 13.03, 6: 13, 7: 16, 8: 13})
 
         row = 1
 
@@ -310,8 +315,8 @@ class ReportService:
             ("Всего поверок АРШИН", len(calibrations), "plain"),
             ("Всего протоколов", len(protocols), "plain"),
             ("Сопоставлено", len(matched_protocols), "good"),
-            ("Отсутствует", len(missing_cals), "bad"),
-            ("Лишние", len(extra_protocols), "warn"),
+            ("Нет протокола", len(missing_cals), "bad"),
+            ("Нет в Аршине", len(extra_protocols), "warn"),
             ("Ошибки", error_count, "bad"),
             ("Предупреждения", warning_count, "warn"),
             ("Дублей номеров", len(duplicate_numbers), "bad"),
@@ -321,7 +326,7 @@ class ReportService:
                        alignment=Alignment(horizontal="center", vertical="center", wrap_text=False))
             ws.row_dimensions[row].height = 30
             value_fill = good_fill if kind == "good" else (warn_fill if kind == "warn" else (bad_fill if kind == "bad" else None))
-            value_font = good_font if kind == "good" else (warn_font if kind == "warn" else (bad_font if kind == "bad" else kpi_value_font))
+            value_font = good_font if kind == "good" else (warn_font if kind == "warn" else (bad_font if kind == "bad" else Font(color="305496", bold=True, size=11)))
             write_cell(row + 1, col_idx, value, fill=value_fill, font=value_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
             ws.row_dimensions[row + 1].height = 34.5
@@ -335,7 +340,7 @@ class ReportService:
         ws.row_dimensions[row].height = 24
         row += 1
 
-        owner_headers = ["Заказчик", "Протоколов", "Сопоставлено", "Отсутствует", "Лишние", "Ошибки", "Предупр.", "Статус"]
+        owner_headers = ["Заказчик", "Протоколов", "Сопоставлено", "Нет протокола", "Нет в Аршине", "Ошибки", "Предупр.", "Статус"]
         for col_idx, h in enumerate(owner_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
@@ -361,7 +366,7 @@ class ReportService:
             else:
                 write_cell(row, 8, "Внимание", fill=bad_fill, font=bad_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
-            ws.row_dimensions[row].height = 16.4
+            ws.row_dimensions[row].height = 15.75
             row += 1
         owner_table_end = row - 1
         row += 2
@@ -391,7 +396,6 @@ class ReportService:
         ]
         for check_name, desc, note in performed_checks:
             write_cell(row, 1, check_name)
-            ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=8)
             write_cell(row, 2, desc)
             write_cell(row, 3, note)
             ws.row_dimensions[row].height = 15
@@ -425,7 +429,6 @@ class ReportService:
                 write_cell(row, 1, label, fill=warn_fill, font=warn_font)
             else:
                 write_cell(row, 1, label)
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
             write_cell(row, 2, desc)
             ws.row_dimensions[row].height = 15
             row += 1
@@ -443,7 +446,7 @@ class ReportService:
             for col_idx, h in enumerate(dup_headers, 1):
                 write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
-            ws.row_dimensions[row].height = 22
+            ws.row_dimensions[row].height = 21.75
             row += 1
             for num, items in sorted(duplicate_numbers.items()):
                 write_cell(row, 1, num)
@@ -453,6 +456,7 @@ class ReportService:
                     for p in items
                 )
                 write_cell(row, 3, file_list)
+                ws.row_dimensions[row].height = 15
                 row += 1
         else:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
@@ -461,8 +465,7 @@ class ReportService:
             ws.row_dimensions[row].height = 15
             row += 1
 
-        # Do not auto-fit; use fixed widths from the manually tuned report
-        # Ensure status column width is sufficient
+        # Keep fixed widths from the manually tuned report
         ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 13)
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
