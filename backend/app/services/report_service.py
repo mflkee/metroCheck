@@ -293,7 +293,7 @@ class ReportService:
             owner_statuses[owner] = status
 
         # --- Layout ---
-        set_col_widths({1: 40, 2: 14, 3: 14, 4: 14, 5: 12, 6: 12, 7: 14, 8: 14})
+        set_col_widths({1: 39, 2: 60, 3: 38, 4: 13, 5: 8, 6: 13, 7: 16, 8: 13})
 
         row = 1
 
@@ -324,7 +324,7 @@ class ReportService:
             value_font = good_font if kind == "good" else (warn_font if kind == "warn" else (bad_font if kind == "bad" else kpi_value_font))
             write_cell(row + 1, col_idx, value, fill=value_fill, font=value_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
-            ws.row_dimensions[row + 1].height = 35
+            ws.row_dimensions[row + 1].height = 34.5
         row += 3
 
         # Section: Per owner breakdown
@@ -339,7 +339,7 @@ class ReportService:
         for col_idx, h in enumerate(owner_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        ws.row_dimensions[row].height = 21.75
         row += 1
 
         owner_table_start = row
@@ -361,6 +361,7 @@ class ReportService:
             else:
                 write_cell(row, 8, "Внимание", fill=bad_fill, font=bad_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
+            ws.row_dimensions[row].height = 16.4
             row += 1
         owner_table_end = row - 1
         row += 2
@@ -376,7 +377,7 @@ class ReportService:
         for col_idx, h in enumerate(check_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        ws.row_dimensions[row].height = 21.75
         row += 1
 
         performed_checks = [
@@ -390,12 +391,10 @@ class ReportService:
         ]
         for check_name, desc, note in performed_checks:
             write_cell(row, 1, check_name)
+            ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=8)
             write_cell(row, 2, desc)
-            if check_name == "Уникальность номера протокола" and duplicate_numbers:
-                write_cell(row, 3, "Найдены дубли", fill=bad_fill, font=bad_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
-            else:
-                write_cell(row, 3, note)
+            write_cell(row, 3, note)
+            ws.row_dimensions[row].height = 15
             row += 1
         row += 1
 
@@ -410,7 +409,7 @@ class ReportService:
         for col_idx, h in enumerate(legend_headers, 1):
             write_cell(row, col_idx, h, fill=header_fill, font=header_font,
                        alignment=Alignment(horizontal="center", vertical="center"))
-        ws.row_dimensions[row].height = 22
+        ws.row_dimensions[row].height = 21.75
         row += 1
 
         legend_items = [
@@ -426,7 +425,9 @@ class ReportService:
                 write_cell(row, 1, label, fill=warn_fill, font=warn_font)
             else:
                 write_cell(row, 1, label)
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
             write_cell(row, 2, desc)
+            ws.row_dimensions[row].height = 15
             row += 1
         row += 1
 
@@ -454,22 +455,15 @@ class ReportService:
                 write_cell(row, 3, file_list)
                 row += 1
         else:
-            write_cell(row, 1, "Дубли не найдены", fill=good_fill, font=good_font)
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+            write_cell(row, 1, "Дубли не найдены", fill=good_fill, font=good_font,
+                       alignment=Alignment(horizontal="left", vertical="center"))
+            ws.row_dimensions[row].height = 15
             row += 1
 
-        # Auto-fit all columns by content (cap to avoid extremely wide)
-        for col in range(1, 9):
-            letter = get_column_letter(col)
-            max_len = 0
-            for cell in ws[letter]:
-                if cell.value:
-                    max_len = max(max_len, len(str(cell.value)))
-            ws.column_dimensions[letter].width = min(max_len + 2, 60)
-
-        # Make sure merged section titles span A:H correctly
-        # Ensure status column width for "Внимание"
-        ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 12)
+        # Do not auto-fit; use fixed widths from the manually tuned report
+        # Ensure status column width is sufficient
+        ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 13)
 
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
