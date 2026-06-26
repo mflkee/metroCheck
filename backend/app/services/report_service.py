@@ -423,27 +423,32 @@ class ReportService:
         ws.row_dimensions[row].height = 24
         row += 1
 
-        check_headers = ["Проверка", "Что сравнивается", "Допуск / Примечание"]
+        check_headers = ["Проверка", "Описание"]
         for col_idx, h in enumerate(check_headers, 1):
-            write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+            if col_idx == 1:
+                write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            else:
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+                write_cell(row, 2, h, fill=header_fill, font=header_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
         ws.row_dimensions[row].height = 21.75
         row += 1
 
         performed_checks = [
-            ("Наличие протокола", "Поверка АРШИН ↔ файл протокола", "Поиск по заводскому номеру"),
-            ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН", "Поиск по заводскому номеру"),
-            ("Дата поверки", "Дата в протоколе ↔ verification_date в АРШИН", "Точное совпадение"),
-            ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН", "Предупреждение, если совпадает"),
-            ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе", "Точное совпадение после нормализации"),
-            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе", "Точное совпадение"),
-            ("Уникальность номера протокола", "Номера протоколов между собой", "Не должно повторяться"),
-            ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе", "Доп. предупреждение при расхождении"),
+            ("Наличие протокола", "Поверка АРШИН ↔ файл протокола. Поиск по заводскому номеру."),
+            ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН. Поиск по заводскому номеру."),
+            ("Дата поверки", "Дата в протоколе ↔ verification_date в АРШИН. Точное совпадение."),
+            ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН. Предупреждение, если совпадает."),
+            ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе. Точное совпадение после нормализации."),
+            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе. Точное совпадение."),
+            ("Уникальность номера протокола", "Номера протоколов между собой. Не должно повторяться."),
+            ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе. Доп. предупреждение при расхождении."),
         ]
-        for check_name, desc, note in performed_checks:
+        for check_name, desc in performed_checks:
             write_cell(row, 1, check_name)
-            write_cell(row, 2, desc)
-            write_cell(row, 3, note)
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+            write_cell(row, 2, desc, alignment=Alignment(horizontal="left", vertical="center", wrap_text=True))
             ws.row_dimensions[row].height = 15
             row += 1
         row += 1
@@ -457,8 +462,13 @@ class ReportService:
 
         legend_headers = ["Тип", "Описание"]
         for col_idx, h in enumerate(legend_headers, 1):
-            write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                       alignment=Alignment(horizontal="center", vertical="center"))
+            if col_idx == 1:
+                write_cell(row, col_idx, h, fill=header_fill, font=header_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
+            else:
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+                write_cell(row, 2, h, fill=header_fill, font=header_font,
+                           alignment=Alignment(horizontal="center", vertical="center"))
         ws.row_dimensions[row].height = 21.75
         row += 1
 
@@ -475,7 +485,8 @@ class ReportService:
                 write_cell(row, 1, label, fill=warn_fill, font=warn_font)
             else:
                 write_cell(row, 1, label)
-            write_cell(row, 2, desc)
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+            write_cell(row, 2, desc, alignment=Alignment(horizontal="left", vertical="center", wrap_text=True))
             ws.row_dimensions[row].height = 15
             row += 1
         row += 1
@@ -490,8 +501,16 @@ class ReportService:
         if duplicate_numbers:
             dup_headers = ["Номер протокола", "Количество файлов", "Список файлов"]
             for col_idx, h in enumerate(dup_headers, 1):
-                write_cell(row, col_idx, h, fill=header_fill, font=header_font,
-                           alignment=Alignment(horizontal="center", vertical="center"))
+                if col_idx == 1:
+                    write_cell(row, 1, h, fill=header_fill, font=header_font,
+                               alignment=Alignment(horizontal="center", vertical="center"))
+                elif col_idx == 2:
+                    write_cell(row, 2, h, fill=header_fill, font=header_font,
+                               alignment=Alignment(horizontal="center", vertical="center"))
+                else:
+                    ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=8)
+                    write_cell(row, 3, h, fill=header_fill, font=header_font,
+                               alignment=Alignment(horizontal="center", vertical="center"))
             ws.row_dimensions[row].height = 21.75
             row += 1
             for num, items in sorted(duplicate_numbers.items()):
@@ -501,7 +520,8 @@ class ReportService:
                     f"{p.protocol_file.relative_path if p.protocol_file else '—'}"
                     for p in items
                 )
-                write_cell(row, 3, file_list)
+                ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=8)
+                write_cell(row, 3, file_list, alignment=Alignment(horizontal="left", vertical="center", wrap_text=True))
                 ws.row_dimensions[row].height = 15
                 row += 1
         else:
