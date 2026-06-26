@@ -437,7 +437,7 @@ class ReportService:
             ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе", "Точное совпадение после нормализации"),
             ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе", "Точное совпадение"),
             ("Уникальность номера протокола", "Номера протоколов между собой", "Не должно повторяться"),
-            ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе", "Предупреждение при расхождении"),
+            ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе", "Доп. предупреждение при расхождении"),
         ]
         for check_name, desc, note in performed_checks:
             write_cell(row, 1, check_name)
@@ -463,7 +463,7 @@ class ReportService:
 
         legend_items = [
             ("Ошибка", "Дата поверки не совпадает с verification_date в АРШИН; ФИО поверителя различается; условия окружающей среды не совпадают точно."),
-            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе."),
+            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе (доп. проверка)."),
             ("Отсутствует протокол", "Запись есть в АРШИН, файл протокола не найден по заводскому номеру."),
             ("Лишний протокол", "Файл протокола есть, записи в АРШИН по заводскому номеру нет."),
         ]
@@ -600,7 +600,7 @@ class ReportService:
                           "Дата", "Действует до", "№ док-та"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Зав№ из протокола",
-                         "Зав№ из файла", "№ОТ", "Методика", "Год", "Владелец", "Дата",
+                         "№ОТ", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
@@ -742,7 +742,6 @@ class ReportService:
                 proto.protocol_number or "",
                 full_name,
                 proto.serial_number or "",
-                file_name_serial,
                 proto.mit_number or "",
                 (proto.verification_method if proto.verification_method else "—"),
                 proto.manufacture_year or "",
@@ -789,10 +788,9 @@ class ReportService:
                         except (ValueError, TypeError):
                             pass
 
-            # Check serial from filename vs protocol
+            # Check serial from filename vs protocol (warning context only)
             if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
-                mismatches.append(f"Зав№ файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
-                # Does not change status to error; treated as warning context
+                mismatches.append(f"Зав№ в имени файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
 
             # Status symbol and color
             if date_status == "green" and not mismatches:
@@ -857,7 +855,7 @@ class ReportService:
                     fmt_num(lk_conditions.get("temperature")),
                     fmt_num(lk_conditions.get("humidity")),
                     fmt_num(lk_conditions.get("pressure")),
-                    "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "",
                 ]
                 for col_idx, value in enumerate(row_data, 1):
                     cell = ws.cell(row=row_num, column=col_idx, value=value)
