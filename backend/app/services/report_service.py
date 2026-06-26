@@ -126,6 +126,23 @@ class ReportService:
             owner = _re.sub(r"\s+\d[\d\s]*$", "", owner).strip()
             return owner or "Владелец не определён"
 
+        def _normalize_serial(serial: str) -> str:
+            """Normalize serial number for comparison (handle homoglyphs, garbage)."""
+            if not serial:
+                return ""
+            replacements = {
+                "А": "A", "В": "B", "С": "C", "Е": "E",
+                "Н": "H", "К": "K", "М": "M", "О": "O",
+                "Р": "P", "Т": "T", "Х": "X",
+                "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+            }
+            normalized = serial
+            for old, new in replacements.items():
+                normalized = normalized.replace(old, new)
+            normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
+            normalized = normalized.lstrip('0')
+            return normalized.upper().strip()
+
         def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
             if not a or not b:
                 return False
@@ -165,26 +182,43 @@ class ReportService:
             top=Side(style="thin"), bottom=Side(style="thin"),
         )
 
-        # Build calibrations lookup by serial number
+        # Build calibrations lookup by serial number (original + normalized)
         cal_by_serial: dict[str, list] = defaultdict(list)
+        cal_by_norm_serial: dict[str, list] = defaultdict(list)
         for c in calibrations:
             if c.mi_number:
-                cal_by_serial[c.mi_number.strip()].append(c)
+                serial = c.mi_number.strip()
+                cal_by_serial[serial].append(c)
+                norm = _normalize_serial(serial)
+                if norm:
+                    cal_by_norm_serial[norm].append(c)
 
         # Match protocols to calibrations
         matched_serials: set[str] = set()
         matched_protocols: list = []
         extra_protocols: list = []
+        serial_mismatch_count = 0
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
+            norm_serial = _normalize_serial(serial)
             cal_list = cal_by_serial.get(serial, [])
+            if not cal_list and norm_serial:
+                cal_list = cal_by_norm_serial.get(norm_serial, [])
             if cal_list:
                 matched_serials.add(serial)
                 matched_protocols.append((proto, cal_list))
             else:
                 extra_protocols.append(proto)
 
-        missing_cals = [c for c in calibrations if c.mi_number and c.mi_number.strip() not in matched_serials]
+            # Check serial from filename vs protocol
+            file_name_serial = ""
+            if proto.protocol_file and proto.protocol_file.file_name:
+                file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
+            if file_name_serial and serial and _normalize_serial(file_name_serial) != norm_serial:
+                serial_mismatch_count += 1
+
+        missing_cals = [c for c in calibrations if c.mi_number and c.mi_number.strip() not in matched_serials
+                        and _normalize_serial(c.mi_number.strip()) not in cal_by_norm_serial]
 
         # Errors/warnings per matched pair
         error_count = 0
@@ -203,10 +237,11 @@ class ReportService:
             best_cal = None
             if proto.verification_date:
                 proto_date = proto.verification_date
-                green = [c for c in cal_list if _dates_within(c.verification_date, proto_date)]
-                if green:
+                # Exact match required
+                exact = [c for c in cal_list if c.verification_date == proto_date]
+                if exact:
                     date_status = "green"
-                    best_cal = green[0]
+                    best_cal = exact[0]
                 else:
                     yellow = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
                     if yellow:
@@ -245,12 +280,13 @@ class ReportService:
                 except json.JSONDecodeError:
                     pass
 
-            for field, threshold in (("temperature", 2.0), ("humidity", 10.0), ("pressure", 3.0)):
+            # Exact match for conditions
+            for field in ("temperature", "humidity", "pressure"):
                 proto_val = getattr(proto, field, None)
                 cal_val = lk_conditions.get(field)
                 if proto_val is not None and cal_val is not None:
                     try:
-                        if abs(float(proto_val) - float(cal_val)) > threshold:
+                        if float(proto_val) != float(cal_val):
                             pair_errors += 1
                     except (ValueError, TypeError):
                         pass
@@ -387,12 +423,13 @@ class ReportService:
 
         performed_checks = [
             ("Наличие протокола", "Поверка АРШИН ↔ файл протокола", "Поиск по заводскому номеру"),
-            ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН", "Поиск по серийному номеру"),
-            ("Дата поверки", "Дата в протоколе ↔ дата в АРШИН", "±1 день"),
+            ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН", "Поиск по заводскому номеру"),
+            ("Дата поверки", "Дата в протоколе ↔ verification_date в АРШИН", "Точное совпадение"),
             ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН", "Предупреждение, если совпадает"),
             ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе", "Точное совпадение после нормализации"),
-            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе", "t ±2°C, φ ±10%, P ±3 кПа"),
+            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе", "Точное совпадение"),
             ("Уникальность номера протокола", "Номера протоколов между собой", "Не должно повторяться"),
+            ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе", "Предупреждение при расхождении"),
         ]
         for check_name, desc, note in performed_checks:
             write_cell(row, 1, check_name)
@@ -417,10 +454,10 @@ class ReportService:
         row += 1
 
         legend_items = [
-            ("Ошибка", "Дата не совпадает ни с verification_date, ни с valid_date; ФИО поверителя различается; условия окружающей среды расходятся больше допуска."),
-            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат)."),
-            ("Отсутствует протокол", "Запись есть в АРШИН, файл протокола не найден по серийному номеру."),
-            ("Лишний протокол", "Файл протокола есть, записи в АРШИН по серийному номеру нет."),
+            ("Ошибка", "Дата поверки не совпадает с verification_date в АРШИН; ФИО поверителя различается; условия окружающей среды не совпадают точно."),
+            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе."),
+            ("Отсутствует протокол", "Запись есть в АРШИН, файл протокола не найден по заводскому номеру."),
+            ("Лишний протокол", "Файл протокола есть, записи в АРШИН по заводскому номеру нет."),
         ]
         for label, desc in legend_items:
             if label == "Ошибка":
@@ -550,8 +587,8 @@ class ReportService:
         public_headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
                           "Дата", "Действует до", "№ док-та"]
         lk_headers = ["Поверитель", "t", "φ", "P"]
-        proto_headers = ["№ протокола", "Наименование", "Зав№",
-                         "№ОТ", "Методика", "Год", "Владелец", "Дата",
+        proto_headers = ["№ протокола", "Наименование", "Зав№ из протокола",
+                         "Зав№ из файла", "№ОТ", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P"]
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
@@ -624,7 +661,10 @@ class ReportService:
         # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration(s)
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
+            norm_serial = _normalize_serial(serial)
             cal_list = cal_by_serial.get(serial, [])
+            if not cal_list and norm_serial:
+                cal_list = cal_by_norm_serial.get(norm_serial, [])
             if cal_list:
                 matched_cal_serials.add(serial)
 
@@ -633,10 +673,11 @@ class ReportService:
             best_cal = None
             if cal_list and proto.verification_date:
                 proto_date = proto.verification_date
-                green_cals = [c for c in cal_list if _dates_within(c.verification_date, proto_date)]
-                if green_cals:
+                # Exact match required
+                exact_cals = [c for c in cal_list if c.verification_date == proto_date]
+                if exact_cals:
                     date_status = "green"
-                    best_cal = green_cals[0]
+                    best_cal = exact_cals[0]
                 else:
                     yellow_cals = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
                     if yellow_cals:
@@ -665,6 +706,10 @@ class ReportService:
 
             full_name = self._combine_name_type(proto.device_name, proto.device_type)
 
+            file_name_serial = ""
+            if proto.protocol_file and proto.protocol_file.file_name:
+                file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
+
             row_data = [
                 "",
                 "",
@@ -685,6 +730,7 @@ class ReportService:
                 proto.protocol_number or "",
                 full_name,
                 proto.serial_number or "",
+                file_name_serial,
                 proto.mit_number or "",
                 (proto.verification_method if proto.verification_method else "—"),
                 proto.manufacture_year or "",
@@ -720,9 +766,21 @@ class ReportService:
                     if norm_proto_verifier != norm_cal_verifier:
                         mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
 
-                if proto.serial_number and serial:
-                    if proto.serial_number.strip() != serial:
-                        mismatches.append(f"Серийник: {serial} vs {proto.serial_number}")
+                # Check conditions exact match
+                for field in ("temperature", "humidity", "pressure"):
+                    proto_val = getattr(proto, field, None)
+                    cal_val = lk_conditions.get(field)
+                    if proto_val is not None and cal_val is not None:
+                        try:
+                            if float(proto_val) != float(cal_val):
+                                mismatches.append(f"{field}: {cal_val} vs {proto_val}")
+                        except (ValueError, TypeError):
+                            pass
+
+            # Check serial from filename vs protocol
+            if file_name_serial and serial and _normalize_serial(file_name_serial) != _normalize_serial(serial):
+                mismatches.append(f"Зав№ файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
+                # Does not change status to error; treated as warning context
 
             # Status symbol and color
             if date_status == "green" and not mismatches:
@@ -787,7 +845,7 @@ class ReportService:
                     fmt_num(lk_conditions.get("temperature")),
                     fmt_num(lk_conditions.get("humidity")),
                     fmt_num(lk_conditions.get("pressure")),
-                    "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "",
                 ]
                 for col_idx, value in enumerate(row_data, 1):
                     cell = ws.cell(row=row_num, column=col_idx, value=value)
@@ -804,6 +862,19 @@ class ReportService:
                 display_num += 1
 
         self._auto_fit_columns(ws)
+
+    def _extract_serial_from_filename(self, file_name: str) -> str:
+        """Extract serial number from protocol filename."""
+        import re
+        # Try pattern: '... (Зав№).pdf' or '... № S12345 ...'
+        match = re.search(r'\(([^()]+)\)\s*\.pdf$', file_name, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        # Fallback: last parenthesized group
+        match = re.search(r'\(([^()]+)\)', file_name)
+        if match:
+            return match.group(1).strip()
+        return ""
 
     def _write_headers(self, ws, headers, color) -> None:
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
