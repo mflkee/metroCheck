@@ -637,6 +637,7 @@ class ReportService:
         self._auto_fit_columns(ws)
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
+        from collections import defaultdict
         # Build calibrations lookup by (serial, mit_number) pair and by serial
         cal_by_pair: dict[tuple[str, str], list] = defaultdict(list)
         cal_by_serial: dict[str, list] = defaultdict(list)
