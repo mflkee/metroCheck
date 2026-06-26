@@ -48,6 +48,24 @@ class ReportService:
         return text
 
     @staticmethod
+    def _normalize_serial(serial: str) -> str:
+        """Normalize serial number for comparison (handle homoglyphs, garbage)."""
+        if not serial:
+            return ""
+        replacements = {
+            "А": "A", "В": "B", "С": "C", "Е": "E",
+            "Н": "H", "К": "K", "М": "M", "О": "O",
+            "Р": "P", "Т": "T", "Х": "X",
+            "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+        }
+        normalized = serial
+        for old, new in replacements.items():
+            normalized = normalized.replace(old, new)
+        normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
+        normalized = normalized.lstrip('0')
+        return normalized.upper().strip()
+
+    @staticmethod
     def _extract_range_from_text(text: str) -> str:
         """Extract measurement range from protocol text."""
         if not text:
@@ -126,23 +144,6 @@ class ReportService:
             owner = _re.sub(r"\s+\d[\d\s]*$", "", owner).strip()
             return owner or "Владелец не определён"
 
-        def _normalize_serial(serial: str) -> str:
-            """Normalize serial number for comparison (handle homoglyphs, garbage)."""
-            if not serial:
-                return ""
-            replacements = {
-                "А": "A", "В": "B", "С": "C", "Е": "E",
-                "Н": "H", "К": "K", "М": "M", "О": "O",
-                "Р": "P", "Т": "T", "Х": "X",
-                "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
-            }
-            normalized = serial
-            for old, new in replacements.items():
-                normalized = normalized.replace(old, new)
-            normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
-            normalized = normalized.lstrip('0')
-            return normalized.upper().strip()
-
         def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
             if not a or not b:
                 return False
@@ -189,7 +190,7 @@ class ReportService:
             if c.mi_number:
                 serial = c.mi_number.strip()
                 cal_by_serial[serial].append(c)
-                norm = _normalize_serial(serial)
+                norm = self._normalize_serial(serial)
                 if norm:
                     cal_by_norm_serial[norm].append(c)
 
@@ -200,7 +201,7 @@ class ReportService:
         serial_mismatch_count = 0
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
-            norm_serial = _normalize_serial(serial)
+            norm_serial = self._normalize_serial(serial)
             cal_list = cal_by_serial.get(serial, [])
             if not cal_list and norm_serial:
                 cal_list = cal_by_norm_serial.get(norm_serial, [])
@@ -214,11 +215,11 @@ class ReportService:
             file_name_serial = ""
             if proto.protocol_file and proto.protocol_file.file_name:
                 file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
-            if file_name_serial and serial and _normalize_serial(file_name_serial) != norm_serial:
+            if file_name_serial and serial and self._normalize_serial(file_name_serial) != norm_serial:
                 serial_mismatch_count += 1
 
         missing_cals = [c for c in calibrations if c.mi_number and c.mi_number.strip() not in matched_serials
-                        and _normalize_serial(c.mi_number.strip()) not in cal_by_norm_serial]
+                        and self._normalize_serial(c.mi_number.strip()) not in cal_by_norm_serial]
 
         # Errors/warnings per matched pair
         error_count = 0
@@ -290,6 +291,13 @@ class ReportService:
                             pair_errors += 1
                     except (ValueError, TypeError):
                         pass
+
+            # Check serial from filename vs protocol
+            file_name_serial = ""
+            if proto.protocol_file and proto.protocol_file.file_name:
+                file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
+            if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
+                pair_warnings += 1
 
             if pair_errors:
                 error_count += pair_errors
@@ -661,7 +669,7 @@ class ReportService:
         # FIRST PASS: iterate by protocols (all files in folder order), find matching calibration(s)
         for proto in protocols:
             serial = (proto.serial_number or "").strip()
-            norm_serial = _normalize_serial(serial)
+            norm_serial = self._normalize_serial(serial)
             cal_list = cal_by_serial.get(serial, [])
             if not cal_list and norm_serial:
                 cal_list = cal_by_norm_serial.get(norm_serial, [])
