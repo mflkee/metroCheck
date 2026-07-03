@@ -22,7 +22,7 @@ if not exist "%AGENT_DIR%\main.py" (
 
 echo Папка агента: %AGENT_DIR%
 
-rem --- Ищем Python ----------------------------------------------------------
+rem --- Ищем Python: рядом, системный, py launcher ---------------------------
 set "PYTHON_EXE="
 
 if exist "%~dp0python.exe" (
@@ -51,9 +51,7 @@ for %%X in (py.exe) do (
 :python_not_found
 echo ОШИБКА: не найден python.exe.
 echo.
-echo Варианты:
-echo   1. Помести portable python.exe рядом с этим файлом, или
-echo   2. Установи Python 3.10+ с https://python.org и отметь "Add Python to PATH"
+echo Сначала запусти setup.cmd — он скачает или найдёт Python.
 echo.
 pause
 exit /b 1
