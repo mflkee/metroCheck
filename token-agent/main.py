@@ -1,18 +1,17 @@
-"""ARSHIN Token Agent for Windows.
+"""Агент токена ARSHIN для Windows.
 
-Receives ARSHIN JWT token from Chrome Extension and writes it to a JSON file
-inside a Synology Drive (or any other) synced folder.
+Принимает JWT-токен от расширения Chrome и записывает его в JSON-файл
+в папке, синхронизируемой Synology Drive Client.
 
-Configuration:
-    token-agent/.env     -> TOKEN_FILE_PATH, HOST, PORT
-    Environment variable -> TOKEN_FILE_PATH
+Настройка:
+    token-agent/.env    -> TOKEN_FILE_PATH, HOST, PORT
+    Переменная среды    -> TOKEN_FILE_PATH
 
-Logging:
+Логирование:
     token-agent/token-agent.log
-    Console output (always)
+    Вывод в консоль
 
-No external dependencies: uses only Python standard library.
-Tested with Python 3.10+.
+Без внешних зависимостей: используется только стандартная библиотека Python.
 """
 from __future__ import annotations
 
@@ -28,18 +27,15 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Paths
+# Пути
 # ---------------------------------------------------------------------------
-# Folder where this script lives.
 AGENT_DIR = Path(__file__).resolve().parent
-
-# Default log file next to the script.
 LOG_FILE = Path(os.environ.get("TOKEN_AGENT_LOG", AGENT_DIR / "token-agent.log"))
+ENV_FILE = AGENT_DIR / ".env"
 
 # ---------------------------------------------------------------------------
-# Load .env file from agent directory (not CWD)
+# Загрузка .env из папки агента (не из текущей директории)
 # ---------------------------------------------------------------------------
-ENV_FILE = AGENT_DIR / ".env"
 if ENV_FILE.exists():
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -52,12 +48,11 @@ if ENV_FILE.exists():
             os.environ[key] = value
 
 # ---------------------------------------------------------------------------
-# Logging: console + file with rotation on start (keep last start)
+# Логирование: консоль + файл
 # ---------------------------------------------------------------------------
 logger = logging.getLogger("token-agent")
 logger.setLevel(logging.DEBUG)
 
-# Keep one backup of previous log.
 if LOG_FILE.exists():
     try:
         backup = LOG_FILE.with_suffix(".log.prev")
@@ -81,7 +76,7 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 # ---------------------------------------------------------------------------
-# Configuration with defaults
+# Настройки
 # ---------------------------------------------------------------------------
 TOKEN_FILE_PATH = Path(
     os.environ.get(
@@ -93,33 +88,31 @@ HOST = os.environ.get("TOKEN_AGENT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TOKEN_AGENT_PORT", "8003"))
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
-# In-memory state.
 _state: dict[str, Any] = {"token": None, "updated_at": 0}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Вспомогательные функции
 # ---------------------------------------------------------------------------
 def log_startup_info() -> None:
-    """Dump useful startup diagnostics."""
+    """Вывести диагностическую информацию при старте."""
     logger.info("=" * 50)
-    logger.info("ARSHIN Token Agent starting")
+    logger.info("Запуск агента токена ARSHIN")
     logger.info("=" * 50)
-    logger.info("Python executable: %s", sys.executable)
-    logger.info("Python version: %s", sys.version.replace("\n", " "))
-    logger.info("Agent directory: %s", AGENT_DIR)
-    logger.info("Working directory: %s", Path.cwd())
-    logger.info("Env file used: %s", ENV_FILE)
-    logger.info("Env file exists: %s", ENV_FILE.exists())
+    logger.info("Python: %s", sys.executable)
+    logger.info("Версия Python: %s", sys.version.replace("\n", " "))
+    logger.info("Папка агента: %s", AGENT_DIR)
+    logger.info("Текущая папка: %s", Path.cwd())
+    logger.info("Файл настроек: %s", ENV_FILE)
+    logger.info("Файл настроек существует: %s", ENV_FILE.exists())
     logger.info("TOKEN_FILE_PATH: %s", TOKEN_FILE_PATH)
-    logger.info("TOKEN_FILE_PATH absolute: %s", TOKEN_FILE_PATH.resolve())
-    logger.info("Token directory exists: %s", TOKEN_FILE_PATH.parent.exists())
-    logger.info("Listen host: %s", HOST)
-    logger.info("Listen port: %s", PORT)
+    logger.info("TOKEN_FILE_PATH (абсолютный): %s", TOKEN_FILE_PATH.resolve())
+    logger.info("Папка для токена существует: %s", TOKEN_FILE_PATH.parent.exists())
+    logger.info("Адрес прослушивания: %s:%s", HOST, PORT)
 
 
 def jwt_expires_in(raw_token: str, default: int = TOKEN_TTL) -> int:
-    """Decode JWT payload to extract real expiration time."""
+    """Расшифровать JWT и получить время до истечения."""
     try:
         parts = raw_token.split(".")
         if len(parts) < 2:
@@ -136,39 +129,29 @@ def jwt_expires_in(raw_token: str, default: int = TOKEN_TTL) -> int:
         remaining = int(exp - time.time())
         return max(remaining, 0)
     except Exception as exc:
-        logger.warning("Could not decode JWT expiration: %s", exc)
+        logger.warning("Не удалось расшифровать срок действия JWT: %s", exc)
         return default
 
 
-def ensure_token_directory() -> None:
-    """Create target directory if it does not exist; wait if parent is missing."""
+def ensure_token_directory() -> bool:
+    """Создать папку для токена, если её нет."""
     directory = TOKEN_FILE_PATH.parent
     if directory.exists():
-        logger.info("Token directory ready: %s", directory)
-        return
-
-    logger.warning("Token directory does not exist yet: %s", directory)
-    # Synology Drive may start later. Wait up to 60 seconds for parent folders.
-    for attempt in range(1, 61):
-        if directory.exists():
-            logger.info("Token directory appeared after %ss: %s", attempt, directory)
-            return
-        if attempt == 1 or attempt % 10 == 0:
-            logger.info("Waiting for token directory... (%s/60)", attempt)
-        time.sleep(1)
-
-    logger.warning("Directory did not appear; will try to create it: %s", directory)
+        return True
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        logger.info("Created token directory: %s", directory)
+        logger.info("Создана папка для токена: %s", directory)
+        return True
     except Exception as exc:
-        logger.error("Failed to create token directory: %s", exc)
+        logger.error("Не удалось создать папку для токена: %s", exc)
         logger.error(traceback.format_exc())
+        return False
 
 
 def write_token_file(token: str) -> bool:
-    """Write token to shared JSON file. Returns True on success."""
-    ensure_token_directory()
+    """Записать токен в JSON-файл. Возвращает True при успехе."""
+    if not ensure_token_directory():
+        return False
     try:
         data = {
             "token": token,
@@ -181,18 +164,18 @@ def write_token_file(token: str) -> bool:
         tmp_path.replace(TOKEN_FILE_PATH)
         _state["token"] = token
         _state["updated_at"] = data["updated_at"]
-        logger.info("Token written successfully: %s", TOKEN_FILE_PATH)
-        logger.info("Token file size: %s bytes", TOKEN_FILE_PATH.stat().st_size)
-        logger.info("Token expires in: %ss", data["expires_in"])
+        logger.info("Токен записан: %s", TOKEN_FILE_PATH)
+        logger.info("Размер файла: %s байт", TOKEN_FILE_PATH.stat().st_size)
+        logger.info("Токен истекает через: %ss", data["expires_in"])
         return True
     except Exception as exc:
-        logger.error("Failed to write token file: %s", exc)
+        logger.error("Не удалось записать файл токена: %s", exc)
         logger.error(traceback.format_exc())
         return False
 
 
 # ---------------------------------------------------------------------------
-# HTTP request handler
+# HTTP-обработчик
 # ---------------------------------------------------------------------------
 class TokenHandler(BaseHTTPRequestHandler):
     def _cors_headers(self) -> None:
@@ -218,7 +201,7 @@ class TokenHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        logger.info("GET %s from %s", self.path, self.client_address)
+        logger.info("GET %s от %s", self.path, self.client_address)
         if self.path == "/health":
             self._json({
                 "status": "ok",
@@ -231,14 +214,14 @@ class TokenHandler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
-        logger.info("POST %s from %s", self.path, self.client_address)
+        logger.info("POST %s от %s", self.path, self.client_address)
         length = int(self.headers.get("Content-Length", "0"))
         raw_body = self.rfile.read(length)
 
         try:
             body = json.loads(raw_body.decode("utf-8"))
         except json.JSONDecodeError as exc:
-            logger.error("Invalid JSON body: %s", exc)
+            logger.error("Некорректное JSON-тело: %s", exc)
             self._json({"error": "invalid json"}, 400)
             return
 
@@ -248,13 +231,13 @@ class TokenHandler(BaseHTTPRequestHandler):
             source = body.get("source", "?")
             if token.startswith("Bearer "):
                 token = token[7:]
-            logger.info("Token received key=%s source=%s preview=%s...", key, source, token[:20])
+            logger.info("Получен токен: key=%s source=%s preview=%s...", key, source, token[:20])
             if write_token_file(token):
-                self._json({"status": "ok", "message": "Token saved to file"})
+                self._json({"status": "ok", "message": "Токен сохранён в файл"})
             else:
-                self._json({"status": "error", "message": "Failed to write token file"}, 500)
+                self._json({"status": "error", "message": "Не удалось записать файл токена"}, 500)
         elif self.path == "/token/discover":
-            logger.info("Discovery dump received:")
+            logger.info("Получен дамп хранилища:")
             for store_name, keys in body.items():
                 logger.info("  %s:", store_name)
                 for k, v in keys.items():
@@ -264,12 +247,11 @@ class TokenHandler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Suppress default stderr logging; we log via custom logger in methods.
         pass
 
 
 # ---------------------------------------------------------------------------
-# Server startup with retry on port conflicts
+# Запуск сервера
 # ---------------------------------------------------------------------------
 def start_server() -> None:
     log_startup_info()
@@ -278,18 +260,18 @@ def start_server() -> None:
     for attempt in range(1, 4):
         try:
             server = HTTPServer((HOST, PORT), TokenHandler)
-            logger.info("Server ready at http://%s:%s", HOST, PORT)
-            logger.info("Token target: %s", TOKEN_FILE_PATH.resolve())
-            logger.info("Press Ctrl+C to stop")
+            logger.info("Сервер запущен: http://%s:%s", HOST, PORT)
+            logger.info("Файл токена: %s", TOKEN_FILE_PATH.resolve())
+            logger.info("Нажмите Ctrl+C для остановки")
             server.serve_forever()
             break
         except OSError as exc:
-            logger.error("Failed to start server (attempt %s/3): %s", attempt, exc)
+            logger.error("Ошибка запуска сервера (попытка %s/3): %s", attempt, exc)
             if attempt < 3:
-                logger.info("Retrying in 3 seconds...")
+                logger.info("Повтор через 3 секунды...")
                 time.sleep(3)
             else:
-                logger.critical("Could not start server on port %s", PORT)
+                logger.critical("Не удалось запустить сервер на порту %s", PORT)
                 logger.critical(traceback.format_exc())
                 raise
 
@@ -298,14 +280,14 @@ if __name__ == "__main__":
     try:
         start_server()
     except KeyboardInterrupt:
-        logger.info("Stopped by user")
+        logger.info("Остановлено пользователем")
     except Exception as exc:
-        logger.critical("Unhandled error: %s", exc)
+        logger.critical("Критическая ошибка: %s", exc)
         logger.critical(traceback.format_exc())
-        print("\n*** TOKEN AGENT ERROR ***")
+        print("\n*** ОШИБКА АГЕНТА ТОКЕНА ***")
         print(str(exc))
-        print("\nFull log:", LOG_FILE.resolve())
-        print("\nPress Enter to exit...")
+        print("\nПолный лог:", LOG_FILE.resolve())
+        print("\nНажмите Enter для выхода...")
         try:
             input()
         except KeyboardInterrupt:
