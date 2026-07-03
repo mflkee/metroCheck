@@ -11,9 +11,9 @@
 ФАЙЛЫ
 -----
 token-agent-windows\
-├── python.exe              <-- портативный Python
+├── python.exe              <-- портативный Python (появится после setup.cmd)
 ├── run.cmd                 <-- запуск агента
-├── setup.cmd               <-- настройка pip (один раз)
+├── setup.cmd               <-- настройка Python (один раз)
 ├── add-autostart.cmd       <-- добавить в автозагрузку
 └── token-agent\
     ├── main.py             <-- программа агента
@@ -25,9 +25,14 @@ token-agent-windows\
 1. Распакуй папку token-agent-windows в удобное место, например:
    C:\Tools\token-agent-windows\
 
-2. Открой файл token-agent\.env обычным Блокнотом.
+2. Запусти setup.cmd двойным кликом.
+   - Если в системе уже есть Python — setup скажет, что всё готово.
+   - Если Python нет — setup скачает и распакует портативный Python.
+   - Это делается один раз.
 
-3. Замени строку:
+3. Открой файл token-agent\.env обычным Блокнотом.
+
+4. Замени строку:
       TOKEN_FILE_PATH=REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH/tokens/arshin-token.json
 
    на реальный путь к своей папке Synology Drive, например:
@@ -41,8 +46,6 @@ token-agent-windows\
    - Оставь в конце /tokens/arshin-token.json
 
    Можно использовать / или \ — оба варианта работают.
-
-4. Запусти setup.cmd один раз (двойным кликом).
 
 5. Запусти run.cmd двойным кликом.
    Окно не закрывай — агент должен работать постоянно.
@@ -69,8 +72,15 @@ token-agent-windows\
 ЕСЛИ НЕ РАБОТАЕТ
 ----------------
 1. run.cmd пишет "python.exe not found"
-   Рядом с run.cmd должен лежать python.exe. Если его нет — скачай
-   портативный Python 3.11 и положи файлы рядом с run.cmd.
+   Сначала запусти setup.cmd — он найдёт системный Python или скачает
+   портативный. Если интернета нет, установи Python вручную с
+   https://python.org/downloads/ и отметь "Add Python to PATH".
+
+2. setup.cmd не скачивает Python / ошибка сети
+   Проверь подключение к интернету. Если скачивание заблокировано,
+   скачай вручную:
+      https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip
+   и распакуй в папку token-agent-windows. После этого снова запусти setup.cmd.
 
 2. "Не удалось создать папку для токена"
    Путь в .env неверный. Проверь, что папка SynologyDrive существует
