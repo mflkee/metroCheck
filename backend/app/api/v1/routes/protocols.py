@@ -1,11 +1,12 @@
 """Protocol file management endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.api.v1.dependencies.auth import get_current_user
 from app.services.protocol_scanner import ProtocolScanner
 
 router = APIRouter()
@@ -28,13 +29,9 @@ class ProtocolDataSaveRequest(BaseModel):
 @router.post("/scan")
 async def scan_protocols(
     payload: ScanRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Scan protocol folder for PDF files."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     base_path = payload.path or settings.METROCHECK_PROTOCOLS_PATH or "/protocols"
     scanner = ProtocolScanner(db, base_path)
     result = await scanner.scan(payload.year, payload.month)
@@ -44,13 +41,9 @@ async def scan_protocols(
 @router.post("/{protocol_id}/extract")
 async def extract_text(
     protocol_id: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Extract text from a protocol PDF."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     base_path = settings.METROCHECK_PROTOCOLS_PATH or "/protocols"
     scanner = ProtocolScanner(db, base_path)
     result = await scanner.extract_text(protocol_id)
@@ -61,13 +54,9 @@ async def extract_text(
 async def list_protocols(
     year: int,
     month: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List scanned protocols for a given month."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.repositories.protocol_file_repository import ProtocolFileRepository
     repo = ProtocolFileRepository(db)
     protocols = await repo.get_by_month(year, month)
@@ -91,13 +80,9 @@ async def list_protocols(
 @router.post("/data")
 async def save_protocol_data(
     payload: ProtocolDataSaveRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Save extracted protocol data."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.repositories.protocol_data_repository import ProtocolDataRepository
     repo = ProtocolDataRepository(db)
 

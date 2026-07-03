@@ -3,12 +3,13 @@
 import asyncio
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.api.v1.dependencies.auth import get_current_user
 from app.integrations.arshin_client import ArshinClient
 from app.services.arshin_service import ArshinService
 from app.services.task_manager import get_task_manager
@@ -47,12 +48,9 @@ async def arshin_status() -> dict:
 
 @router.get("/token-status")
 async def token_status(
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Check ARSHIN Bearer token availability."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     import os
     import time
     import json
@@ -88,12 +86,9 @@ async def token_status(
 
 @router.post("/refresh-token", status_code=202)
 async def refresh_token(
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Start token refresh in background. Returns task_id for polling."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task_id = await tm.create("token_refresh")
     await tm.update(task_id, status="waiting_token", progress="Waiting for ARSHIN token via shared file (Synology Drive)...")
@@ -122,12 +117,9 @@ async def _refresh_token_task(task_id: str) -> None:
 @router.get("/task/{task_id}")
 async def get_task_status(
     task_id: str,
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Get status of any async task (token refresh, etc.)."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task = await tm.get(task_id)
     if not task:
@@ -148,13 +140,9 @@ async def get_task_status(
 @router.post("/fetch-lk-async", status_code=202)
 async def fetch_lk_details_async(
     payload: FetchLKDetailsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fetch LK details with async token waiting. Returns task_id."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task_id = await tm.create(f"lk_details_{payload.year}_{payload.month}")
     await tm.update(task_id, status="pending", progress="Task created")
@@ -251,13 +239,9 @@ async def _fetch_data2_task(task_id: str, year: int, month: int) -> None:
 @router.post("/fetch-data2-async", status_code=202)
 async def fetch_lk_data2_async(
     payload: FetchLKDetailsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fetch extended LK data2 with async token waiting. Returns task_id."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task_id = await tm.create(f"lk_data2_{payload.year}_{payload.month}")
     await tm.update(task_id, status="pending", progress="Task created")
@@ -268,13 +252,9 @@ async def fetch_lk_data2_async(
 @router.post("/fetch-calibrations")
 async def fetch_calibrations(
     payload: FetchCalibrationsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fetch calibration list from ARSHIN public API and save to DB."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     service = ArshinService(db)
     result = await service.fetch_and_save_calibrations(payload.year, payload.month)
     return result
@@ -283,13 +263,9 @@ async def fetch_calibrations(
 @router.post("/fetch-lk-details")
 async def fetch_lk_details(
     payload: FetchLKDetailsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fetch details from ARSHIN LK (requires Bearer token)."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     if not settings.ARSHIN_BEARER_TOKEN:
         raise HTTPException(status_code=400, detail="ARSHIN_BEARER_TOKEN not configured")
 
@@ -301,13 +277,9 @@ async def fetch_lk_details(
 @router.post("/fetch-lk-data2")
 async def fetch_lk_data2(
     payload: FetchLKDetailsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fetch extended data from ARSHIN LK."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     if not settings.ARSHIN_BEARER_TOKEN:
         raise HTTPException(status_code=400, detail="ARSHIN_BEARER_TOKEN not configured")
 
@@ -332,12 +304,9 @@ class SchedulerSettingsRequest(BaseModel):
 
 @router.get("/scheduler/status")
 async def scheduler_status(
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Get scheduler status with all settings."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     import os
     import json
     state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
@@ -378,12 +347,9 @@ async def scheduler_status(
 @router.post("/scheduler/mode")
 async def set_scheduler_mode(
     payload: SchedulerModeRequest,
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Set scheduler mode: manual or auto."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     if payload.mode not in ("manual", "auto"):
         raise HTTPException(status_code=400, detail="Mode must be 'manual' or 'auto'")
     
@@ -408,16 +374,13 @@ async def set_scheduler_mode(
 @router.post("/scheduler/settings")
 async def update_scheduler_settings(
     payload: SchedulerSettingsRequest,
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Update scheduler settings: time, day, month offset.
     
     Example: auto_day=10, month_offset=-2
     → On 10th of each month, check month-2 (e.g., July→May)
     """
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     import os
     import json
     state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
@@ -483,13 +446,9 @@ async def update_scheduler_settings(
 
 @router.get("/queue/status")
 async def queue_status(
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get detailed queue status with phase statistics."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.services.job_queue_service import JobQueueService
     import json
 
@@ -512,16 +471,12 @@ async def queue_status(
 @router.post("/run-check")
 async def run_check_manual(
     payload: FetchLKDetailsRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Manually trigger a check for specific month.
     
     Works in both manual and auto modes.
     """
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.services.job_queue_service import JobQueueService
     
     queue = JobQueueService(db)
@@ -542,11 +497,8 @@ class AddEmailRequest(BaseModel):
 
 @router.get("/scheduler/emails")
 async def list_emails(
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
     from app.repositories.email_repository import EmailRepository
     repo = EmailRepository(db)
     entries = await repo.get_all()
@@ -556,11 +508,8 @@ async def list_emails(
 @router.post("/scheduler/emails")
 async def add_email(
     payload: AddEmailRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
     from app.repositories.email_repository import EmailRepository
     repo = EmailRepository(db)
     existing = await repo.get_by_email(payload.email)
@@ -573,11 +522,8 @@ async def add_email(
 @router.delete("/scheduler/emails/{email_id}")
 async def delete_email(
     email_id: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
     from app.repositories.email_repository import EmailRepository
     repo = EmailRepository(db)
     deleted = await repo.delete(email_id)
