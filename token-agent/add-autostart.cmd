@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ==========================================
-echo   ARSHIN Token Agent - Add to Autostart
+echo   Агент токена ARSHIN — автозагрузка
 echo ==========================================
 echo.
 
@@ -11,14 +11,14 @@ set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "SHORTCUT=%STARTUP_DIR%\ARSHIN Token Agent.lnk"
 
 if not exist "%RUN_CMD%" (
-    echo ERROR: run.cmd not found in %ROOT_DIR%
+    echo ОШИБКА: не найден run.cmd в %ROOT_DIR%
     pause
     exit /b 1
 )
 
-echo Creating autostart shortcut...
-echo   Source: %RUN_CMD%
-echo   Target: %SHORTCUT%
+echo Создаю ярлык автозагрузки...
+echo   Источник: %RUN_CMD%
+echo   Куда: %SHORTCUT%
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "
@@ -32,14 +32,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "
 "
 
 if exist "%SHORTCUT%" (
-    echo SUCCESS: Autostart shortcut created.
-    echo Agent will start automatically when Windows boots.
-    echo.
-    echo IMPORTANT:
-    echo   - The agent will wait up to 60 seconds for the Synology Drive folder.
-    echo   - Keep the .env file inside token-agent\ folder.
+    echo ГОТОВО: агент будет запускаться автоматически при включении Windows.
 ) else (
-    echo ERROR: Could not create shortcut.
+    echo ОШИБКА: не удалось создать ярлык.
 )
 
 echo.

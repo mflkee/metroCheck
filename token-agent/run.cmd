@@ -3,47 +3,43 @@ chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 echo ==========================================
-echo   ARSHIN Token Agent - Launcher
+echo   Агент токена ARSHIN
 echo ==========================================
 echo.
 
-rem --- Find script directory ------------------------------------------------
+rem --- Определяем папку с main.py -------------------------------------------
 set "AGENT_DIR=%~dp0token-agent"
 if not exist "%AGENT_DIR%\main.py" (
     set "AGENT_DIR=%~dp0"
 )
 
 if not exist "%AGENT_DIR%\main.py" (
-    echo ERROR: main.py not found in %AGENT_DIR%
+    echo ОШИБКА: не найден main.py в папке %AGENT_DIR%
     echo.
     pause
     exit /b 1
 )
 
-echo Agent directory: %AGENT_DIR%
+echo Папка агента: %AGENT_DIR%
 
-rem --- Locate Python --------------------------------------------------------
+rem --- Ищем Python ----------------------------------------------------------
 set "PYTHON_EXE="
 
-rem 1) Portable python.exe next to this script (preferred)
 if exist "%~dp0python.exe" (
     set "PYTHON_EXE=%~dp0python.exe"
     goto :python_found
 )
 
-rem 2) Portable python.exe one level up
 if exist "%~dp0..\python.exe" (
     set "PYTHON_EXE=%~dp0..\python.exe"
     goto :python_found
 )
 
-rem 3) python.exe in PATH
 for %%X in (python.exe) do (
     set "PYTHON_EXE=%%~$PATH:X"
     if not "!PYTHON_EXE!"=="" goto :python_found
 )
 
-rem 4) py launcher
 for %%X in (py.exe) do (
     set "PY_LAUNCHER=%%~$PATH:X"
     if not "!PY_LAUNCHER!"=="" (
@@ -53,11 +49,11 @@ for %%X in (py.exe) do (
 )
 
 :python_not_found
-echo ERROR: python.exe not found.
+echo ОШИБКА: не найден python.exe.
 echo.
-echo Options:
-echo   1. Place portable python.exe next to this script, OR
-echo   2. Install Python 3.10+ from https://python.org and check "Add Python to PATH"
+echo Варианты:
+echo   1. Помести portable python.exe рядом с этим файлом, или
+echo   2. Установи Python 3.10+ с https://python.org и отметь "Add Python to PATH"
 echo.
 pause
 exit /b 1
@@ -66,21 +62,21 @@ exit /b 1
 echo Python: %PYTHON_EXE%
 echo.
 
-rem --- Ensure .env exists with placeholder ----------------------------------
+rem --- Создаём .env, если его нет -------------------------------------------
 if not exist "%AGENT_DIR%\.env" (
-    echo Creating default .env file...
+    echo Создаю файл настроек .env...
     (
-        echo # ARSHIN Token Agent configuration
-        echo # IMPORTANT: Replace REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH with your real Synology Drive path
+        echo # Настройки агента токена ARSHIN
+        echo # ЗАМЕНИ REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH на реальный путь к Synology Drive
         echo TOKEN_FILE_PATH=REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH/tokens/arshin-token.json
         echo TOKEN_AGENT_HOST=127.0.0.1
         echo TOKEN_AGENT_PORT=8003
     ) > "%AGENT_DIR%\.env"
-    echo Created: %AGENT_DIR%\.env
+    echo Создан: %AGENT_DIR%\.env
     echo.
 )
 
-rem --- Read TOKEN_FILE_PATH from .env ---------------------------------------
+rem --- Читаем TOKEN_FILE_PATH из .env ---------------------------------------
 set "TOKEN_FILE_PATH="
 for /f "usebackq tokens=1,* delims==" %%a in ("%AGENT_DIR%\.env") do (
     set "KEY=%%a"
@@ -91,66 +87,60 @@ for /f "usebackq tokens=1,* delims==" %%a in ("%AGENT_DIR%\.env") do (
 )
 
 if not defined TOKEN_FILE_PATH (
-    echo ERROR: TOKEN_FILE_PATH not set in .env file!
-    echo.
-    echo Please edit %AGENT_DIR%\.env
-    echo and replace REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH with your real path.
-    echo Example: TOKEN_FILE_PATH=C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json
+    echo ОШИБКА: в .env не задан TOKEN_FILE_PATH.
+    echo Отредактируй %AGENT_DIR%\.env
     echo.
     pause
     exit /b 1
 )
 
-rem --- Detect placeholder and stop ------------------------------------------
 echo %TOKEN_FILE_PATH% | findstr /I "REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH" >nul
 if %errorlevel% == 0 (
-    echo ERROR: You did not set your real Synology Drive path in .env!
+    echo ОШИБКА: в .env не заменён путь к Synology Drive.
     echo.
-    echo Please edit %AGENT_DIR%\.env
-    echo and replace REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH with your real path.
-    echo Example: TOKEN_FILE_PATH=C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json
+    echo Отредактируй %AGENT_DIR%\.env
+    echo Замени REPLACE_WITH_YOUR_SYNOLOGY_DRIVE_PATH на реальный путь, например:
+    echo   TOKEN_FILE_PATH=C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json
     echo.
     pause
     exit /b 1
 )
 
-echo TOKEN_FILE_PATH: %TOKEN_FILE_PATH%
+echo Файл токена: %TOKEN_FILE_PATH%
 echo.
 
-rem --- Normalize path separators for mkdir ----------------------------------
+rem --- Проверяем и при необходимости создаём папку --------------------------
 set "TOKEN_DIR=%TOKEN_FILE_PATH:/=\%"
 for %%F in ("%TOKEN_DIR%") do set "TOKEN_DIR=%%~dpF"
 
 if not exist "%TOKEN_DIR%" (
-    echo Token directory does not exist yet.
-    echo Creating: %TOKEN_DIR%
+    echo Папка для токена не найдена. Создаю: %TOKEN_DIR%
     mkdir "%TOKEN_DIR%" 2>nul
     if not exist "%TOKEN_DIR%" (
-        echo WARNING: Could not create directory. The agent will wait for Synology Drive.
+        echo ОШИБКА: не удалось создать папку. Проверь путь в .env.
         echo.
-    ) else (
-        echo Directory created.
-        echo.
+        pause
+        exit /b 1
     )
+    echo Папка создана.
+    echo.
 )
 
-rem --- Start agent ----------------------------------------------------------
-echo Starting agent...
-echo.
-echo If a Windows Firewall dialog appears, allow access for private networks.
+rem --- Запускаем агента -----------------------------------------------------
+echo Запускаю агента...
 echo.
 
 %PYTHON_EXE% "%AGENT_DIR%\main.py"
 
 if errorlevel 1 (
     echo.
-    echo Agent exited with error. Check token-agent.log for details.
+    echo Агент завершился с ошибкой. Подробности в token-agent.log.
     pause
     exit /b 1
 )
 
 echo.
-echo Agent stopped.
+echo Агент остановлен.
 pause
 exit /b 0
 

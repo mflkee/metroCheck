@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ==========================================
-echo   ARSHIN Token Agent - First-time Setup
+echo   Агент токена ARSHIN — настройка
 echo ==========================================
 echo.
 
@@ -9,24 +9,24 @@ set "ROOT_DIR=%~dp0"
 cd /d "%ROOT_DIR%"
 
 if not exist "python.exe" (
-    echo ERROR: python.exe not found in %ROOT_DIR%
+    echo ОШИБКА: не найден python.exe в %ROOT_DIR%
     echo.
-    echo This folder must contain portable Python files:
-    echo   python.exe, python3.dll, python311.dll, Lib\, etc.
+    echo В этой папке должен находиться портативный Python:
+    echo   python.exe, python3.dll, python311.dll, Lib\ и другие.
     echo.
     pause
     exit /b 1
 )
 
-echo Found portable Python.
+echo Найден портативный Python.
 echo.
 
-rem --- Enable site-packages and pip for embedded Python ---------------------
+rem --- Включаем site-packages и pip для embedded Python ---------------------
 set "PTH_FILE="
 for %%F in (python*.pth) do set "PTH_FILE=%%F"
 
 if defined PTH_FILE (
-    echo Updating %PTH_FILE% to enable pip...
+    echo Обновляю %PTH_FILE% для работы pip...
     (
         echo python311.zip
         echo .
@@ -34,28 +34,28 @@ if defined PTH_FILE (
         echo import site
     ) > "%PTH_FILE%"
 ) else (
-    echo WARNING: python*.pth not found. pip may not work.
+    echo ВНИМАНИЕ: не найден python*.pth. pip может не работать.
 )
 
-rem --- Install pip if missing -----------------------------------------------
+rem --- Устанавливаем pip, если отсутствует ---------------------------------
 if not exist "Scripts\pip.exe" (
     if exist "get-pip.py" (
-        echo Installing pip...
+        echo Устанавливаю pip...
         python.exe get-pip.py --no-warn-script-location
     ) else (
-        echo WARNING: get-pip.py not found. Skipping pip install.
+        echo ВНИМАНИЕ: не найден get-pip.py. Установка pip пропущена.
     )
 ) else (
-    echo pip already installed.
+    echo pip уже установлен.
 )
 
 echo.
 echo ==========================================
-echo   Setup complete
+echo   Настройка завершена
 echo ==========================================
 echo.
-echo Next steps:
-echo   1. Edit token-agent\.env and set your TOKEN_FILE_PATH
-echo   2. Double-click run.cmd
+echo Дальше:
+echo   1. Отредактируй token-agent\.env и укажи TOKEN_FILE_PATH
+echo   2. Запусти run.cmd
 echo.
 pause

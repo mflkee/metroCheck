@@ -1,4 +1,0 @@
-# No external dependencies needed.
-# token-agent uses only Python standard library (http.server, json, logging, etc.).
-# This file is kept for documentation purposes.
-# If you use portable Python, you do NOT need to install anything.
