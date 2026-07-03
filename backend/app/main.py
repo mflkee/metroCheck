@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.api.v1.routes import ai, arshin, checks, protocols, reports, health, jobs
+from app.api.v1.routes import ai, arshin, auth, checks, protocols, reports, health, jobs
 
 
 @asynccontextmanager
@@ -23,6 +23,18 @@ async def lifespan(app: FastAPI):
     from app.services.job_queue_service import init_queue_service
     from app.services.scheduler_service import SchedulerService
     
+    from app.core.auth import init_admin
+
+    admin_password = init_admin(settings.ADMIN_USERNAME, settings.ADMIN_PASSWORD)
+    if settings.ADMIN_PASSWORD:
+        logger.info("Admin credentials configured via environment: %s", settings.ADMIN_USERNAME)
+    else:
+        logger.info("=" * 60)
+        logger.info("  AUTH: Admin user:     %s", settings.ADMIN_USERNAME)
+        logger.info("  AUTH: Admin password:  %s", admin_password)
+        logger.info("  AUTH: Save this password — it won't be shown again")
+        logger.info("=" * 60)
+
     db = AsyncSessionLocal()
     
     # Recover orphaned jobs after restart
@@ -76,6 +88,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)
 app.include_router(health.router, tags=["health"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(arshin.router, prefix="/api/v1/arshin", tags=["arshin"])

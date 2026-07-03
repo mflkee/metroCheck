@@ -3,12 +3,12 @@
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
+from app.api.v1.dependencies.auth import get_current_user
 from app.services.check_service import CheckService
 from app.services.task_manager import get_task_manager
 
@@ -23,13 +23,9 @@ class RunCheckRequest(BaseModel):
 @router.post("/run")
 async def run_checks(
     payload: RunCheckRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Start a check run for a given month (synchronous, legacy)."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     service = CheckService(db)
     result = await service.run_checks(payload.year, payload.month)
     return result
@@ -38,13 +34,9 @@ async def run_checks(
 @router.post("/run_async", status_code=202)
 async def run_checks_async(
     payload: RunCheckRequest,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Start an async check run. Returns task_id for polling."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task_id = await tm.create(f"check_{payload.year}_{payload.month}")
     await tm.update(task_id, status="pending", progress="Task created")
@@ -87,12 +79,9 @@ async def _run_check_task(task_id: str, year: int, month: int) -> None:
 @router.get("/task/{task_id}")
 async def get_task_status(
     task_id: str,
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Get status of an async task."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     tm = get_task_manager()
     task = await tm.get(task_id)
     if not task:
@@ -113,12 +102,9 @@ async def get_task_status(
 
 @router.get("/token-status")
 async def token_status(
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> dict:
     """Check ARSHIN Bearer token availability without blocking."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     import os
     import time
     import json
@@ -156,13 +142,9 @@ async def token_status(
 @router.get("/results/{run_id}")
 async def get_results(
     run_id: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get check results by run ID."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.repositories.check_result_repository import CheckResultRepository
     from app.repositories.check_run_repository import CheckRunRepository
 
@@ -203,13 +185,9 @@ async def get_results(
 
 @router.get("/summary")
 async def get_summary(
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get summary of all check runs."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     from app.repositories.check_run_repository import CheckRunRepository
 
     run_repo = CheckRunRepository(db)

@@ -2,10 +2,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.api.v1.dependencies.auth import get_current_user
 from app.services.ai_extraction_service import get_ai_extraction_service, DEFAULT_MODELS
 
 router = APIRouter()
@@ -36,12 +37,9 @@ class AIExtractResponse(BaseModel):
 @router.post("/extract", response_model=AIExtractResponse)
 async def ai_extract(
     payload: AIExtractRequest,
-    x_api_key: str = Header(...),
+    _: dict = Depends(get_current_user),
 ) -> AIExtractResponse:
     """Extract data from protocol text using AI with automatic fallback chain."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     models = payload.fallback_models or DEFAULT_MODELS
     if payload.model and payload.model not in models:
         models = [payload.model] + models
@@ -65,11 +63,10 @@ async def ai_extract(
 
 
 @router.get("/models")
-async def list_available_models(x_api_key: str = Header(...)) -> dict[str, Any]:
+async def list_available_models(
+    _: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """List available free models from OpenRouter."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             "https://openrouter.ai/api/v1/models",

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "metrocheck-jwt-secret-change-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
 
+    # Admin auth
+    ADMIN_USERNAME: str = "admin-metrochek"
+    ADMIN_PASSWORD: str = ""  # auto-generate if empty
+
     # App
     APP_ENV: str = "development"
     DEBUG: bool = True

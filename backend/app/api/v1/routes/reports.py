@@ -1,11 +1,11 @@
 """Report generation endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
+from app.api.v1.dependencies.auth import get_current_user
 from app.services.report_service import ReportService
 
 router = APIRouter()
@@ -14,13 +14,9 @@ router = APIRouter()
 @router.post("/generate/{run_id}")
 async def generate_report(
     run_id: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Generate Excel report for a check run."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     service = ReportService(db)
     result = await service.generate_report(run_id)
 
@@ -33,13 +29,9 @@ async def generate_report(
 @router.get("/download/{run_id}")
 async def download_report(
     run_id: int,
-    x_api_key: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Download generated report for a check run."""
-    if x_api_key != settings.FASTAPI_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
     import os
     from app.repositories.check_run_repository import CheckRunRepository
 

@@ -174,9 +174,45 @@ select:focus, input:focus { border-color:var(--blue); }
 .d2 { animation-delay:.1s; }
 .d3 { animation-delay:.15s; }
 .d4 { animation-delay:.2s; }
-</style>
+.login-overlay {
+  position: fixed; inset: 0; background: var(--bg);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.login-overlay.show { display: flex; }
+.login-box {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 40px; width: 360px;
+  text-align: center;
+}
+.login-box h1 { font-size: 24px; margin-bottom: 4px; }
+.login-box p { color: var(--text-dim); font-size: 14px; margin-bottom: 24px; }
+.login-box input {
+  width: 100%; padding: 10px 12px; box-sizing: border-box;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text);
+  font-size: 14px; outline: none; margin-bottom: 12px;
+}
+.login-box input:focus { border-color: var(--blue); }
+.login-box .btn { width: 100%; padding: 10px; font-size: 14px; }
+.login-error { color: var(--red); font-size: 13px; margin-top: 8px; display: none; }
+.login-box .logo { margin-bottom: 16px; }
+
 </head>
 <body>
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="logo">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="url(#g)"/><path d="M6 12l4 4 8-8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h1>metroChek</h1>
+    <p>Вход в систему</p>
+    <input type="text" id="login-user" placeholder="Имя пользователя" autocomplete="username">
+    <input type="password" id="login-pass" placeholder="Пароль" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn primary" onclick="doLogin()">Войти</button>
+    <div class="login-error" id="login-error">Неверное имя пользователя или пароль</div>
+  </div>
+</div>
 <div class="layout">
   <aside class="sidebar">
     <div class="logo">
@@ -196,7 +232,8 @@ select:focus, input:focus { border-color:var(--blue); }
     </nav>
     <div class="footer">
       <div class="dot green" id="sd"></div>
-      <span id="st">Сервер онлайн</span>
+      <span id="st" style="flex:1">Сервер онлайн</span>
+      <span style="cursor:pointer;font-size:13px;color:var(--text-muted);padding:2px 6px;border-radius:4px" onclick="logout()" title="Выйти">🚪</span>
     </div>
   </aside>
 
@@ -299,14 +336,70 @@ select:focus, input:focus { border-color:var(--blue); }
 <svg width="0" height="0"><defs><linearGradient id="g" x1="0" y1="0" x2="24" y2="24"><stop offset="0%" stop-color="#58a6ff"/><stop offset="100%" stop-color="#bc8cff"/></linearGradient></defs></svg>
 
 <script>
-const KEY = 'metrocheck-secret-key';
 const BASE = '/api';
 const START_YEAR = 2022;
 
+// ── Auth ──
+function getToken() { return localStorage.getItem('token'); }
+function setToken(t) { localStorage.setItem('token', t); }
+function clearToken() { localStorage.removeItem('token'); }
+
+function isLoggedIn() {
+  const t = getToken();
+  if (!t) return false;
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1]));
+    return payload.exp * 1000 > Date.now();
+  } catch { return false; }
+}
+
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  const t = getToken();
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  return h;
+}
+
+function showLogin() {
+  document.getElementById('login-overlay').classList.add('show');
+  document.getElementById('login-error').style.display = 'none';
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+}
+
+async function doLogin() {
+  const user = document.getElementById('login-user').value;
+  const pass = document.getElementById('login-pass').value;
+  document.getElementById('login-error').style.display = 'none';
+  try {
+    const r = await fetch(BASE + '/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    });
+    if (!r.ok) throw Error();
+    const data = await r.json();
+    setToken(data.access_token);
+    document.getElementById('login-overlay').classList.remove('show');
+    initApp();
+  } catch {
+    document.getElementById('login-error').style.display = 'block';
+  }
+}
+
+function logout() {
+  clearToken();
+  showLogin();
+}
+
 function api(p, m = 'GET', b) {
-  const o = { method: m, headers: { 'X-API-Key': KEY, 'Content-Type': 'application/json' } };
+  const o = { method: m, headers: authHeaders() };
   if (b) o.body = JSON.stringify(b);
-  return fetch(BASE + p, o).then(r => { if (!r.ok) throw Error(r.statusText); return r.json(); });
+  return fetch(BASE + p, o).then(r => {
+    if (r.status === 401) { logout(); throw Error('Unauthorized'); }
+    if (!r.ok) throw Error(r.statusText);
+    return r.json();
+  });
 }
 
 function showPage(id) {
@@ -532,7 +625,8 @@ async function runCheck() {
 
 async function downloadReport(id) {
   try {
-    const r = await fetch(BASE + '/v1/jobs/' + id + '/generate-report', { method: 'POST', headers: { 'X-API-Key': KEY } });
+    const r = await fetch(BASE + '/v1/jobs/' + id + '/generate-report', { method: 'POST', headers: authHeaders() });
+    if (r.status === 401) { logout(); return; }
     if (!r.ok) throw Error();
     const blob = await r.blob();
     const u = URL.createObjectURL(blob);
@@ -546,7 +640,8 @@ async function downloadReport(id) {
 async function deleteJob(id) {
   if (!confirm('Удалить #' + id + '?')) return;
   try {
-    const r = await fetch(BASE + '/v1/jobs/' + id, { method: 'DELETE', headers: { 'X-API-Key': KEY } });
+    const r = await fetch(BASE + '/v1/jobs/' + id, { method: 'DELETE', headers: authHeaders() });
+    if (r.status === 401) { logout(); return; }
     if (!r.ok) {
       const txt = await r.text().catch(() => '');
       throw Error(r.status + (txt ? ': ' + txt : ''));
@@ -559,7 +654,8 @@ async function genReport(id) {
   const btn = event.target;
   btn.textContent = '...'; btn.disabled = true;
   try {
-    const r = await fetch(BASE + '/v1/jobs/' + id + '/generate-report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': KEY } });
+    const r = await fetch(BASE + '/v1/jobs/' + id + '/generate-report', { method: 'POST', headers: authHeaders() });
+    if (r.status === 401) { logout(); return; }
     if (!r.ok) throw Error();
     const blob = await r.blob();
     const u = URL.createObjectURL(blob);
@@ -584,12 +680,21 @@ function fmtDate(iso) {
 }
 
 // ── Init ──
-updHealth(); updQueue(); updErrors(); loadSched(true);
-setInterval(updHealth, 10000);
-setInterval(updQueue, 3000);
-setInterval(updErrors, 10000);
-setInterval(function(){ loadSched(false); }, 30000);
-setInterval(function(){ loadEmails(); }, 30000);
+function initApp() {
+  updHealth(); updQueue(); updErrors(); loadSched(true);
+  setInterval(updHealth, 10000);
+  setInterval(updQueue, 3000);
+  setInterval(updErrors, 10000);
+  setInterval(function(){ loadSched(false); }, 30000);
+  setInterval(function(){ loadEmails(); }, 30000);
+}
+
+if (isLoggedIn()) {
+  document.getElementById('login-overlay').classList.remove('show');
+  initApp();
+} else {
+  showLogin();
+}
 </script>
 </body>
 </html>

@@ -48,6 +48,8 @@ services:
       ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
       FASTAPI_API_KEY: ${FASTAPI_API_KEY:-metrocheck-secret-key}
       APP_ENV: ${APP_ENV:-development}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin-metrochek}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
       METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
