@@ -24,10 +24,9 @@ metroCheck-server (Тюмень)                    ПК оператора (Н�
 │  │  ├─ Health Monitor                  
 │  │  ├─ ArshinClient                    
 │  │  └─ Email Service                   
-│  ├─ n8n (workflows)                    
 │  └─ Monitoring UI (/)                  
 │                                         
-Netbird VPN (P2P) ◄──────────────────────►
+Synology Drive       ◄──────────────────────►
 ```
 
 ## Структура репозитория
@@ -52,8 +51,6 @@ metroCheck/
 │   ├── main.py
 │   ├── requirements.txt
 │   └── token-agent.service  # systemd unit
-├── n8n/                     # Конфигурация n8n
-│   └── workflows/
 ├── docs/                    # Документация и спецификации
 │   ├── ARCHITECTURE.md
 │   ├── TOKEN_SPEC.md
