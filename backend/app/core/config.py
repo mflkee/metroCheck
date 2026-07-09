@@ -49,12 +49,13 @@ class Settings(BaseSettings):
     AI_TEMPERATURE: float = 0.1
 
     # Email notifications
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
+    SMTP_HOST: str = "mail.mkair-it.ru"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = "robot@mkair-it.ru"
     SMTP_PASS: str = ""
-    FROM_EMAIL: str = "metrocheck-reports@example.com"
-    REPORT_EMAIL: str = ""  # Where to send reports
+    FROM_EMAIL: str = "no-reply@mkair-it.ru"
+    FROM_NAME: str = "metroCheck Robot"
+    REPORT_EMAIL: str = ""  # Comma-separated list of report recipients
 
     class Config:
         env_file = ".env"

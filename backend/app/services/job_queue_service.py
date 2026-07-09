@@ -486,7 +486,13 @@ class JobQueueService:
         client = ArshinClient()
         if not client.bearer_token:
             await self._set_phase(job, "wait_token", "Ожидание токена ЛК АРШИН...", 55, stats)
-            await self._wait_for_token(job, client)
+            token_received = await self._wait_for_token(job, client)
+            if not token_received:
+                await self._set_phase(job, "wait_token", "Токен не получен в течение часа. Проверка приостановлена.", 55, stats)
+                raise RuntimeError(
+                    f"Токен ЛК АРШИН не получен. Проверка остановлена на {job.month:02d}.{job.year}. "
+                    f"Обработано {job.processed_devices or 0} из {job.total_devices or 0} устройств."
+                )
             stats["wait_token"] = {"status": "completed", "waited": True}
         else:
             stats["wait_token"] = {"status": "completed", "waited": False}
@@ -580,8 +586,11 @@ class JobQueueService:
             )
             await session.commit()
 
-    async def _wait_for_token(self, job: Job, client: ArshinClient) -> None:
-        """Wait for token and update job status."""
+    async def _wait_for_token(self, job: Job, client: ArshinClient) -> bool:
+        """Wait for token and update job status.
+
+        Returns True if token was received, False if wait timed out.
+        """
         await self.repo.update_status(
             job.id,
             status="running",
@@ -591,7 +600,15 @@ class JobQueueService:
         job.waiting_for_token = True
         await self.db.commit()
 
-        await client._request_new_token()
+        # Wait up to 1 hour for a fresh token
+        token = await client._request_new_token(timeout=3600)
+
+        if token is None:
+            logger.warning("Token wait timed out for job %s", job.id)
+            await self._send_token_expired_alert(job)
+            job.waiting_for_token = False
+            await self.db.commit()
+            return False
 
         job.waiting_for_token = False
         await self.db.commit()
@@ -602,6 +619,41 @@ class JobQueueService:
             progress="Токен получен, продолжение работы...",
             progress_percent=job.progress_percent,
         )
+        return True
+
+    async def _send_token_expired_alert(self, job: Job) -> None:
+        """Gather info and send email alert about expired token."""
+        try:
+            from app.repositories.email_repository import EmailRepository
+            from app.repositories.protocol_file_repository import ProtocolFileRepository
+
+            email_repo = EmailRepository(self.db)
+            recipients = [e.email for e in await email_repo.get_all()]
+
+            proto_repo = ProtocolFileRepository(self.db)
+            protocols = await proto_repo.get_by_month(job.year, job.month)
+            total_protocols = len(protocols)
+            processed_protocols = sum(
+                1 for p in protocols if p.status not in (None, "pending")
+            )
+
+            pending_jobs = await self.repo.list_by_status("pending")
+            queue_months = sorted(
+                {(j.year, j.month) for j in pending_jobs},
+                key=lambda x: (x[0], x[1]),
+            )
+
+            await self.email.send_token_expired_alert(
+                recipients=recipients,
+                year=job.year,
+                month=job.month,
+                total_protocols=total_protocols,
+                processed_protocols=processed_protocols,
+                queue_months=queue_months,
+            )
+            logger.info("Token expired alert sent for job %s", job.id)
+        except Exception as e:
+            logger.error("Failed to send token expired alert: %s", e)
 
     async def _send_report(self, job: Job, result: dict[str, Any]) -> None:
         """Send email report after completion."""
