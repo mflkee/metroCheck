@@ -51,14 +51,18 @@ class ArshinClient:
             return None
         return self._token
 
-    async def _ensure_token(self) -> str:
+    async def _ensure_token(self, timeout: float | None = None) -> str | None:
         token = self.bearer_token
         if token:
             return token
-        return await self._request_new_token()
+        return await self._request_new_token(timeout=timeout)
 
-    async def _request_new_token(self) -> str:
-        """Read token from shared file (Synology Drive sync)."""
+    async def _request_new_token(self, timeout: float | None = None) -> str | None:
+        """Read token from shared file (Synology Drive sync).
+
+        If timeout is provided and no fresh token appears within that many
+        seconds, returns None so the caller can take action (e.g. send alert).
+        """
         token_file = settings.TOKEN_FILE_PATH
 
         if not token_file:
@@ -67,6 +71,7 @@ class ArshinClient:
         logger = __import__("logging").getLogger(__name__)
         logger.info("Waiting for token file: %s", token_file)
 
+        start = time.time()
         while True:
             if os.path.exists(token_file):
                 try:
@@ -112,6 +117,10 @@ class ArshinClient:
 
                 except Exception as e:
                     logger.error("Error reading token file: %s", e)
+
+            if timeout is not None and time.time() - start >= timeout:
+                logger.warning("Token wait timed out after %ss", timeout)
+                return None
 
             await asyncio.sleep(10)  # Check every 10 seconds
 

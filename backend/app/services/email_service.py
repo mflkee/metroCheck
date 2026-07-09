@@ -16,11 +16,12 @@ class EmailService:
     """Service for sending email notifications and reports."""
 
     def __init__(self) -> None:
-        self.smtp_host = getattr(settings, 'SMTP_HOST', 'smtp.gmail.com')
-        self.smtp_port = getattr(settings, 'SMTP_PORT', 587)
-        self.smtp_user = getattr(settings, 'SMTP_USER', '')
+        self.smtp_host = getattr(settings, 'SMTP_HOST', 'mail.mkair-it.ru')
+        self.smtp_port = getattr(settings, 'SMTP_PORT', 465)
+        self.smtp_user = getattr(settings, 'SMTP_USER', 'robot@mkair-it.ru')
         self.smtp_pass = getattr(settings, 'SMTP_PASS', '')
-        self.from_email = getattr(settings, 'FROM_EMAIL', 'metrocheck-reports@example.com')
+        self.from_email = getattr(settings, 'FROM_EMAIL', 'no-reply@mkair-it.ru')
+        self.from_name = getattr(settings, 'FROM_NAME', 'metroCheck Robot')
         self.to_email = getattr(settings, 'REPORT_EMAIL', '')
 
     def _send_smtp(self, msg) -> None:
@@ -91,7 +92,7 @@ class EmailService:
             for to_email in to_emails:
                 msg = MIMEMultipart()
                 msg['Subject'] = subject
-                msg['From'] = self.from_email
+                msg['From'] = f"{self.from_name} <{self.from_email}>"
                 msg['To'] = to_email
                 msg.attach(MIMEText(body, 'html', 'utf-8'))
                 
@@ -132,7 +133,7 @@ class EmailService:
             for to_email in to_emails:
                 msg = MIMEMultipart()
                 msg['Subject'] = f"[metroChek ALERT] {subject}"
-                msg['From'] = self.from_email
+                msg['From'] = f"{self.from_name} <{self.from_email}>"
                 msg['To'] = to_email
                 msg.attach(MIMEText(message, 'plain', 'utf-8'))
                 self._send_smtp(msg)
@@ -141,3 +142,59 @@ class EmailService:
         except Exception as e:
             print(f"[Email] Alert failed: {e}")
             return False
+
+    async def send_token_expired_alert(
+        self,
+        recipients: list[str],
+        *,
+        year: int,
+        month: int,
+        total_protocols: int,
+        processed_protocols: int,
+        queue_months: list[tuple[int, int]],
+    ) -> bool:
+        """Send alert when ARSHIN LK token expires and check cannot continue."""
+        if not recipients:
+            print("[Email] No recipients configured, skipping token alert")
+            return False
+
+        if not self.smtp_pass:
+            print("[Email] SMTP not configured, skipping token alert")
+            return False
+
+        month_name = self._month_name(month)
+        queue_text = "\n".join(
+            f"  - {self._month_name(m):02d}.{y}" for y, m in queue_months
+        ) if queue_months else "  (очередь пуста)"
+
+        subject = f"Требуется обновление токена АРШИН — проверка остановлена на {month_name}.{year}"
+        body = f"""Здравствуйте.
+
+Проверка протоколов в metroChek остановлена из-за истечения срока действия токена личного кабинета ФГИС "Аршин".
+
+Текущий статус:
+  - Проверка остановлена на: {month_name} {year} года
+  - Протоколов обработано: {processed_protocols} из {total_protocols}
+
+В очереди на проверку следующие месяцы:
+{queue_text}
+
+Для продолжения работы необходимо обновить токен АРШИН:
+  1. Зайти в личный кабинет ФГИС "Аршин" через браузер
+  2. Расширение Chrome автоматически передаст токен агенту
+  3. После синхронизации проверка продолжится автоматически
+
+--
+metroCheck Robot
+"""
+
+        return await self.send_alert(subject, body, recipient_email=",".join(recipients))
+
+    @staticmethod
+    def _month_name(month: int) -> str:
+        names = {
+            1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+            5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+            9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+        }
+        return names.get(month, str(month))
