@@ -89,14 +89,13 @@ services:
     stop_grace_period: 30s
 
   frontend:
-    image: nginx:alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: metroCheck_frontend
     restart: always
     ports:
       - "${FRONTEND_PORT:-8081}:80"
-    volumes:
-      - ./backend/app/static:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - backend_network
     depends_on:
