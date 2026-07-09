@@ -190,6 +190,36 @@ metroCheck Robot
 
         return await self.send_alert(subject, body, recipient_email=",".join(recipients))
 
+    async def send_token_resumed_alert(
+        self,
+        recipients: list[str],
+        *,
+        year: int,
+        month: int,
+    ) -> bool:
+        """Send alert when ARSHIN LK token is received and check resumes."""
+        if not recipients:
+            print("[Email] No recipients configured, skipping token resumed alert")
+            return False
+
+        if not self.smtp_pass:
+            print("[Email] SMTP not configured, skipping token resumed alert")
+            return False
+
+        month_name = self._month_name(month)
+        subject = f"Токен АРШИН обновлен — проверка продолжается ({month_name}.{year})"
+        body = f"""Здравствуйте.
+
+Токен личного кабинета ФГИС "Аршин" получен.
+
+Проверка протоколов за {month_name} {year} года продолжается автоматически.
+
+--
+metroCheck Robot
+"""
+
+        return await self.send_alert(subject, body, recipient_email=",".join(recipients))
+
     @staticmethod
     def _month_name(month: int) -> str:
         names = {
