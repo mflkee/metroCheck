@@ -51,7 +51,10 @@ class Job(Base):
     
     # If this job is waiting for token
     waiting_for_token: Mapped[bool] = mapped_column(Boolean, default=False)
-    
+
+    # Whether token-expired alert has already been sent for this job
+    token_alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Detailed phase statistics (JSON string)
     phase_stats: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
