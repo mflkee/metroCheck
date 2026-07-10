@@ -589,7 +589,7 @@ class ReportService:
     def _fill_protocol_sheet(self, ws, protocols) -> None:
         headers = ["№", "№ протокола", "Наименование", "Зав№",
                    "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                   "Поверитель", "t, °C", "φ, %", "P, кПа"]
+                   "Поверитель", "t, °C", "φ, %", "P, кПа", "Источник"]
         self._write_headers(ws, headers, "ED7D31")
 
         def fmt_num(val):
@@ -608,7 +608,8 @@ class ReportService:
                    proto.manufacture_year or "", proto.owner or "",
                    proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
                    proto.verifier or "", fmt_num(proto.temperature),
-                   fmt_num(proto.humidity), fmt_num(proto.pressure)]
+                   fmt_num(proto.humidity), fmt_num(proto.pressure),
+                   proto.model_used or "OCR"]
             self._write_data_row(ws, row, idx, "FCE4D6")
         self._auto_fit_columns(ws)
 
@@ -652,7 +653,8 @@ class ReportService:
         lk_headers = ["Поверитель", "t", "φ", "P"]
         proto_headers = ["№ протокола", "Наименование", "Зав№ из протокола",
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
-                         "Поверитель", "t", "φ", "P"]
+                         "Поверитель", "t", "φ", "P", "Источник"]
+
         all_headers = compare_headers + public_headers + lk_headers + proto_headers
 
         group_titles = [
@@ -803,6 +805,7 @@ class ReportService:
                 fmt_num(proto.temperature),
                 fmt_num(proto.humidity),
                 fmt_num(proto.pressure),
+                proto.model_used or "OCR",
             ]
 
             mismatches = []

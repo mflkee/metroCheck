@@ -424,7 +424,7 @@ class JobQueueService:
                     measurement_range=extracted_data.get('measurement_range'),
                     raw_text=text[:10000],
                     status=ai_result.get("status") or "manual_review",
-                    model_used=ai_result.get("model") or "unknown",
+                    model_used=ai_result.get("model_used") or "unknown",
                     confidence=ai_result.get("confidence") or 0.0,
                     cost=ai_result.get("cost") or 0.0,
                     attempts=ai_result.get("attempts") or 0,

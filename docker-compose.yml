@@ -58,6 +58,7 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       FROM_EMAIL: ${FROM_EMAIL:-metrocheck-reports@example.com}
       REPORT_EMAIL: ${REPORT_EMAIL:-}
+      METROCHECK_DISABLE_AI: "true"
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:

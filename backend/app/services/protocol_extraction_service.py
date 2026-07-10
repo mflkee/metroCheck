@@ -7,6 +7,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+DISABLE_AI = os.environ.get("METROCHECK_DISABLE_AI", "").lower() in ("1", "true", "yes")
+
 
 class ProtocolExtractionService:
     """Extract protocol data using regex patterns and text analysis."""
@@ -53,12 +55,13 @@ class ProtocolExtractionService:
         # Clean all values
         data = {k: self._clean_value(v) for k, v in data.items()}
 
-        # Phase 3: AI fallback — only when necessary
+        # Phase 3: AI fallback — only when necessary and not disabled
         missing = [k for k, v in data.items() if not v]
         hard_critical = {"serial_number", "verification_date", "result"}
         pre_confidence = self._calculate_confidence(data)
         cost = 0.0
         model = None
+        ai_used = False
 
         # Skip LLM if confidence is already high and no hard-critical field is missing
         should_use_llm = bool(
@@ -70,7 +73,8 @@ class ProtocolExtractionService:
             )
         )
 
-        if should_use_llm:
+        if should_use_llm and not DISABLE_AI:
+            ai_used = True
             try:
                 ai_result = await self._ai_extract_fields(text, missing)
                 ai_data = ai_result.get("content") or {}
@@ -87,9 +91,10 @@ class ProtocolExtractionService:
 
         # Phase 4: Vision model fallback for images with poor results
         confidence = self._calculate_confidence(data)
-        if confidence < 0.35 and file_path:
+        if not DISABLE_AI and confidence < 0.35 and file_path:
             ext = os.path.splitext(file_path)[1].lower()
             if ext in {".jpg", ".jpeg", ".png"}:
+                ai_used = True
                 try:
                     from app.services.ai_extraction_service import get_ai_extraction_service
                     ai_service = get_ai_extraction_service()
@@ -110,6 +115,7 @@ class ProtocolExtractionService:
                     logger.warning("Vision model fallback failed for %s: %s", file_path, e)
 
         status = "success" if confidence >= 0.4 else "manual_review"
+        model_used = model if ai_used and model else ("ai" if ai_used else "regex")
 
         return {
             "content": data,
@@ -117,7 +123,7 @@ class ProtocolExtractionService:
             "cost": cost,
             "attempts": 1,
             "confidence": round(confidence, 2),
-            "model_used": model,
+            "model_used": model_used,
         }
 
     async def _ai_extract_fields(self, text: str, fields: list[str]) -> dict[str, Any]:
