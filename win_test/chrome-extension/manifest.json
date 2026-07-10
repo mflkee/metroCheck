@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Minimal ARSHIN Token Relay",
+  "version": "1.0.0",
+  "description": "Минимальное расширение для передачи токена Аршина в локальный агент.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8003/*",
+    "http://localhost/*",
+    "https://fgis.gost.ru/*",
+    "https://*.fgis.gost.ru/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "https://fgis.gost.ru/*",
+        "https://*.fgis.gost.ru/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.svg",
+      "48": "icon.svg",
+      "128": "icon.svg"
+    }
+  }
+}
