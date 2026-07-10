@@ -1,5 +1,6 @@
 """Calibration repository."""
 
+import contextlib
 from datetime import datetime
 from typing import Any
 
@@ -75,22 +76,36 @@ class CalibrationRepository:
         if not rows:
             return {"saved": 0, "errors": errors}
 
-        stmt = insert(Calibration).values(rows)
-        update_cols = [
-            "mi_number", "mit_number", "mit_title", "mit_notation",
-            "mi_modification", "verification_date", "valid_date",
-            "result_docnum", "result", "applicability", "org_title",
-            "year", "month",
-        ]
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["vri_id"],
-            set_={col: stmt.excluded[col] for col in update_cols},
-        )
+        # Deduplicate by vri_id within the same batch to avoid
+        # "ON CONFLICT DO UPDATE command cannot affect row a second time".
+        unique_rows: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            unique_rows[row["vri_id"]] = row
+        rows = list(unique_rows.values())
 
-        await self.db.execute(stmt)
-        await self.db.commit()
+        try:
+            stmt = insert(Calibration).values(rows)
+            update_cols = [
+                "mi_number", "mit_number", "mit_title", "mit_notation",
+                "mi_modification", "verification_date", "valid_date",
+                "result_docnum", "result", "applicability", "org_title",
+                "year", "month",
+            ]
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["vri_id"],
+                set_={col: stmt.excluded[col] for col in update_cols},
+            )
 
-        return {"saved": len(rows), "errors": errors}
+            await self.db.execute(stmt)
+            await self.db.commit()
+
+            return {"saved": len(rows), "errors": errors}
+        except Exception as e:
+            logger = __import__("logging").getLogger(__name__)
+            logger.exception("Bulk upsert failed for month %d (%d items): %s", month, len(items), e)
+            with contextlib.suppress(Exception):
+                await self.db.rollback()
+            return {"saved": 0, "errors": len(items)}
 
     async def create_or_update(self, data: dict[str, Any], year: int, month: int) -> Calibration:
         """Create or update calibration from ARSHIN API data."""

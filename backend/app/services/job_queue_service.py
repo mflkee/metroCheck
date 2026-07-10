@@ -1,6 +1,7 @@
 """Job queue service — manages check execution queue with priorities."""
 
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import datetime
@@ -599,8 +600,12 @@ class JobQueueService:
         # Send alert immediately, but only once per wait episode
         await self._send_token_expired_alert(job)
 
-        # Wait indefinitely for a fresh token
-        token = await client._request_new_token(timeout=None)
+        # Wait for a fresh token, checking periodically for cancellation
+        token = None
+        while token is None:
+            token = await client._request_new_token(timeout=10)
+            if token is None:
+                await self._check_cancelled(job.id)
 
         job.waiting_for_token = False
         await self.db.commit()
@@ -727,6 +732,13 @@ class JobQueueService:
         if job.status == "running":
             if self._current_task:
                 self._current_task.cancel()
+            else:
+                # API instances do not share the worker's task; use the singleton
+                # to cancel the actual running worker.
+                with contextlib.suppress(Exception):
+                    singleton = get_queue_service()
+                    if singleton._current_task and not singleton._current_task.done():
+                        singleton._current_task.cancel()
             job.status = "cancelled"
             job.progress = "Cancelled"
             job.completed_at = datetime.utcnow()
