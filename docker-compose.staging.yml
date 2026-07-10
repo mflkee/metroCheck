@@ -90,8 +90,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend-static/Dockerfile
     container_name: metroCheck_frontend_stg
     restart: unless-stopped
     ports:
