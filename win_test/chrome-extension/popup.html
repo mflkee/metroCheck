@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 320px; padding: 16px; font-family: system-ui, sans-serif; }
+    button { width: 100%; padding: 10px; margin-top: 10px; cursor: pointer; }
+    textarea { width: 100%; height: 80px; margin-top: 8px; font-size: 12px; }
+    #status { margin-top: 10px; font-size: 13px; color: #333; }
+  </style>
+</head>
+<body>
+  <h3>ARSHIN Token Relay</h3>
+  <p>Статус агента: <span id="agent-status">проверка...</span></p>
+  <button id="btn-test">Отправить тестовый токен</button>
+  <textarea id="manual-token" placeholder="Или вставь JWT-токен вручную"></textarea>
+  <button id="btn-send">Отправить вручную</button>
+  <button id="btn-scan">Сканировать localStorage страницы</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
