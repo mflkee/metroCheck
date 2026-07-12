@@ -36,6 +36,9 @@ OUTPUT_FILE = os.environ.get(
     "OUTPUT_FILE",
     os.path.join(BASE_DIR, "test", "arshin-token.json"),
 )
+if not os.path.isabs(OUTPUT_FILE):
+    OUTPUT_FILE = os.path.join(BASE_DIR, OUTPUT_FILE)
+
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8003"))
 
