@@ -1,13 +1,55 @@
 import json
 import os
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-# === Настройки ===
+# === Загрузка .env из папки скрипта ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "test")
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "arshin-token.json")
-PORT = 8003
+ENV_FILE = os.path.join(BASE_DIR, ".env")
+
+
+def _load_env(path):
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+            if key not in os.environ:
+                os.environ[key] = value
+
+
+_load_env(ENV_FILE)
+
+
+# === Настройки ===
+OUTPUT_FILE = os.environ.get(
+    "OUTPUT_FILE",
+    os.path.join(BASE_DIR, "test", "arshin-token.json"),
+)
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8003"))
+
+
+def _prepare_payload(data):
+    token = data.get("token", "")
+    if token.startswith("Bearer "):
+        token = token[7:]
+    return {
+        "token": token,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "source": data.get("source", "chrome_extension"),
+        "expires_in": 3600,
+    }
 
 
 class TokenHandler(BaseHTTPRequestHandler):
@@ -52,12 +94,13 @@ class TokenHandler(BaseHTTPRequestHandler):
         token = data.get("token")
         print(f"[SERVER] Получен токен: {token}")
 
-        # 3. Создаем папку test, если ее нет.
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        # 3. Создаем папку для токена, если ее нет.
+        output_dir = os.path.dirname(OUTPUT_FILE)
+        os.makedirs(output_dir, exist_ok=True)
 
-        # 4. Пишем в файл.
+        # 4. Пишем в файл в формате, ожидаемом backend.
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(_prepare_payload(data), f, ensure_ascii=False, indent=2)
 
         print(f"[SERVER] Сохранено в {OUTPUT_FILE}")
 
@@ -70,8 +113,8 @@ class TokenHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", PORT), TokenHandler)
-    print(f"[SERVER] Запущен на http://127.0.0.1:{PORT}")
+    server = HTTPServer((HOST, PORT), TokenHandler)
+    print(f"[SERVER] Запущен на http://{HOST}:{PORT}")
     print(f"[SERVER] Токен будет записан в: {OUTPUT_FILE}")
     try:
         server.serve_forever()
