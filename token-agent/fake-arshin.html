@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Фейковая страница Аршина</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f0f2f5;
+    }
+    h1 { color: #333; }
+    .hint {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 10px 15px;
+      margin-bottom: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: white;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #e9ecef;
+      width: 120px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Фейковая страница Аршина (fgis.gost.ru)</h1>
+
+  <div class="hint">
+    Эта страница имитирует хранение токена в <code>localStorage['u']</code>.
+    Расширение должно прочитать этот объект и отправить токен на локальный сервер.
+  </div>
+
+  <button id="update-token">Обновить токен</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>u</code></td>
+        <td><pre id="u-value">...</pre></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <script>
+    // Структура, близкая к реальной странице Аршина.
+    // localStorage['u'] — JSON-строка с объектом, внутри которого есть поле token.
+    function generateToken() {
+      const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+      const now = Math.floor(Date.now() / 1000);
+      const payload = btoa(JSON.stringify({
+        sub: "user",
+        iat: now,
+        exp: now + 3600
+      }));
+      return `${header}.${payload}.fake-signature`;
+    }
+
+    function updateToken() {
+      const uValue = {
+        token: generateToken(),
+        expires: Date.now() + 3600000,
+        userId: '12345',
+        session: 'test-session-id'
+      };
+
+      // Записываем в localStorage, как это делает настоящая страница.
+      localStorage.setItem('u', JSON.stringify(uValue));
+
+      // Показываем в таблице для наглядности.
+      document.getElementById('u-value').textContent = JSON.stringify(uValue, null, 2);
+      console.log('[FAKE PAGE] localStorage["u"] обновлен:', uValue);
+    }
+
+    document.getElementById('update-token').addEventListener('click', updateToken);
+
+    // При загрузке сразу создаем токен.
+    updateToken();
+
+    // Автоматически обновляем токен каждые 3 секунды для тестирования.
+    setInterval(updateToken, 10000);
+  </script>
+</body>
+</html>

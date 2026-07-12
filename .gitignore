@@ -60,3 +60,6 @@ reports/*.xlsx
 test_suite/.arshin_cache/
 test_suite/.llm_cache/
 test_suite/reports/
+
+# Local token captured by token-agent
+token-agent/test/arshin-token.json
