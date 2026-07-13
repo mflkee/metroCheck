@@ -63,3 +63,4 @@ test_suite/reports/
 
 # Local token captured by token-agent
 token-agent/test/arshin-token.json
+token-agent/*.log

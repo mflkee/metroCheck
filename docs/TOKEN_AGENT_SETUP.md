@@ -1,38 +1,86 @@
-# Token Agent для Windows (Embedded Python)
+# Token Agent для Windows
 
-## Архив: `token-agent-windows-embedded.zip` (13 MB)
+Локальный агент на Python, который принимает JWT-токен из Chrome-расширения и записывает его в файл внутри папки Synology Drive.
 
-## Содержимое
-- `python.exe` - Embedded Python 3.11 (не требует установки)
-- `token-agent/main.py` - агент для приема токена от Chrome Extension
-- `token-agent/run.bat` - запуск агента
-- `token-agent/.env` - настройки пути к файлу
-- `setup.bat` - установка зависимостей (один раз)
+## Содержимое `token-agent/`
 
-## Установка для Зонова (5 минут)
-
-### Шаг 1: Распаковать
 ```
-token-agent-windows-embedded.zip → C:/token-agent/
+token-agent/
+├── server.py              # Агент (HTTP-сервер на stdlib)
+├── run.cmd                # Запуск агента
+├── setup.cmd              # Проверка Python и создание .env
+├── test_env.py            # Проверка окружения без запуска сервера
+├── watch_token.py         # Мониторинг файла токена
+├── check_token_sync.py    # Проверка синхронизации с сервером
+├── serve_fake_page.py     # Фейковая страница Аршина для тестов
+├── run_fake_page.cmd      # Запуск фейковой страницы
+├── fake-arshin.html       # HTML-страница для тестирования
+├── .env.example           # Шаблон настроек
+├── .env                   # Локальные настройки (не в git)
+├── README.md              # Подробная инструкция
+└── chrome-extension/      # Расширение Chrome
+    ├── manifest.json
+    ├── background.js
+    ├── content.js
+    ├── popup.html
+    ├── popup.js
+    └── icon.svg
 ```
 
-### Шаг 2: Настроить путь
-```
-1. Открыть: token-agent/.env
-2. Прописать путь к Synology Drive:
-   TOKEN_FILE_PATH=C:/Users/Зонов/SynologyDrive/tokens/arshin-token.json
-```
+## Установка для ПК Зонова (5 минут)
 
-### Шаг 3: Установить зависимости (один раз)
+### Шаг 1: Установить Python
+
+Скачать с https://python.org/downloads/ и установить.
+
+Убедиться, что Python в PATH:
 ```cmd
-cd C:/token-agent
-setup.bat
+python --version
 ```
 
-### Шаг 4: Запустить
+### Шаг 2: Распаковать/скопировать папку `token-agent`
+
+Скопировать папку `token-agent` из репозитория на ПК Зонова, например:
+```
+C:\Users\Zonov\token-agent\
+```
+
+### Шаг 3: Создать .env
+
+Запустить `setup.cmd` — он создаст `.env` из `.env.example`.
+
+Или создать `.env` вручную:
+```env
+TOKEN_FILE_PATH="C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json"
+TOKEN_AGENT_HOST=127.0.0.1
+TOKEN_AGENT_PORT=8003
+TOKEN_AGENT_LOG=token-agent.log
+```
+
+### Шаг 4: Проверить окружение
+
 ```cmd
-cd C:/token-agent/token-agent
-run.bat
+python test_env.py
+```
+
+Должно быть `[OK] Окружение в порядке`.
+
+### Шаг 5: Установить расширение Chrome
+
+1. Открыть `chrome://extensions/`.
+2. Включить **Режим разработчика**.
+3. Нажать **Загрузить распакованное расширение**.
+4. Выбрать папку `token-agent\chrome-extension`.
+
+### Шаг 6: Запустить агент
+
+```cmd
+run.cmd
+```
+
+Или вручную:
+```cmd
+python server.py
 ```
 
 ## Как это работает
@@ -40,9 +88,9 @@ run.bat
 ```
 Chrome Extension (fgis.gost.ru)
     ↓ (POST localhost:8003/token/callback)
-token-agent.exe
+token-agent (server.py)
     ↓ (пишет JSON)
-C:/Users/Зонов/SynologyDrive/tokens/arshin-token.json
+C:/Users/Zonov/SynologyDrive/tokens/arshin-token.json
     ↓ (Synology Drive sync)
 NAS (Synology)
     ↓ (Synology Drive sync)
@@ -53,14 +101,8 @@ metroCheck backend (Docker)
 ARSHIN API
 ```
 
-## Преимущества
-- ✅ Не нужен Python на Windows (встроен)
-- ✅ Не нужен Netbird/VPN
-- ✅ Не нужно открывать порты
-- ✅ Synology Drive уже настроен
-- ✅ Токен живет ~1 час, потом Зонов просто перелогинивается
-
 ## Структура файла токена
+
 ```json
 {
   "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
@@ -71,6 +113,19 @@ ARSHIN API
 ```
 
 ## Важно
-- После прочтения backend **переименовывает** файл в `arshin-token.json.used`
-- Это предотвращает повторное использование старого токена
-- Зонову нужно только **запустить агент** и **логиниться в АРШИН**
+
+- После прочтения backend **переименовывает** файл в `arshin-token.json.used`.
+- Это предотвращает повторное использование старого токена.
+- Зонову нужно только **запустить агент** и **логиниться в АРШИН**.
+
+## Тестирование без реального Аршина
+
+1. Запустить агент: `run.cmd`
+2. Запустить фейковую страницу: `run_fake_page.cmd`
+3. Открыть `http://127.0.0.1:8080/fake-arshin.html`
+4. Расширение должно автоматически отправить токен агенту.
+
+Проверить токен:
+```cmd
+curl http://127.0.0.1:8003/token
+```
