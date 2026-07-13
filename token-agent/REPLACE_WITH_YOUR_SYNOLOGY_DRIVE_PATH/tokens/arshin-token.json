@@ -1,0 +1,6 @@
+{
+  "token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJleHAiOjE3ODM5MjQ2MTksInN1YiI6ImZha2UtYXJzaGluLXVzZXIiLCJyb2xlIjoib3BlcmF0b3IifQ.fake-signature",
+  "updated_at": 1783921021,
+  "expires_in": 3597,
+  "source": "chrome-extension"
+}
