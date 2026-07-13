@@ -25,17 +25,18 @@
 ## Файлы
 
 ```
-minimal-token-agent/
-├── server.py              # Агент (FastAPI-like, на stdlib)
+token-agent/
+├── server.py              # Агент (на stdlib)
 ├── run.cmd                # Запуск агента на Windows
 ├── setup.cmd              # Проверка Python и создание .env
 ├── test_env.py            # Проверка окружения без запуска сервера
 ├── watch_token.py         # Мониторинг файла токена
 ├── check_token_sync.py    # Проверка синхронизации с сервером
+├── serve_fake_page.py     # Сервер фейковой страницы Аршина
+├── run_fake_page.cmd      # Запуск сервера фейковой страницы
 ├── .env                   # Настройки
 ├── .env.example           # Шаблон настроек
 ├── fake-arshin.html       # Тестовая страница (если нужно отладить без реального Аршина)
-├── serve_fake_page.py     # Сервер для fake-arshin.html
 ├── README.md              # Этот файл
 └── chrome-extension/
     ├── manifest.json      # Расширение Chrome
@@ -50,7 +51,7 @@ minimal-token-agent/
 
 ### 1. Настрой .env
 
-Открой `minimal-token-agent\.env`:
+Открой `token-agent\.env`:
 
 ```env
 TOKEN_FILE_PATH="C:\Users\mflkee\SynologyDrive\2_Документы внутреннего происхождения\2_19 Протоколы\tokens\test\arshin-token.json"
@@ -93,7 +94,7 @@ python server.py
 1. Открой `chrome://extensions/`.
 2. Включи **Режим разработчика**.
 3. Нажми **Загрузить распакованное расширение**.
-4. Выбери папку `minimal-token-agent\chrome-extension`.
+4. Выбери папку `token-agent\chrome-extension`.
 5. Закрепи иконку на панели.
 
 ### 5. Открой Аршин и залогинься
@@ -118,7 +119,7 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8003/health' -Method GET
 Если известен путь к файлу на сервере (после синхронизации Synology Drive):
 
 ```powershell
-python check_token_sync.py "\\\server\share\tokens\arshin-token.json"
+python check_token_sync.py "\\server\share\tokens\arshin-token.json"
 ```
 
 ## Отладка
@@ -162,6 +163,10 @@ python test_env.py
 
 1. Запусти агент: `run.cmd`
 2. Запусти сервер фейковой страницы:
+   ```powershell
+   run_fake_page.cmd
+   ```
+   Или вручную:
    ```powershell
    python serve_fake_page.py
    ```

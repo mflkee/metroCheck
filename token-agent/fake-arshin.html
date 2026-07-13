@@ -2,104 +2,121 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Фейковая страница Аршина</title>
+  <title>Личный кабинет АРШИН (имитация)</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background: #f0f2f5;
-    }
-    h1 { color: #333; }
-    .hint {
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
-      padding: 10px 15px;
-      margin-bottom: 20px;
-    }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      background: white;
-    }
-    th, td {
-      border: 1px solid #ddd;
-      padding: 12px;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      background: #e9ecef;
-      width: 120px;
-    }
-    pre {
-      white-space: pre-wrap;
-      word-break: break-all;
-      margin: 0;
-    }
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; }
+    h1 { color: #1a5f9e; }
+    .card { border: 1px solid #ccc; padding: 20px; border-radius: 8px; background: #f9f9f9; margin-bottom: 20px; }
+    code { background: #eee; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+    button { padding: 10px 16px; margin-top: 10px; margin-right: 10px; cursor: pointer; }
+    .note { font-size: 13px; color: #555; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    td, th { border: 1px solid #ccc; padding: 6px; text-align: left; font-size: 13px; }
+    th { background: #eee; }
   </style>
 </head>
 <body>
-  <h1>Фейковая страница Аршина (fgis.gost.ru)</h1>
+  <h1>АРШИН — Личный кабинет (тестовая страница)</h1>
 
-  <div class="hint">
-    Эта страница имитирует хранение токена в <code>localStorage['u']</code>.
-    Расширение должно прочитать этот объект и отправить токен на локальный сервер.
+  <div class="card">
+    <p>Эта страница имитирует структуру хранилища реального личного кабинета Аршина.</p>
+    <p class="note">
+      Расширение ищет JWT в ключах: <code>u, user, profile, auth, token, accessToken, arshin_token</code>,
+      а также рекурсивно во всех значениях localStorage/sessionStorage.
+    </p>
   </div>
 
-  <button id="update-token">Обновить токен</button>
+  <div class="card">
+    <h3>Текущие значения localStorage</h3>
+    <table id="storage-table">
+      <tr><th>Ключ</th><th>Значение (первые 80 символов)</th></tr>
+    </table>
+    <button id="refresh-token">Сгенерировать новые тестовые данные</button>
+    <button id="send-manual">Отправить токен в агент вручную</button>
+  </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Key</th>
-        <th>Value</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><code>u</code></td>
-        <td><pre id="u-value">...</pre></td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="card">
+    <h3>Текущий токен</h3>
+    <p id="token-info"></p>
+  </div>
 
   <script>
-    // Структура, близкая к реальной странице Аршина.
-    // localStorage['u'] — JSON-строка с объектом, внутри которого есть поле token.
-    function generateToken() {
-      const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-      const now = Math.floor(Date.now() / 1000);
-      const payload = btoa(JSON.stringify({
-        sub: "user",
-        iat: now,
-        exp: now + 3600
-      }));
+    function generateJwt() {
+      const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' })).replace(/=/g, '');
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const payload = btoa(JSON.stringify({ exp, sub: 'fake-arshin-user', role: 'operator' })).replace(/=/g, '');
       return `${header}.${payload}.fake-signature`;
     }
 
-    function updateToken() {
-      const uValue = {
-        token: generateToken(),
-        expires: Date.now() + 3600000,
-        userId: '12345',
-        session: 'test-session-id'
+    function storeProductionLikeData() {
+      const token = generateJwt();
+
+      // Вариант 1: объект пользователя с токеном в ключе 'u' (частый паттерн)
+      const userObject = {
+        id: 12345,
+        email: 'operator@example.com',
+        fio: 'Иванов Иван Иванович',
+        accessToken: token,
+        refreshToken: 'refresh-' + token,
+        orgId: '7701234567',
       };
+      localStorage.setItem('u', JSON.stringify(userObject));
 
-      // Записываем в localStorage, как это делает настоящая страница.
-      localStorage.setItem('u', JSON.stringify(uValue));
+      // Вариант 2: чистый токен в ключе 'token' (резерв)
+      localStorage.setItem('token', token);
 
-      // Показываем в таблице для наглядности.
-      document.getElementById('u-value').textContent = JSON.stringify(uValue, null, 2);
-      console.log('[FAKE PAGE] localStorage["u"] обновлен:', uValue);
+      // Вариант 3: sessionStorage с профилем
+      sessionStorage.setItem('profile', JSON.stringify({ name: 'Иванов', token: token }));
+
+      // Прочие данные для реализма
+      localStorage.setItem('lastVisit', new Date().toISOString());
+      localStorage.setItem('sidebarCollapsed', 'false');
+
+      return token;
     }
 
-    document.getElementById('update-token').addEventListener('click', updateToken);
+    function renderStorage() {
+      const table = document.getElementById('storage-table');
+      table.innerHTML = '<tr><th>Ключ</th><th>Значение (первые 80 символов)</th></tr>';
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        const row = document.createElement('tr');
+        row.innerHTML = `<td><code>${key}</code></td><td><code>${value.substring(0, 80)}${value.length > 80 ? '...' : ''}</code></td>`;
+        table.appendChild(row);
+      }
+    }
 
-    // При загрузке сразу создаем токен.
-    updateToken();
+    function updateTokenInfo(token) {
+      document.getElementById('token-info').innerHTML = `<strong>JWT:</strong><br><code>${token}</code>`;
+    }
 
-    // Автоматически обновляем токен каждые 3 секунды для тестирования.
-    setInterval(updateToken, 10000);
+    function refresh() {
+      const token = storeProductionLikeData();
+      renderStorage();
+      updateTokenInfo(token);
+    }
+
+    refresh();
+
+    document.getElementById('refresh-token').addEventListener('click', refresh);
+
+    document.getElementById('send-manual').addEventListener('click', () => {
+      // Имитируем то, что делает content.js: извлекаем JWT из localStorage['u']
+      const userRaw = localStorage.getItem('u');
+      const user = JSON.parse(userRaw || '{}');
+      const token = user.accessToken || localStorage.getItem('token');
+
+      fetch('http://127.0.0.1:8003/token/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, key: 'u', source: 'localStorage' })
+      }).then(r => r.json()).then(data => {
+        alert('Ответ агента: ' + JSON.stringify(data));
+      }).catch(err => {
+        alert('Ошибка: ' + err.message);
+      });
+    });
   </script>
 </body>
 </html>

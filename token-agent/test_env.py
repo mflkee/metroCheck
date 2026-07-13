@@ -32,6 +32,7 @@ TOKEN_FILE_PATH = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "arshin
 HOST = os.environ.get("TOKEN_AGENT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TOKEN_AGENT_PORT", "8003"))
 
+
 def check_port(host: str, port: int) -> bool:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -40,6 +41,7 @@ def check_port(host: str, port: int) -> bool:
     except Exception as e:
         print(f"[FAIL] Ошибка проверки порта: {e}")
         return False
+
 
 def main() -> int:
     errors = 0
@@ -80,6 +82,7 @@ def main() -> int:
     else:
         print(f"[FAIL] Найдено ошибок: {errors}. Исправь их перед запуском.")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

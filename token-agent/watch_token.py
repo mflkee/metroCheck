@@ -30,8 +30,10 @@ if ENV_FILE.exists():
 
 TOKEN_FILE_PATH = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "arshin-token.json")))
 
+
 def format_time(ts: int) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+
 
 def main() -> int:
     print(f"Мониторинг: {TOKEN_FILE_PATH}")
@@ -61,6 +63,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nОстановлено")
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

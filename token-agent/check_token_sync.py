@@ -32,6 +32,7 @@ if ENV_FILE.exists():
 
 LOCAL_TOKEN_FILE = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "arshin-token.json")))
 
+
 def read_token_info(path: Path) -> dict | None:
     if not path.exists():
         return None
@@ -48,8 +49,10 @@ def read_token_info(path: Path) -> dict | None:
     except Exception as e:
         return {"error": str(e)}
 
+
 def format_time(ts: int) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+
 
 def main() -> int:
     remote_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
@@ -91,9 +94,10 @@ def main() -> int:
     else:
         print()
         print("[INFO] Укажи путь к файлу на сервере для проверки синхронизации:")
-        print("       python check_token_sync.py \"\\\\server\\share\\tokens\\arshin-token.json\"")
+        print('       python check_token_sync.py "\\\\server\\share\\tokens\\arshin-token.json"')
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
