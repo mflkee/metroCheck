@@ -234,6 +234,16 @@ class TokenHandler(BaseHTTPRequestHandler):
                 "token_file_exists": TOKEN_FILE_PATH.exists(),
                 "token_updated_at": _state["updated_at"],
             })
+        elif self.path == "/token":
+            token = _state.get("token")
+            if token:
+                self._json({
+                    "token": token,
+                    "updated_at": _state["updated_at"],
+                    "source": "chrome-extension",
+                })
+            else:
+                self._json({"token": None}, 404)
         else:
             self._json({"error": "not found"}, 404)
 
