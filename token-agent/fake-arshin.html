@@ -21,8 +21,8 @@
   <div class="card">
     <p>Эта страница имитирует структуру хранилища реального личного кабинета Аршина.</p>
     <p class="note">
-      Расширение ищет JWT в ключах: <code>u, user, profile, auth, token, accessToken, arshin_token</code>,
-      а также рекурсивно во всех значениях localStorage/sessionStorage.
+      Расширение читает JWT из ключа <code>u</code> в <code>localStorage</code>,
+      внутри поля <code>token</code>.
     </p>
   </div>
 
@@ -51,22 +51,9 @@
     function storeProductionLikeData() {
       const token = generateJwt();
 
-      // Вариант 1: объект пользователя с токеном в ключе 'u' (частый паттерн)
-      const userObject = {
-        id: 12345,
-        email: 'operator@example.com',
-        fio: 'Иванов Иван Иванович',
-        accessToken: token,
-        refreshToken: 'refresh-' + token,
-        orgId: '7701234567',
-      };
-      localStorage.setItem('u', JSON.stringify(userObject));
-
-      // Вариант 2: чистый токен в ключе 'token' (резерв)
-      localStorage.setItem('token', token);
-
-      // Вариант 3: sessionStorage с профилем
-      sessionStorage.setItem('profile', JSON.stringify({ name: 'Иванов', token: token }));
+      localStorage.setItem('u', JSON.stringify({
+        token: token,
+      }));
 
       // Прочие данные для реализма
       localStorage.setItem('lastVisit', new Date().toISOString());
@@ -102,10 +89,8 @@
     document.getElementById('refresh-token').addEventListener('click', refresh);
 
     document.getElementById('send-manual').addEventListener('click', () => {
-      // Имитируем то, что делает content.js: извлекаем JWT из localStorage['u']
-      const userRaw = localStorage.getItem('u');
-      const user = JSON.parse(userRaw || '{}');
-      const token = user.accessToken || localStorage.getItem('token');
+      const user = JSON.parse(localStorage.getItem('u') || '{}');
+      const token = user.token;
 
       fetch('http://127.0.0.1:8003/token/callback', {
         method: 'POST',

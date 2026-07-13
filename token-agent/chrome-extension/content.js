@@ -1,66 +1,37 @@
-// Ключи хранилища, в которых может лежать токен ARSHIN.
-// Порядок важен: перебираем от более вероятных к менее вероятным.
-const TOKEN_KEYS = ['u', 'user', 'profile', 'auth', 'token', 'accessToken', 'arshin_token'];
+// На странице Аршина токен JWT всегда лежит в localStorage['u'] внутри поля 'token'.
+const STORAGE_KEY = 'u';
+const TOKEN_FIELD = 'token';
 
 function looksLikeJwt(value) {
   return typeof value === 'string' && value.startsWith('eyJ') && value.split('.').length >= 2;
 }
 
-function extractToken(value) {
-  if (looksLikeJwt(value)) return value;
-  if (typeof value !== 'string') return null;
+function extractTokenFromU(raw) {
+  if (!raw) return null;
   try {
-    const parsed = JSON.parse(value);
+    const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
-      for (const k of Object.keys(parsed)) {
-        if (looksLikeJwt(parsed[k])) return parsed[k];
-      }
+      const token = parsed[TOKEN_FIELD];
+      if (looksLikeJwt(token)) return token;
     }
   } catch (_) {}
   return null;
 }
 
 function checkForToken() {
-  for (const store of [localStorage, sessionStorage]) {
-    for (const key of TOKEN_KEYS) {
-      try {
-        const raw = store.getItem(key);
-        if (!raw) continue;
-        const token = extractToken(raw);
-        if (token) {
-          chrome.runtime.sendMessage({
-            type: 'token_found',
-            token,
-            key,
-            source: store === localStorage ? 'localStorage' : 'sessionStorage',
-          });
-          return true;
-        }
-      } catch (_) {}
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const token = extractTokenFromU(raw);
+    if (token) {
+      chrome.runtime.sendMessage({
+        type: 'token_found',
+        token,
+        key: STORAGE_KEY,
+        source: 'localStorage',
+      });
+      return true;
     }
-  }
-
-  // Fallback: ищем JWT в любом значении localStorage/sessionStorage
-  for (const store of [localStorage, sessionStorage]) {
-    for (let i = 0; i < store.length; i++) {
-      try {
-        const key = store.key(i);
-        if (!key) continue;
-        const raw = store.getItem(key);
-        const token = extractToken(raw);
-        if (token) {
-          chrome.runtime.sendMessage({
-            type: 'token_found',
-            token,
-            key,
-            source: store === localStorage ? 'localStorage' : 'sessionStorage',
-          });
-          return true;
-        }
-      } catch (_) {}
-    }
-  }
-
+  } catch (_) {}
   return false;
 }
 

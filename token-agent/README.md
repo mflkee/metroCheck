@@ -141,9 +141,10 @@ python test_env.py
 2. Найди расширение → **"Фоновая страница"** / **"service worker"**.
 3. В консоли должны быть логи `[ARSHIN] ...`.
 4. Если логов нет, открой DevTools на странице Аршина (F12) → Application → Local Storage.
-5. Посмотри, в каком ключе лежит JWT. Добавь этот ключ в `chrome-extension\content.js`:
+5. Посмотри, в каком ключе лежит JWT. Для Аршина это должен быть ключ `u` в `localStorage`, внутри поля `token`. Если структура изменится, отредактируй `chrome-extension\content.js`:
    ```javascript
-   const TOKEN_KEYS = ['u', 'user', 'profile', 'auth', 'token', 'accessToken', 'arshin_token'];
+   const STORAGE_KEY = 'u';
+   const TOKEN_FIELD = 'token';
    ```
 
 ### Агент не видит токен после перезапуска
