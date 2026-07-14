@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import time
 from datetime import date
@@ -12,6 +13,8 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ArshinClient:
@@ -167,6 +170,9 @@ class ArshinClient:
 
     async def _lk_request(self, url: str, params: dict | None = None) -> dict[str, Any] | None:
         token = await self._ensure_token()
+        if not token:
+            logger.warning("[LK] No token available for request to %s", url)
+            return None
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ru,en;q=0.9",
@@ -177,14 +183,27 @@ class ArshinClient:
             "Authorization": f"Bearer {token.removeprefix('Bearer ')}",
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
+            logger.info("[LK] Request %s params=%s", url, params)
             response = await client.get(url, params=params, headers=headers)
+            logger.info("[LK] Response %s status=%s", url, response.status_code)
             if response.status_code == 401:
+                logger.warning("[LK] 401 on %s, trying to refresh token", url)
                 self._token_expires = 0
                 token = await self._ensure_token()
+                if not token:
+                    logger.error("[LK] Token refresh failed for %s", url)
+                    return None
                 headers["Authorization"] = f"Bearer {token.removeprefix('Bearer ')}"
                 response = await client.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            return response.json()
+                logger.info("[LK] Retry response %s status=%s", url, response.status_code)
+            if response.status_code >= 400:
+                logger.error("[LK] Error %s status=%s body=%s", url, response.status_code, response.text[:200])
+                return None
+            try:
+                return response.json()
+            except Exception as e:
+                logger.error("[LK] Failed to parse JSON %s: %s", url, e)
+                return None
 
     async def get_lk_details_by_docnum(self, document_number: str) -> dict[str, Any] | None:
         """Fetch details from ARSHIN LK by document number."""
