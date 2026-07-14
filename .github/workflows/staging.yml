@@ -31,7 +31,12 @@ jobs:
             docker exec metroCheck_postgres_stg pg_isready -U mkair -d mkair_stg 2>/dev/null && break
             sleep 1
           done
-          docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging run --no-deps --rm backend alembic upgrade head
+          # Wait for backend container to be running before exec
+          for _ in {1..30}; do
+            docker ps --filter name=metroCheck_backend_stg --filter status=running -q | grep -q . && break
+            sleep 1
+          done
+          docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging exec -T backend alembic upgrade head
 
       - name: Staging health check
         run: |

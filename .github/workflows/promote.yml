@@ -45,7 +45,12 @@ jobs:
             docker exec metroCheck_postgres pg_isready -U mkair -d mkair 2>/dev/null && break
             sleep 1
           done
-          docker compose -p metrocheck --env-file .env.production run --no-deps --rm backend alembic upgrade head
+          # Wait for backend container to be running before exec
+          for _ in {1..30}; do
+            docker ps --filter name=metroCheck_backend --filter status=running -q | grep -q . && break
+            sleep 1
+          done
+          docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
 
       - name: Production health check
         run: |
