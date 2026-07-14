@@ -5,8 +5,8 @@ r"""
     python check_token_sync.py [путь_к_файлу_на_сервере]
 
 Пример:
-    python check_token_sync.py "\\\\server\\share\\tokens\\arshin-token.json"
-    python check_token_sync.py "C:\\Users\\mflkee\\SynologyDrive\\...\\tokens\\test\\arshin-token.json"
+    python check_token_sync.py "\\\\server\\share\\tokens\\jwt-arshin-lk.json"
+    python check_token_sync.py "C:\\Users\\mflkee\\SynologyDrive\\...\\tokens\\test\\jwt-arshin-lk.json"
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ if ENV_FILE.exists():
         if key and key not in os.environ:
             os.environ[key] = value
 
-LOCAL_TOKEN_FILE = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "arshin-token.json")))
+LOCAL_TOKEN_FILE = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "jwt-arshin-lk.json")))
 
 
 def read_token_info(path: Path) -> dict | None:
@@ -94,7 +94,7 @@ def main() -> int:
     else:
         print()
         print("[INFO] Укажи путь к файлу на сервере для проверки синхронизации:")
-        print('       python check_token_sync.py "\\\\server\\share\\tokens\\arshin-token.json"')
+        print('       python check_token_sync.py "\\\\server\\share\\tokens\\jwt-arshin-lk.json"')
 
     return 0
 

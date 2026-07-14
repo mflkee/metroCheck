@@ -62,7 +62,7 @@
                                               Сервер (mount):
                                         /home/mflkee/SynologyDrive/
                                         ├── 2025/{месяц}/         ← протоколы
-                                        └── tokens/arshin-token.json ← токен
+                                        └── tokens/jwt-arshin-lk.json ← токен
 ```
 
 ## Компоненты
@@ -137,7 +137,7 @@
 │    progress: ~65% → 80%                                          │
 │                                                                  │
 │  Phase 6: wait_token  ← если токен протух                        │
-│    → мониторинг /shared/tokens/arshin-token.json                 │
+│    → мониторинг /shared/tokens/jwt-arshin-lk.json                 │
 │    → ждём, пока Зонов обновит токен через Synology Drive         │
 │    progress: 80% (фикс)                                          │
 │                                                                  │
@@ -255,14 +255,14 @@ NAS (Synology)
 Chrome Extension (content.js)
   → читает localStorage на fgis.gost.ru
   → находит JWT (начинается с eyJ...)
-  → background.js → пишет в SynologyDrive/tokens/arshin-token.json
+  → background.js → пишет в SynologyDrive/tokens/jwt-arshin-lk.json
 
 Synology Drive (Windows → NAS → Linux)
   → синхронизация файла на сервер
 
 Сервер
-  /home/mflkee/SynologyDrive/tokens/arshin-token.json
-  → монтируется в контейнер как /shared/tokens/arshin-token.json
+  /home/mflkee/SynologyDrive/tokens/jwt-arshin-lk.json
+  → монтируется в контейнер как /shared/tokens/jwt-arshin-lk.json
   → Backend читает, парсит, кеширует
   → Использует для LK запросов
   → Архивация использованных токенов в .used файлы

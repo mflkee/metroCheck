@@ -62,5 +62,5 @@ test_suite/.llm_cache/
 test_suite/reports/
 
 # Local token captured by token-agent
-token-agent/test/arshin-token.json
+token-agent/test/jwt-arshin-lk.json
 token-agent/*.log

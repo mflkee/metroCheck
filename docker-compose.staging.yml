@@ -50,7 +50,7 @@ services:
       APP_ENV: staging
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin-metrochek}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/arshin-token.json}
+      TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/jwt-arshin-lk.json}
       METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}

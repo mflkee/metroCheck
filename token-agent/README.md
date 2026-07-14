@@ -54,7 +54,7 @@ token-agent/
 Открой `token-agent\.env`:
 
 ```env
-TOKEN_FILE_PATH="C:\Users\mflkee\SynologyDrive\2_Документы внутреннего происхождения\2_19 Протоколы\tokens\test\arshin-token.json"
+TOKEN_FILE_PATH="C:\Users\mflkee\SynologyDrive\2_Документы внутреннего происхождения\2_19 Протоколы\tokens\test\jwt-arshin-lk.json"
 TOKEN_AGENT_HOST=127.0.0.1
 TOKEN_AGENT_PORT=8003
 TOKEN_AGENT_LOG=token-agent.log
@@ -62,7 +62,7 @@ TOKEN_AGENT_LOG=token-agent.log
 
 Для продакшена на ПК Зонова путь будет примерно таким:
 ```env
-TOKEN_FILE_PATH="C:\Users\Zonov\SynologyDrive\tokens\arshin-token.json"
+TOKEN_FILE_PATH="C:\Users\Zonov\SynologyDrive\tokens\jwt-arshin-lk.json"
 ```
 
 ### 2. Проверь окружение
@@ -106,7 +106,7 @@ python server.py
 ### 6. Проверь файл
 
 ```powershell
-Get-Content -Path "C:\Users\mflkee\SynologyDrive\2_Документы внутреннего происхождения\2_19 Протоколы\tokens\test\arshin-token.json" -Raw
+Get-Content -Path "C:\Users\mflkee\SynologyDrive\2_Документы внутреннего происхождения\2_19 Протоколы\tokens\test\jwt-arshin-lk.json" -Raw
 ```
 
 Или:
@@ -119,7 +119,7 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8003/health' -Method GET
 Если известен путь к файлу на сервере (после синхронизации Synology Drive):
 
 ```powershell
-python check_token_sync.py "\\server\share\tokens\arshin-token.json"
+python check_token_sync.py "\\server\share\tokens\jwt-arshin-lk.json"
 ```
 
 ## Отладка
@@ -149,12 +149,12 @@ python test_env.py
 
 ### Агент не видит токен после перезапуска
 
-Теперь агент при старте читает существующий `arshin-token.json`. Если этого не происходит, проверь лог `token-agent.log`.
+Теперь агент при старте читает существующий `jwt-arshin-lk.json`. Если этого не происходит, проверь лог `token-agent.log`.
 
 ### Токен не синхронизируется
 
 1. Проверь, что Synology Drive Client работает и синхронизирует папку `tokens`.
-2. Убедись, что файл `arshin-token.json` создается внутри синхронизируемой папки.
+2. Убедись, что файл `jwt-arshin-lk.json` создается внутри синхронизируемой папки.
 3. Запусти `watch_token.py` — он покажет, когда файл изменился.
 4. После синхронизации запусти `check_token_sync.py` с путем к файлу на сервере.
 

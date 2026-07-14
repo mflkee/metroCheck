@@ -172,8 +172,8 @@ sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server-tmn 'docker logs metroCheck_b
 
 ## 8. Token Sync (Synology Drive)
 
-Token file path (server): `/home/mflkee/SynologyDrive/tokens/arshin-token.json`
-Inside container: `/shared/tokens/arshin-token.json`
+Token file path (server): `/home/mflkee/SynologyDrive/tokens/jwt-arshin-lk.json`
+Inside container: `/shared/tokens/jwt-arshin-lk.json`
 
 **Flow:** Zonov logs into `fgis.gost.ru` → Chrome Extension captures JWT → writes to local Synology Drive folder → syncs to NAS → syncs to server → backend reads file.
 

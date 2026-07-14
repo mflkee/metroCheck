@@ -24,7 +24,7 @@
 │      ├── background.js                                          │
 │      │   → получает токен от content.js                         │
 │      │   → пишет в файл:                                        │
-│      │     SynologyDrive/tokens/arshin-token.json               │
+│      │     SynologyDrive/tokens/jwt-arshin-lk.json               │
 │      └── manifest.json                                          │
 │                                                                  │
 │  Synology Drive Client (Windows)                                │
@@ -38,10 +38,10 @@
 │  Сервер (mkair-server, Linux)                                   │
 │                                                                  │
 │  Synology Drive Client (Linux)                                  │
-│  └── /home/mflkee/SynologyDrive/tokens/arshin-token.json        │
+│  └── /home/mflkee/SynologyDrive/tokens/jwt-arshin-lk.json        │
 │                                                                  │
 │  Docker: смонтировано в контейнер backend                       │
-│  └── /shared/tokens/arshin-token.json                           │
+│  └── /shared/tokens/jwt-arshin-lk.json                           │
 │                                                                  │
 │  Backend (FastAPI):                                             │
 │  1. Читает файл при старте и каждые N секунд                    │
@@ -72,7 +72,7 @@ JobQueueService._execute_job()
   │   → не требуют токена, выполняются всегда
   │
   ├── Фаза 6: wait_token
-  │   → проверяет /shared/tokens/arshin-token.json
+  │   → проверяет /shared/tokens/jwt-arshin-lk.json
   │   → если токена нет или истёк:
   │     ├── статус job = "waiting_for_token"
   │     ├── polling файла каждые 30 сек
@@ -97,7 +97,7 @@ JobQueueService._execute_job()
 ### background.js
 - Service Worker (persistent)
 - Получает токен от content.js
-- Сохраняет в файл `arshin-token.json` в папке Synology Drive
+- Сохраняет в файл `jwt-arshin-lk.json` в папке Synology Drive
 - Логирует время захвата
 
 ## Важные моменты
