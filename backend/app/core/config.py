@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # Token sync via shared file (Synology Drive / Dropbox / etc.)
     # Path where token JSON file appears after sync from Zonov's PC
-    TOKEN_FILE_PATH: str = "/shared/tokens/jwt-arshin-lk.json"
+    TOKEN_FILE_PATH: str = "/shared/tokens/jwt-arshin-token.json"
 
     # Security
     FASTAPI_API_KEY: str = "CHANGE_ME_API_KEY"

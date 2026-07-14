@@ -49,7 +49,7 @@ if ENV_FILE.exists():
 TOKEN_FILE_PATH = Path(
     os.environ.get(
         "TOKEN_FILE_PATH",
-        str(AGENT_DIR / "jwt-arshin-lk.json"),
+        str(AGENT_DIR / "jwt-arshin-token.json"),
     )
 )
 HOST = os.environ.get("TOKEN_AGENT_HOST", "127.0.0.1")

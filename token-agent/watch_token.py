@@ -28,7 +28,7 @@ if ENV_FILE.exists():
         if key and key not in os.environ:
             os.environ[key] = value
 
-TOKEN_FILE_PATH = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "jwt-arshin-lk.json")))
+TOKEN_FILE_PATH = Path(os.environ.get("TOKEN_FILE_PATH", str(AGENT_DIR / "jwt-arshin-token.json")))
 
 
 def format_time(ts: int) -> str:

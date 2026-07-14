@@ -51,7 +51,7 @@ C:\Users\Zonov\token-agent\
 
 Или создать `.env` вручную:
 ```env
-   TOKEN_FILE_PATH="C:/Users/Zonov/SynologyDrive/tokens/jwt-arshin-lk.json"
+   TOKEN_FILE_PATH="C:/Users/Zonov/SynologyDrive/tokens/jwt-arshin-token.json"
 TOKEN_AGENT_HOST=127.0.0.1
 TOKEN_AGENT_PORT=8003
 TOKEN_AGENT_LOG=token-agent.log
@@ -90,11 +90,11 @@ Chrome Extension (fgis.gost.ru)
     ↓ (POST localhost:8003/token/callback)
 token-agent (server.py)
     ↓ (пишет JSON)
-C:/Users/Zonov/SynologyDrive/tokens/jwt-arshin-lk.json
+C:/Users/Zonov/SynologyDrive/tokens/jwt-arshin-token.json
     ↓ (Synology Drive sync)
 NAS (Synology)
     ↓ (Synology Drive sync)
-/home/mflkee/SynologyDrive/tokens/jwt-arshin-lk.json (mkair-server)
+/home/mflkee/SynologyDrive/tokens/jwt-arshin-token.json (mkair-server)
     ↓ (читает)
 metroCheck backend (Docker)
     ↓ (проверяет протоколы)
@@ -114,7 +114,7 @@ ARSHIN API
 
 ## Важно
 
-- После прочтения backend **переименовывает** файл в `jwt-arshin-lk.json.used`.
+- После прочтения backend **переименовывает** файл в `jwt-arshin-token.json.used`.
 - Это предотвращает повторное использование старого токена.
 - Зонову нужно только **запустить агент** и **логиниться в АРШИН**.
 
