@@ -133,10 +133,12 @@ class JobQueueService:
         """
         running = await self.repo.get_running()
         if running:
+            await self.db.rollback()
             return False
 
         job = await self.repo.get_next_pending()
         if not job:
+            await self.db.rollback()
             return False
 
         job.status = "running"
