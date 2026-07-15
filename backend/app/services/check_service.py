@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.utils import normalize_verifier
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.check_result import CheckResult
@@ -185,7 +186,7 @@ class CheckService:
 
             # Check verifier
             if cal.verifier and protocol.verifier:
-                if cal.verifier.strip().lower() != protocol.verifier.strip().lower():
+                if normalize_verifier(cal.verifier) != normalize_verifier(protocol.verifier):
                     result = CheckResult(
                         check_run_id=run_id,
                         calibration_id=cal.id,

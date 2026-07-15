@@ -5,6 +5,8 @@ import os
 import re
 from typing import Any
 
+from app.utils import normalize_verifier
+
 logger = logging.getLogger(__name__)
 
 DISABLE_AI = os.environ.get("METROCHECK_DISABLE_AI", "").lower() in ("1", "true", "yes")
@@ -594,8 +596,7 @@ class ProtocolExtractionService:
         match = re.search(r'поверитель[:\s]*\n\s*([^\n\r]+)', text, re.IGNORECASE)
         verifier = match.group(1).strip() if match else None
         if verifier and not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
-            verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
-            verifier = verifier.strip()
+            verifier = normalize_verifier(verifier)
             if len(verifier) > 3:
                 return verifier
 
@@ -603,7 +604,7 @@ class ProtocolExtractionService:
         match = re.search(r'\n\s*([^\n\r]{5,40})\s*\n\s*Поверитель[:\s]*\s*$', text, re.IGNORECASE | re.MULTILINE)
         if match:
             verifier = match.group(1).strip()
-            verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
+            verifier = normalize_verifier(verifier)
             if len(verifier) > 3 and not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
                 return verifier
 
@@ -612,7 +613,7 @@ class ProtocolExtractionService:
         if match:
             verifier = match.group(1).strip()
             if not re.search(r'подпись|фамилия|инициалы', verifier, re.IGNORECASE):
-                verifier = re.sub(r'([А-Я])\.\s+([А-Я])\.', r'\1.\2.', verifier)
+                verifier = normalize_verifier(verifier)
                 if len(verifier) > 3:
                     return verifier
         return None

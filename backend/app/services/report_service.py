@@ -9,7 +9,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
+from app.utils import normalize_verifier
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -281,8 +281,8 @@ class ReportService:
                 pair_warnings += 1
 
             if cal and cal.verifier and proto.verifier:
-                norm_proto = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", proto.verifier)
-                norm_cal = re.sub(r"([А-ЯA-Z])\.\s+([А-ЯA-Z])\.", r"\1.\2.", cal.verifier)
+                norm_proto = normalize_verifier(proto.verifier)
+                norm_cal = normalize_verifier(cal.verifier)
                 if norm_proto != norm_cal:
                     pair_errors += 1
 
@@ -830,8 +830,8 @@ class ReportService:
 
                 # Check verifier against best_cal
                 if cal and proto.verifier and cal.verifier:
-                    norm_proto_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', proto.verifier)
-                    norm_cal_verifier = re.sub(r'([А-ЯA-Z])\.\s+([А-ЯA-Z])\.', r'\1.\2.', cal.verifier)
+                    norm_proto_verifier = normalize_verifier(proto.verifier)
+                    norm_cal_verifier = normalize_verifier(cal.verifier)
                     if norm_proto_verifier != norm_cal_verifier:
                         mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
 

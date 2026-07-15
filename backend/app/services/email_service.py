@@ -35,6 +35,12 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
 
+    def _is_configured(self) -> bool:
+        if not self.smtp_user or not self.smtp_pass:
+            print(f"[Email] SMTP not configured (user={bool(self.smtp_user)}, pass={bool(self.smtp_pass)}), skipping")
+            return False
+        return True
+
     async def send_check_report(
         self,
         year: int,
@@ -48,9 +54,12 @@ class EmailService:
         recipient_email: Optional[str] = None,
     ) -> bool:
         """Send email report after check completion."""
+        if not self._is_configured():
+            return False
+
         to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
-        if not to_emails or not self.smtp_user:
-            print("[Email] Email not configured, skipping")
+        if not to_emails:
+            print("[Email] No recipients, skipping")
             return False
 
         subject = f"metroChek Отчет: Проверка протоколов {month:02d}.{year}"
@@ -125,8 +134,12 @@ class EmailService:
 
     async def send_alert(self, subject: str, message: str, recipient_email: Optional[str] = None) -> bool:
         """Send alert email."""
+        if not self._is_configured():
+            return False
+
         to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
         if not to_emails:
+            print("[Email] No recipients, skipping alert")
             return False
 
         try:
@@ -158,8 +171,7 @@ class EmailService:
             print("[Email] No recipients configured, skipping token alert")
             return False
 
-        if not self.smtp_pass:
-            print("[Email] SMTP not configured, skipping token alert")
+        if not self._is_configured():
             return False
 
         month_name = self._month_name(month)
@@ -202,8 +214,7 @@ metroCheck Robot
             print("[Email] No recipients configured, skipping token resumed alert")
             return False
 
-        if not self.smtp_pass:
-            print("[Email] SMTP not configured, skipping token resumed alert")
+        if not self._is_configured():
             return False
 
         month_name = self._month_name(month)
