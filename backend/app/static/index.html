@@ -245,9 +245,9 @@ select:focus, input:focus { border-color:var(--blue); }
 
       <div class="stats fade-in">
         <div class="stat"><div class="num cyan" id="st-pending">0</div><div class="lbl">В очереди</div></div>
-        <div class="stat d1"><div class="num green" id="st-running">0</div><div class="lbl">Выполняется</div></div>
-        <div class="stat d2"><div class="num blue" id="st-devices">—</div><div class="lbl">Приборов проверено</div></div>
-        <div class="stat d3"><div class="num orange" id="st-errors">0</div><div class="lbl">Расхождений</div></div>
+        <div class="stat d1"><div class="num green" id="st-running">—</div><div class="lbl">Выполняется</div></div>
+        <div class="stat d2"><div class="num blue" id="st-devices">—</div><div class="lbl">Приборов в последней проверке</div></div>
+        <div class="stat d3"><div class="num orange" id="st-errors">—</div><div class="lbl">Расхождений в последней проверке</div></div>
       </div>
 
       <div class="grid2 fade-in d1">
@@ -476,7 +476,7 @@ async function updQueue() {
   try {
     const d = await api('/v1/jobs/status');
     document.getElementById('st-pending').textContent = d.pending?.length || 0;
-    document.getElementById('st-running').textContent = d.running ? 1 : 0;
+    document.getElementById('st-running').textContent = d.running ? '⚙️' : '—';
     document.getElementById('q-count').textContent = (d.pending?.length||0) + '';
 
     // Running
@@ -525,6 +525,15 @@ async function updQueue() {
 
     // Recent
     const rl = document.getElementById('recent-list');
+    const lastCompleted = d.recent?.find(j => j.status === 'completed');
+    if (lastCompleted) {
+      const ps = lastCompleted.phase_stats || {};
+      document.getElementById('st-devices').textContent = ps.public_api?.saved ?? '—';
+      document.getElementById('st-errors').textContent = ps.full_check?.errors ?? '—';
+    } else {
+      document.getElementById('st-devices').textContent = '—';
+      document.getElementById('st-errors').textContent = '—';
+    }
     if (d.recent?.length) {
       const html = d.recent.slice(0,10).map(j => `<div class="row"><div class="info"><span class="id">#${j.id}</span><span class="dt">${j.year}-${String(j.month).padStart(2,'0')}</span><span class="badge ${j.status==='completed'?'green':j.status==='failed'?'red':'orange'}">${j.status}</span><span class="muted">${j.progress||'—'}</span><span class="dt">${fmtDate(j.completed_at||j.started_at)}</span></div><div class="actions"><button class="btn ghost sm" onclick="downloadReport(${j.id})" title="Скачать отчёт">📥</button><button class="btn danger sm" onclick="deleteJob(${j.id})" title="Удалить">✕</button></div></div>`).join('');
       if (rl.innerHTML !== html) rl.innerHTML = html;
@@ -533,18 +542,6 @@ async function updQueue() {
       if (rl.innerHTML !== html) rl.innerHTML = html;
     }
   } catch { console.error('queue fail'); }
-}
-
-// ── Errors ──
-async function updErrors() {
-  try {
-    const s = await api('/v1/checks/summary');
-    if (s.latest_run?.id) {
-      const r = await api(`/v1/checks/results/${s.latest_run.id}`);
-      const errs = r.errors || [];
-      document.getElementById('st-errors').textContent = errs.length;
-    }
-  } catch { /* ignore */ }
 }
 
 // ── Scheduler ──
@@ -682,10 +679,9 @@ function fmtDate(iso) {
 
 // ── Init ──
 function initApp() {
-  updHealth(); updQueue(); updErrors(); loadSched(true);
+  updHealth(); updQueue(); loadSched(true);
   setInterval(updHealth, 10000);
   setInterval(updQueue, 3000);
-  setInterval(updErrors, 10000);
   setInterval(function(){ loadSched(false); }, 30000);
   setInterval(function(){ loadEmails(); }, 30000);
 }

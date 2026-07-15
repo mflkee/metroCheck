@@ -701,19 +701,26 @@ class JobQueueService:
         generation so long-running Excel creation does not hold the worker's
         main transaction."""
         from app.core.database import AsyncSessionLocal
+        from app.repositories.check_run_repository import CheckRunRepository
         from app.repositories.email_repository import EmailRepository
-        from app.repositories.job_repository import JobRepository
         from app.services.report_service import ReportService
 
         checks = result.get("checks", {})
 
         report_email = None
         report_path = None
+        total_calibrations = 0
         async with AsyncSessionLocal() as session:
             email_repo = EmailRepository(session)
             entries = await email_repo.get_all()
             if entries:
                 report_email = ", ".join(e.email for e in entries)
+
+            if job.check_run_id:
+                run_repo = CheckRunRepository(session)
+                run = await run_repo.get_by_id(job.check_run_id)
+                if run:
+                    total_calibrations = run.total_calibrations or 0
 
             try:
                 report_service = ReportService(session)
@@ -727,7 +734,7 @@ class JobQueueService:
         await self.email.send_check_report(
             year=job.year,
             month=job.month,
-            total_devices=job.total_devices,
+            total_devices=total_calibrations,
             errors=checks.get("errors", 0),
             warnings=checks.get("warnings", 0),
             missing=checks.get("missing", 0),

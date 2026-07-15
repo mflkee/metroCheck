@@ -108,12 +108,31 @@ def jwt_expires_in(raw_token: str, default: int = 3600) -> int:
 
 
 def write_token_file(token: str) -> bool:
-    """Записать токен в JSON-файл. Атомарная запись через .tmp."""
+    """Записать токен в JSON-файл. Атомарная запись через .tmp.
+
+    Если пришел тот же токен, что уже сохранен, updated_at не меняется —
+    это нужно для корректного отображения возраста токена в UI.
+    """
     try:
         TOKEN_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # Preserve existing updated_at if token hasn't changed
+        existing_updated_at = None
+        if token == _state.get("token"):
+            existing_updated_at = _state.get("updated_at")
+        elif TOKEN_FILE_PATH.exists():
+            try:
+                existing = json.loads(TOKEN_FILE_PATH.read_text(encoding="utf-8"))
+                if existing.get("token") == token:
+                    existing_updated_at = existing.get("updated_at")
+            except Exception:
+                pass
+
+        updated_at = existing_updated_at if existing_updated_at is not None else int(time.time())
+
         data = {
             "token": token,
-            "updated_at": int(time.time()),
+            "updated_at": updated_at,
             "expires_in": jwt_expires_in(token),
             "source": "chrome-extension",
         }
