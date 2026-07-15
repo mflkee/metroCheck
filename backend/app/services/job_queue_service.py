@@ -231,10 +231,16 @@ class JobQueueService:
             return True
 
     async def _check_cancelled(self, job_id: int) -> None:
-        """Check if job was cancelled externally and raise CancelledError."""
-        job = await self.repo.get_by_id(job_id)
-        if job and job.status == "cancelled":
-            raise asyncio.CancelledError()
+        """Check if job was cancelled externally using a fresh session to avoid
+        holding the worker's main transaction open."""
+        from app.core.database import AsyncSessionLocal
+        from app.repositories.job_repository import JobRepository
+
+        async with AsyncSessionLocal() as session:
+            repo = JobRepository(session)
+            job = await repo.get_by_id(job_id)
+            if job and job.status == "cancelled":
+                raise asyncio.CancelledError()
 
     async def _execute_job(self, job: Job) -> dict[str, Any]:
         """Execute a single check job with token-independent phases first.
@@ -523,6 +529,7 @@ class JobQueueService:
         check_result = await check_service.run_checks(job.year, job.month)
         if check_result.get("run_id"):
             job.check_run_id = check_result["run_id"]
+            await self.db.commit()
 
         stats["full_check"] = {
             "errors": check_result.get('errors', 0),
@@ -648,7 +655,7 @@ class JobQueueService:
                 key=lambda x: (x[0], x[1]),
             )
 
-            await self.email.send_token_expired_alert(
+            sent = await self.email.send_token_expired_alert(
                 recipients=recipients,
                 year=job.year,
                 month=job.month,
@@ -656,9 +663,12 @@ class JobQueueService:
                 processed_protocols=processed_protocols,
                 queue_months=queue_months,
             )
-            job.token_alert_sent = True
-            await self.db.commit()
-            logger.info("Token expired alert sent for job %s", job.id)
+            if sent:
+                job.token_alert_sent = True
+                await self.db.commit()
+                logger.info("Token expired alert sent for job %s", job.id)
+            else:
+                logger.warning("Token expired alert was not sent for job %s", job.id)
         except Exception as e:
             logger.error("Failed to send token expired alert: %s", e)
 
@@ -672,39 +682,45 @@ class JobQueueService:
             if not recipients:
                 return
 
-            await self.email.send_token_resumed_alert(
+            sent = await self.email.send_token_resumed_alert(
                 recipients=recipients,
                 year=job.year,
                 month=job.month,
             )
-            logger.info("Token resumed alert sent for job %s", job.id)
+            if sent:
+                logger.info("Token resumed alert sent for job %s", job.id)
+            else:
+                logger.warning("Token resumed alert was not sent for job %s", job.id)
         except Exception as e:
             logger.error("Failed to send token resumed alert: %s", e)
 
     async def _send_report(self, job: Job, result: dict[str, Any]) -> None:
-        """Send email report after completion."""
+        """Send email report after completion using a fresh session for report
+        generation so long-running Excel creation does not hold the worker's
+        main transaction."""
+        from app.core.database import AsyncSessionLocal
+        from app.repositories.email_repository import EmailRepository
+        from app.repositories.job_repository import JobRepository
+        from app.services.report_service import ReportService
+
         checks = result.get("checks", {})
 
-        # Read report_email from scheduler state
         report_email = None
-        try:
-            from app.repositories.email_repository import EmailRepository
-            repo = EmailRepository(self.db)
-            entries = await repo.get_all()
+        report_path = None
+        async with AsyncSessionLocal() as session:
+            email_repo = EmailRepository(session)
+            entries = await email_repo.get_all()
             if entries:
                 report_email = ", ".join(e.email for e in entries)
-        except Exception:
-            pass
 
-        # Generate report and attach to email
-        report_path = None
-        try:
-            from app.services.report_service import ReportService
-            report_service = ReportService(self.db)
-            report_result = await report_service.generate_interim_report(job.year, job.month)
-            report_path = report_result.get("file_path")
-        except Exception as e:
-            print(f"[Email] Failed to generate report: {e}")
+            try:
+                report_service = ReportService(session)
+                report_result = await report_service.generate_interim_report(
+                    job.year, job.month, job_id=job.id
+                )
+                report_path = report_result.get("file_path")
+            except Exception as e:
+                logger.error("[Email] Failed to generate report: %s", e)
 
         await self.email.send_check_report(
             year=job.year,
