@@ -13,8 +13,25 @@ jobs:
       - name: Checkout staging code
         run: |
           cd ~/apps/metroCheck
+          # Сохраняем .env.staging перед git reset --hard
+          if [ -f .env.staging ]; then
+            cp .env.staging /tmp/metrocheck_env_staging_backup
+            echo 'Backed up .env.staging'
+          fi
           git fetch origin
           git reset --hard origin/main
+          # Восстанавливаем .env.staging
+          if [ -f /tmp/metrocheck_env_staging_backup ]; then
+            cp /tmp/metrocheck_env_staging_backup .env.staging
+            echo 'Restored .env.staging from backup'
+          else
+            echo 'WARNING: no .env.staging found'
+          fi
+          # Защита от accidental commit
+          if ! grep -q '^\.env\.staging$' .gitignore 2>/dev/null; then
+            echo '.env.staging' >> .gitignore
+          fi
+          git update-index --assume-unchanged .env.staging
 
       - name: Build & deploy staging
         run: |
@@ -42,12 +59,12 @@ jobs:
         run: |
           for _ in {1..30}; do
             if curl -fsS http://127.0.0.1:9002/health >/dev/null 2>&1; then
-              echo "Staging backend is ready"
+              echo 'Staging backend is ready'
               exit 0
             fi
             sleep 1
           done
-          echo "Staging backend failed to become ready within 30s"
+          echo 'Staging backend failed to become ready within 30s'
           exit 1
 
       - name: Show staging status

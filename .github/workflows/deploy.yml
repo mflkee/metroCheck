@@ -20,8 +20,25 @@ jobs:
       - name: Pull latest code
         run: |
           cd ~/apps/metroCheck
+          # Сохраняем .env.production перед git reset --hard
+          if [ -f .env.production ]; then
+            cp .env.production /tmp/metrocheck_env_production_backup
+            echo 'Backed up .env.production'
+          fi
           git fetch origin
           git reset --hard origin/${{ github.ref_name }}
+          # Восстанавливаем .env.production
+          if [ -f /tmp/metrocheck_env_production_backup ]; then
+            cp /tmp/metrocheck_env_production_backup .env.production
+            echo 'Restored .env.production from backup'
+          else
+            echo 'WARNING: no .env.production found'
+          fi
+          # Защита от accidental commit
+          if ! grep -q '^\.env\.production$' .gitignore 2>/dev/null; then
+            echo '.env.production' >> .gitignore
+          fi
+          git update-index --assume-unchanged .env.production
 
       - name: Backup production database
         run: |
@@ -43,12 +60,12 @@ jobs:
         run: |
           for _ in {1..30}; do
             if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then
-              echo "Backend is ready"
+              echo 'Backend is ready'
               exit 0
             fi
             sleep 1
           done
-          echo "Backend failed to become ready within 30s"
+          echo 'Backend failed to become ready within 30s'
           exit 1
 
       - name: Show status
