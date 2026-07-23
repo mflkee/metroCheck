@@ -38,7 +38,7 @@ jobs:
           if ! grep -q '^\.env\.production$' .gitignore 2>/dev/null; then
             echo '.env.production' >> .gitignore
           fi
-          git update-index --assume-unchanged .env.production
+          
 
       - name: Backup production database
         run: |
