@@ -21,6 +21,7 @@ class JobRepository:
         job_type: str = "auto",
         priority: int = 0,
         triggered_by: str = "system",
+        use_lk: bool = True,
     ) -> Job:
         job = Job(
             year=year,
@@ -29,6 +30,7 @@ class JobRepository:
             priority=priority,
             triggered_by=triggered_by,
             status="pending",
+            use_lk=use_lk,
         )
         self.db.add(job)
         await self.db.commit()

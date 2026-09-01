@@ -16,6 +16,7 @@ router = APIRouter()
 class EnqueueRequest(BaseModel):
     year: int
     month: int
+    use_lk: bool = True
 
 
 class JobResponse(BaseModel):
@@ -42,6 +43,7 @@ async def enqueue_manual(
         year=payload.year,
         month=payload.month,
         triggered_by="user",
+        use_lk=payload.use_lk,
     )
 
     return {
@@ -207,7 +209,7 @@ async def generate_job_report(
     report_service = ReportService(db)
     
     # Always generate fresh interim report (avoids stale cached files)
-    result = await report_service.generate_interim_report(job.year, job.month, job_id=job.id)
+    result = await report_service.generate_interim_report(job.year, job.month, job_id=job.id, use_lk=job.use_lk)
 
     if result.get("error"):
         raise HTTPException(status_code=500, detail=result["error"])

@@ -84,7 +84,7 @@ class ReportService:
             return f"({match.group(1)}-{match.group(2)}) {match.group(3).strip()}"
         return ""
 
-    async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports", job_id: int | None = None) -> dict[str, Any]:
+    async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports", job_id: int | None = None, use_lk: bool = True) -> dict[str, Any]:
         """Generate interim Excel report with full comparison layout."""
         calibrations = await self.cal_repo.get_by_month(year, month)
         protocols = await self.proto_repo.get_by_month(year, month)
@@ -92,19 +92,20 @@ class ReportService:
         wb = Workbook()
         ws_summary = wb.active
         ws_summary.title = "0. Сводка"
-        self._fill_summary_sheet(ws_summary, calibrations, protocols, year, month)
+        self._fill_summary_sheet(ws_summary, calibrations, protocols, year, month, use_lk=use_lk)
 
         ws_public = wb.create_sheet("1. ARSHIN Public API")
         self._fill_public_sheet(ws_public, calibrations)
 
-        ws_lk = wb.create_sheet("2. ARSHIN LK")
-        self._fill_lk_sheet(ws_lk, calibrations)
+        if use_lk:
+            ws_lk = wb.create_sheet("2. ARSHIN LK")
+            self._fill_lk_sheet(ws_lk, calibrations)
 
         ws_proto = wb.create_sheet("3. Протоколы")
         self._fill_protocol_sheet(ws_proto, protocols)
 
         ws_compare = wb.create_sheet("4. Сравнение")
-        self._fill_comparison_sheet(ws_compare, calibrations, protocols)
+        self._fill_comparison_sheet(ws_compare, calibrations, protocols, use_lk=use_lk)
 
         os.makedirs(output_dir, exist_ok=True)
         job_suffix = f"_job{job_id}" if job_id else ""
@@ -120,6 +121,7 @@ class ReportService:
             "total_calibrations": len(calibrations),
             "total_protocols": len(protocols),
             "is_interim": True,
+            "use_lk": use_lk,
         }
 
     def _fill_summary_sheet(
@@ -129,6 +131,7 @@ class ReportService:
         protocols: list,
         year: int,
         month: int,
+        use_lk: bool = True,
     ) -> None:
         """Fill summary dashboard sheet with KPIs, charts, per-owner breakdown, performed checks and duplicates."""
         from collections import defaultdict
@@ -286,23 +289,24 @@ class ReportService:
                 if norm_proto != norm_cal:
                     pair_errors += 1
 
-            lk_conditions = {}
-            if cal and cal.conditions:
-                try:
-                    lk_conditions = json.loads(cal.conditions)
-                except json.JSONDecodeError:
-                    pass
-
-            # Exact match for conditions
-            for field in ("temperature", "humidity", "pressure"):
-                proto_val = getattr(proto, field, None)
-                cal_val = lk_conditions.get(field)
-                if proto_val is not None and cal_val is not None:
+            if use_lk:
+                lk_conditions = {}
+                if cal and cal.conditions:
                     try:
-                        if float(proto_val) != float(cal_val):
-                            pair_errors += 1
-                    except (ValueError, TypeError):
+                        lk_conditions = json.loads(cal.conditions)
+                    except json.JSONDecodeError:
                         pass
+
+                # Exact match for conditions
+                for field in ("temperature", "humidity", "pressure"):
+                    proto_val = getattr(proto, field, None)
+                    cal_val = lk_conditions.get(field)
+                    if proto_val is not None and cal_val is not None:
+                        try:
+                            if float(proto_val) != float(cal_val):
+                                pair_errors += 1
+                        except (ValueError, TypeError):
+                            pass
 
             # Check serial from filename vs protocol
             file_name_serial = ""
@@ -451,11 +455,12 @@ class ReportService:
             ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН. Поиск по заводскому номеру."),
             ("Дата поверки", "Дата в протоколе ↔ verification_date в АРШИН. Точное совпадение."),
             ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН. Предупреждение, если совпадает."),
-            ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе. Точное совпадение после нормализации."),
-            ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе. Точное совпадение."),
             ("Уникальность номера протокола", "Номера протоколов между собой. Не должно повторяться."),
             ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе. Доп. предупреждение при расхождении."),
         ]
+        if use_lk:
+            performed_checks.insert(4, ("ФИО поверителя", "Поверитель в ЛК АРШИН ↔ в протоколе. Точное совпадение после нормализации."))
+            performed_checks.insert(5, ("Условия окружающей среды", "t, φ, P в ЛК АРШИН ↔ в протоколе. Точное совпадение."))
         for check_name, desc in performed_checks:
             write_cell(row, 1, check_name)
             ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
@@ -483,9 +488,14 @@ class ReportService:
         ws.row_dimensions[row].height = 21.75
         row += 1
 
+        if use_lk:
+            error_desc = "Дата поверки не совпадает с verification_date в АРШИН; ФИО поверителя различается; условия окружающей среды не совпадают точно."
+        else:
+            error_desc = "Дата поверки не совпадает с verification_date в АРШИН (без проверки данных ЛК)."
+        warning_desc = "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе (доп. проверка)."
         legend_items = [
-            ("Ошибка", "Дата поверки не совпадает с verification_date в АРШИН; ФИО поверителя различается; условия окружающей среды не совпадают точно."),
-            ("Предупреждение", "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе (доп. проверка)."),
+            ("Ошибка", error_desc),
+            ("Предупреждение", warning_desc),
             ("Отсутствует протокол", "Запись есть в АРШИН, файл протокола не найден по заводскому номеру."),
             ("Лишний протокол", "Файл протокола есть, записи в АРШИН по заводскому номеру нет."),
         ]
@@ -613,7 +623,7 @@ class ReportService:
             self._write_data_row(ws, row, idx, "FCE4D6")
         self._auto_fit_columns(ws)
 
-    def _fill_comparison_sheet(self, ws, calibrations, protocols) -> None:
+    def _fill_comparison_sheet(self, ws, calibrations, protocols, use_lk: bool = True) -> None:
         from collections import defaultdict
         # Build calibrations lookup by (serial, mit_number) pair and by serial
         cal_by_pair: dict[tuple[str, str], list] = defaultdict(list)
@@ -655,14 +665,16 @@ class ReportService:
                          "№ОТ", "Методика", "Год", "Владелец", "Дата",
                          "Поверитель", "t", "φ", "P", "Источник"]
 
-        all_headers = compare_headers + public_headers + lk_headers + proto_headers
+        all_headers = compare_headers + public_headers + lk_headers + proto_headers if use_lk \
+            else compare_headers + public_headers + proto_headers
 
         group_titles = [
             ("Сравнение", "5B9BD5", len(compare_headers)),
             ("Публичный АРШИН", "4472C4", len(public_headers)),
-            ("ЛК АРШИН", "70AD47", len(lk_headers)),
             ("Протокол", "ED7D31", len(proto_headers)),
         ]
+        if use_lk:
+            group_titles.insert(2, ("ЛК АРШИН", "70AD47", len(lk_headers)))
 
         col_start = 1
         for title, color, span in group_titles:
@@ -680,15 +692,19 @@ class ReportService:
 
         compare_offset = 0
         public_offset = len(compare_headers)
-        lk_offset = public_offset + len(public_headers)
-        proto_offset = lk_offset + len(lk_headers)
+        if use_lk:
+            lk_offset = public_offset + len(public_headers)
+            proto_offset = lk_offset + len(lk_headers)
+        else:
+            proto_offset = public_offset + len(public_headers)
 
         header_fills = {
             "5B9BD5": list(range(compare_offset, public_offset)),
-            "4472C4": list(range(public_offset, lk_offset)),
-            "70AD47": list(range(lk_offset, proto_offset)),
+            "4472C4": list(range(public_offset, proto_offset)),
             "ED7D31": list(range(proto_offset, proto_offset + len(proto_headers))),
         }
+        if use_lk:
+            header_fills["70AD47"] = list(range(lk_offset, proto_offset))
 
         for col_idx, header in enumerate(all_headers, 1):
             cell = ws.cell(row=2, column=col_idx, value=header)
@@ -789,10 +805,6 @@ class ReportService:
                 cal.verification_date.strftime("%d.%m.%Y") if cal and cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal and cal.valid_date else "",
                 cal.result_docnum if cal else "",
-                cal.verifier or "" if cal else "",
-                fmt_num(lk_conditions.get("temperature")) if cal else "",
-                fmt_num(lk_conditions.get("humidity")) if cal else "",
-                fmt_num(lk_conditions.get("pressure")) if cal else "",
                 proto.protocol_number or "",
                 full_name,
                 proto.serial_number or "",
@@ -807,6 +819,17 @@ class ReportService:
                 fmt_num(proto.pressure),
                 proto.model_used or "OCR",
             ]
+
+            if use_lk:
+                # Inject LK columns between the public block and the protocol block
+                lk_vals = [
+                    cal.verifier or "" if cal else "",
+                    fmt_num(lk_conditions.get("temperature")) if cal else "",
+                    fmt_num(lk_conditions.get("humidity")) if cal else "",
+                    fmt_num(lk_conditions.get("pressure")) if cal else "",
+                ]
+                insert_at = 2 + len(public_headers)  # after compare(2) + public(11) columns
+                row_data[insert_at:insert_at] = lk_vals
 
             mismatches = []
 
@@ -828,23 +851,24 @@ class ReportService:
                     verif_strs = [c.verification_date.strftime("%d.%m.%Y") for c in cal_list if c.verification_date]
                     mismatches.append(f"Дата: АРШИН {', '.join(verif_strs)} vs протокол {proto_date_str}")
 
-                # Check verifier against best_cal
-                if cal and proto.verifier and cal.verifier:
-                    norm_proto_verifier = normalize_verifier(proto.verifier)
-                    norm_cal_verifier = normalize_verifier(cal.verifier)
-                    if norm_proto_verifier != norm_cal_verifier:
-                        mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
+                if use_lk:
+                    # Check verifier against best_cal
+                    if cal and proto.verifier and cal.verifier:
+                        norm_proto_verifier = normalize_verifier(proto.verifier)
+                        norm_cal_verifier = normalize_verifier(cal.verifier)
+                        if norm_proto_verifier != norm_cal_verifier:
+                            mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
 
-                # Check conditions exact match
-                for field in ("temperature", "humidity", "pressure"):
-                    proto_val = getattr(proto, field, None)
-                    cal_val = lk_conditions.get(field)
-                    if proto_val is not None and cal_val is not None:
-                        try:
-                            if float(proto_val) != float(cal_val):
-                                mismatches.append(f"{field}: {cal_val} vs {proto_val}")
-                        except (ValueError, TypeError):
-                            pass
+                    # Check conditions exact match
+                    for field in ("temperature", "humidity", "pressure"):
+                        proto_val = getattr(proto, field, None)
+                        cal_val = lk_conditions.get(field)
+                        if proto_val is not None and cal_val is not None:
+                            try:
+                                if float(proto_val) != float(cal_val):
+                                    mismatches.append(f"{field}: {cal_val} vs {proto_val}")
+                            except (ValueError, TypeError):
+                                pass
 
             # Check serial from filename vs protocol (warning context only)
             if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
@@ -915,12 +939,15 @@ class ReportService:
                 cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
                 cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
                 cal.result_docnum or "",
-                cal.verifier or "",
-                fmt_num(lk_conditions.get("temperature")),
-                fmt_num(lk_conditions.get("humidity")),
-                fmt_num(lk_conditions.get("pressure")),
-                "", "", "", "", "", "", "", "", "", "",
             ]
+            if use_lk:
+                row_data += [
+                    cal.verifier or "",
+                    fmt_num(lk_conditions.get("temperature")),
+                    fmt_num(lk_conditions.get("humidity")),
+                    fmt_num(lk_conditions.get("pressure")),
+                ]
+            row_data += ["", "", "", "", "", "", "", "", "", "", "", "", ""]
             for col_idx, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_num, column=col_idx, value=value)
                 cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),

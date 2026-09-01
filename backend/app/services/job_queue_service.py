@@ -42,6 +42,7 @@ class JobQueueService:
         year: int,
         month: int,
         triggered_by: str = "user",
+        use_lk: bool = True,
     ) -> Job:
         """Add manual job with high priority. Cancels auto jobs."""
         pending_auto = await self.repo.list_by_status("pending")
@@ -55,6 +56,7 @@ class JobQueueService:
             job_type="manual",
             priority=10,
             triggered_by=triggered_by,
+            use_lk=use_lk,
         )
 
     async def enqueue_auto(
@@ -62,6 +64,7 @@ class JobQueueService:
         year: int,
         month: int,
         triggered_by: str = "cron",
+        use_lk: bool = True,
     ) -> Job:
         """Add automatic job with low priority."""
         return await self.repo.create(
@@ -70,6 +73,7 @@ class JobQueueService:
             job_type="auto",
             priority=0,
             triggered_by=triggered_by,
+            use_lk=use_lk,
         )
 
     async def start_worker(self) -> None:
@@ -490,6 +494,60 @@ class JobQueueService:
         }
         await self._set_phase(job, "partial_check", f"Частичная проверка: {partial_result.get('matched', 0)} совпадений", 57, stats)
 
+        if job.use_lk:
+            final_result = await self._execute_lk_phases(job, arshin_service, check_service, stats, total_devices, extracted_count, ocr_errors, cal_result, scan_result, partial_result)
+        else:
+            # No LK mode: skip waiting for token and LK data. The partial check
+            # is the final check. The pipeline completes green without touching
+            # the token or LK.
+            stats["wait_token"] = {"status": "skipped", "waited": False}
+            stats["lk_api"] = {"status": "skipped"}
+            stats["full_check"] = {
+                "errors": partial_result.get("mismatched", 0),
+                "missing": partial_result.get("missing_protocols", 0),
+                "status": "completed",
+            }
+            await self._set_phase(job, "wait_token", "Без ЛК — токен не требуется", 60, stats)
+            await self._set_phase(job, "lk_api", "Без ЛК — данные ЛК пропущены", 70, stats)
+            await self._set_phase(job, "full_check", "Проверка завершена (без ЛК)", 95, stats, processed_devices=total_devices)
+
+            final_result = {
+                "public_api": cal_result,
+                "protocol_scan": scan_result,
+                "protocol_ocr": {"extracted": extracted_count, "errors": ocr_errors},
+                "partial_check": partial_result,
+                "full_check": {
+                    "errors": partial_result.get("mismatched", 0),
+                    "missing": partial_result.get("missing_protocols", 0),
+                    "warnings": 0,
+                    "run_id": None,
+                },
+                "use_lk": False,
+            }
+
+        # ── Phase 8: Report ───────────────────────────────────────────────
+        await self._set_phase(job, "report", "Формирование отчета...", 98, stats)
+        await self._check_cancelled(job.id)
+
+        stats["report"] = {"status": "completed"}
+        await self._set_phase(job, "report", "Готово!", 100, stats)
+
+        return final_result
+
+    async def _execute_lk_phases(
+        self,
+        job: Job,
+        arshin_service: Any,
+        check_service: CheckService,
+        stats: dict,
+        total_devices: int,
+        extracted_count: int,
+        ocr_errors: int,
+        cal_result: dict,
+        scan_result: dict,
+        partial_result: dict,
+    ) -> dict[str, Any]:
+        """Execute the LK-dependent pipeline phases (token wait, LK API, full checks)."""
         # ── Phase 5: Wait for token ───────────────────────────────────────
         await self._check_cancelled(job.id)
         client = ArshinClient()
@@ -541,11 +599,7 @@ class JobQueueService:
         }
         await self._set_phase(job, "full_check", f"Проверка: {check_result.get('errors', 0)} ошибок, {check_result.get('warnings', 0)} предупр.", 95, stats, processed_devices=total_devices)
 
-        # ── Phase 8: Report ───────────────────────────────────────────────
-        await self._set_phase(job, "report", "Формирование отчета...", 98, stats)
-        await self._check_cancelled(job.id)
-
-        final_result = {
+        return {
             "public_api": cal_result,
             "protocol_scan": scan_result,
             "protocol_ocr": {"extracted": extracted_count, "errors": ocr_errors},
@@ -553,12 +607,8 @@ class JobQueueService:
             "lk_details": lk_result,
             "lk_data2": data2_result,
             "full_check": check_result,
+            "use_lk": True,
         }
-
-        stats["report"] = {"status": "completed"}
-        await self._set_phase(job, "report", "Готово!", 100, stats)
-
-        return final_result
 
     async def _set_phase(
         self,
@@ -725,7 +775,7 @@ class JobQueueService:
             try:
                 report_service = ReportService(session)
                 report_result = await report_service.generate_interim_report(
-                    job.year, job.month, job_id=job.id
+                    job.year, job.month, job_id=job.id, use_lk=job.use_lk
                 )
                 report_path = report_result.get("file_path")
             except Exception as e:
@@ -819,6 +869,7 @@ class JobQueueService:
             "error_message": job.error_message,
             "waiting_for_token": job.waiting_for_token,
             "email_sent": job.email_sent,
+            "use_lk": job.use_lk,
             "phase_stats": job.phase_stats,
             "current_phase": job.current_phase,
         }

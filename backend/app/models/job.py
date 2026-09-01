@@ -55,6 +55,9 @@ class Job(Base):
     # Whether token-expired alert has already been sent for this job
     token_alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Whether to use LK (Личный кабинет АРШИН) data + token in this check
+    use_lk: Mapped[bool] = mapped_column(Boolean, default=True)
+
     # Detailed phase statistics (JSON string)
     phase_stats: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     

@@ -270,6 +270,9 @@ select:focus, input:focus { border-color:var(--blue); }
               </select>
               <button class="btn primary" onclick="runCheck()">Запустить</button>
             </div>
+            <div class="form-row" style="margin-top:10px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="run-lk" checked> <span class="f13">С ЛК (Личный кабинет АРШИН)</span></label>
+            </div>
             <div id="running-job"></div>
           </div>
         </div>
@@ -617,7 +620,8 @@ async function removeEmail(id) {
 async function runCheck() {
   const y = parseInt(document.getElementById('run-y').value);
   const m = parseInt(document.getElementById('run-m').value);
-  await api('/v1/jobs/enqueue', 'POST', { year: y, month: m });
+  const useLk = document.getElementById('run-lk').checked;
+  await api('/v1/jobs/enqueue', 'POST', { year: y, month: m, use_lk: useLk });
   updQueue();
 }
 
