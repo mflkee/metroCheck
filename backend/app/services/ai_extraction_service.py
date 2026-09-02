@@ -37,6 +37,80 @@ VISION_MODELS_PAID = [
 ]
 
 
+# Секции протокола, где указывается регистрационный номер типа СИ в госреестре (ОТ).
+_MIT_SECTION_PATTERNS = [
+    r"(?:номер\s+(?:в\s+)?гос(?:ударственном)?\s+реестре|реестр(?:а)?\s+СИ|государственный\s+реестр|реестр\s+средств\s+измерений)[^\n]{0,80}",
+    r"(?:регистрационный\s+номер|№\s*в\s+реестре|номер\s+в\s+реестре|номер\s+описания\s+типа)[^\n]{0,80}",
+]
+# ОТ подписанные ключевыми словами (тип СИ / средство измерения).
+_MIT_LABELED_PATTERNS = [
+    r"(?:номер\s*[^:\n]{0,20}?|№\s*)?\s*(?:типа\s+средства\s+измерений|тип\s+СИ|средства\s+измерений)[^:\n]{0,15}[: ]\s*(\d{3,6}-\d{2,4})",
+]
+
+
+def _extract_mit_number_deterministic(text: str | None) -> str | None:
+    """Детерминированно извлечь номер ОТ (госреестра) из текста протокола.
+
+    Приоритет:
+      1. Раздел «госреестр/регистрационный номер» — взять первый номер-кандидат.
+      2. Номер, подписанный «тип СИ/средство измерения».
+      3. Fallback — первый номер вида NNNNN-NN в тексте.
+    Возвращает формат `12345-67` или None.
+    """
+    if not text:
+        return None
+
+    mit_candidates = []
+
+    # 1. Раздел реестра
+    for pat in _MIT_SECTION_PATTERNS:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            block = m.group(0)
+            for num in _find_mit_numbers(block):
+                if num not in mit_candidates:
+                    mit_candidates.append(num)
+    if mit_candidates:
+        return mit_candidates[0]
+
+    # 2. Подписанный «тип СИ»
+    for pat in _MIT_LABELED_PATTERNS:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m and m.group(1):
+            return m.group(1)
+
+    # 3. Fallback — первый номер в тексте
+    return _first_mit_number(text)
+
+
+def _find_mit_numbers(s: str) -> list[str]:
+    """Все номера вида NNNNN-NN в строке, в порядке появления, без дубликатов."""
+    out: list[str] = []
+    for m in re.finditer(r"\b(\d{3,6}-\d{2,4})\b", s):
+        num = m.group(1)
+        if num not in out:
+            out.append(num)
+    return out
+
+
+def _first_mit_number(s: str) -> str | None:
+    m = re.search(r"\b(\d{3,6}-\d{2,4})\b", s)
+    return m.group(1) if m else None
+
+
+def _prepare_mit_number(data: dict[str, Any]) -> dict[str, Any]:
+    """Нормализовать mit_number после AI/детерминированной экстракции."""
+    raw = data.get("mit_number")
+    if not raw:
+        return data
+    text = str(raw)
+    m = re.search(r"\b(\d{3,6}-\d{2,4})\b", text)
+    if m:
+        data["mit_number"] = m.group(1)
+    else:
+        data.pop("mit_number", None)
+    return data
+
+
 def _get_cache_dir() -> Path:
     """Return LLM cache directory. Override with METROCHECK_LLM_CACHE env var."""
     env = os.environ.get("METROCHECK_LLM_CACHE")
@@ -255,6 +329,15 @@ class AIExtractionService:
         cache_key = _cache_key(text, models, max_tokens)
         cached = _load_from_cache(cache_key)
         if cached is not None:
+            # Переприменяем детерминированный приоритет ОТ даже при hit из старого кэша,
+            # где mit_number мог быть ошибочно извлечён AI.
+            cached_content = cached.get("content")
+            if isinstance(cached_content, dict):
+                determin_mit = _extract_mit_number_deterministic(text)
+                if determin_mit:
+                    cached_content["mit_number"] = determin_mit
+                cached_content = _prepare_mit_number(cached_content)
+                cached["content"] = cached_content
             logger.debug("LLM cache hit for text extraction")
             return cached
 
@@ -340,6 +423,13 @@ class AIExtractionService:
 
                 if is_valid:
                     cost = self._calculate_cost(usage, model)
+                    # Детерминированный приоритет номера ОТ: переопределяем mit_number,
+                    # если надёжно извлечён из раздела "госреестр"/"тип СИ" в тексте протокола.
+                    # AI часто путает номер типа СИ с номером методики/сертификата.
+                    determin_mit = _extract_mit_number_deterministic(text)
+                    if determin_mit:
+                        data["mit_number"] = determin_mit
+                    data = _prepare_mit_number(data)
                     result_to_cache = {
                         "content": data,
                         "model": model,

@@ -9,7 +9,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from app.utils import normalize_verifier
+from app.utils import format_verifier, normalize_verifier
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -99,7 +99,7 @@ class ReportService:
         wb = Workbook()
         ws_summary = wb.active
         ws_summary.title = "0. Сводка"
-        self._fill_summary_sheet(ws_summary, calibrations, protocols, year, month, use_lk=use_lk)
+        summary_stats = self._fill_summary_sheet(ws_summary, calibrations, protocols, year, month, use_lk=use_lk)
 
         ws_public = wb.create_sheet("1. ARSHIN Public API")
         self._fill_public_sheet(ws_public, calibrations)
@@ -127,6 +127,9 @@ class ReportService:
             "month": month,
             "total_calibrations": len(calibrations),
             "total_protocols": len(protocols),
+            "error_count": summary_stats.get("error_count", 0),
+            "warning_count": summary_stats.get("warning_count", 0),
+            "missing_protocols": summary_stats.get("missing_protocols", 0),
             "is_interim": True,
             "use_lk": use_lk,
         }
@@ -555,6 +558,14 @@ class ReportService:
         # Keep fixed widths from the manually tuned report
         ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 13)
 
+        return {
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "missing_protocols": len(missing_cals),
+            "total_calibrations": len(calibrations),
+            "total_protocols": len(protocols),
+        }
+
     def _fill_public_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "№ОТ", "Наименование", "Обозначение", "Мод.", "Зав№",
                    "Дата", "Действует до", "№ док-та", "Результат"]
@@ -589,7 +600,7 @@ class ReportService:
                     pass
             has_lk = bool(cal.verifier or cal.conditions)
             row = [idx, cal.vri_id,
-                   cal.verifier or ("Н/Д" if not has_lk else ""),
+                   format_verifier(cal.verifier) or ("Н/Д" if not has_lk else ""),
                    conditions.get("temperature", ""),
                    conditions.get("humidity", ""),
                    conditions.get("pressure", "")]
@@ -617,7 +628,7 @@ class ReportService:
                    proto.mit_number or "", proto.verification_method or "",
                    proto.manufacture_year or "", proto.owner or "",
                    proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
-                   proto.verifier or "", fmt_num(proto.temperature),
+                   format_verifier(proto.verifier), fmt_num(proto.temperature),
                    fmt_num(proto.humidity), fmt_num(proto.pressure),
                    proto.model_used or "OCR"]
             self._write_data_row(ws, row, idx, "FCE4D6")
@@ -803,7 +814,7 @@ class ReportService:
                 proto.manufacture_year or "",
                 proto.owner or "",
                 proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
-                proto.verifier or "",
+                format_verifier(proto.verifier),
                 fmt_num(proto.temperature),
                 fmt_num(proto.humidity),
                 fmt_num(proto.pressure),
@@ -813,7 +824,7 @@ class ReportService:
             if use_lk:
                 # Inject LK columns between the public block and the protocol block
                 lk_vals = [
-                    cal.verifier or "" if cal else "",
+                    format_verifier(cal.verifier) if cal else "",
                     fmt_num(lk_conditions.get("temperature")) if cal else "",
                     fmt_num(lk_conditions.get("humidity")) if cal else "",
                     fmt_num(lk_conditions.get("pressure")) if cal else "",
@@ -847,7 +858,7 @@ class ReportService:
                         norm_proto_verifier = normalize_verifier(proto.verifier)
                         norm_cal_verifier = normalize_verifier(cal.verifier)
                         if norm_proto_verifier != norm_cal_verifier:
-                            mismatches.append(f"Поверитель: {cal.verifier} vs {proto.verifier}")
+                            mismatches.append(f"Поверитель: {format_verifier(cal.verifier)} vs {format_verifier(proto.verifier)}")
 
                     # Check conditions exact match
                     for field in ("temperature", "humidity", "pressure"):
@@ -928,7 +939,7 @@ class ReportService:
             ]
             if use_lk:
                 row_data += [
-                    cal.verifier or "",
+                    format_verifier(cal.verifier),
                     fmt_num(lk_conditions.get("temperature")),
                     fmt_num(lk_conditions.get("humidity")),
                     fmt_num(lk_conditions.get("pressure")),

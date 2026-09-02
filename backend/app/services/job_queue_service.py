@@ -754,11 +754,12 @@ class JobQueueService:
         from app.repositories.email_repository import EmailRepository
         from app.services.report_service import ReportService
 
-        checks = result.get("full_check", {}) if result else {}
-
         report_email = None
         report_path = None
         total_calibrations = 0
+        total_errors = 0
+        total_warnings = 0
+        total_missing = 0
         async with AsyncSessionLocal() as session:
             email_repo = EmailRepository(session)
             entries = await email_repo.get_all()
@@ -772,6 +773,10 @@ class JobQueueService:
                 )
                 report_path = report_result.get("file_path")
                 total_calibrations = report_result.get("total_calibrations", 0)
+                # Цифры в теле письма берутся из отчёта, чтобы совпадать со вложенным Excel
+                total_errors = report_result.get("error_count", 0)
+                total_warnings = report_result.get("warning_count", 0)
+                total_missing = report_result.get("missing_protocols", 0)
             except Exception as e:
                 logger.error("[Email] Failed to generate report: %s", e)
 
@@ -779,9 +784,9 @@ class JobQueueService:
             year=job.year,
             month=job.month,
             total_devices=total_calibrations,
-            errors=checks.get("errors", 0),
-            warnings=checks.get("warnings", 0),
-            missing=checks.get("missing", 0),
+            errors=total_errors,
+            warnings=total_warnings,
+            missing=total_missing,
             check_run_id=job.check_run_id or 0,
             report_path=report_path,
             recipient_email=report_email,

@@ -1,5 +1,5 @@
 """Shared utilities."""
 
-from app.utils.text import normalize_verifier
+from app.utils.text import format_verifier, normalize_verifier
 
-__all__ = ["normalize_verifier"]
+__all__ = ["format_verifier", "normalize_verifier"]
