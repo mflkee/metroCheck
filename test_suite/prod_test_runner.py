@@ -162,25 +162,8 @@ def compare_date(extracted: Any, arshin_items: list[dict]) -> dict:
     verification_dates = {_normalize_date(item.get("verification_date") or "") for item in arshin_items}
     verification_dates.discard("")
 
-    # valid_date is usually "valid until", often next verification is one day after
-    valid_dates = set()
-    for item in arshin_items:
-        raw = _normalize_date(item.get("valid_date") or "")
-        if raw:
-            valid_dates.add(raw)
-            # Also consider ±1 day around valid_date because of timezone/human errors
-            from datetime import timedelta
-            dt = datetime.strptime(raw, "%Y%m%d")
-            for delta in (-1, 0, 1):
-                valid_dates.add((dt + timedelta(days=delta)).strftime("%Y%m%d"))
-
     matched_verification = next(
         (item for item in arshin_items if _normalize_date(item.get("verification_date") or "") == proto_clean),
-        None,
-    )
-    matched_valid = next(
-        (item for item in arshin_items
-         if _normalize_date(item.get("valid_date") or "") in (proto_clean,)),
         None,
     )
 
@@ -189,11 +172,6 @@ def compare_date(extracted: Any, arshin_items: list[dict]) -> dict:
         match = True
         note = "verification_date"
         matched_event = matched_verification
-    elif proto_clean in valid_dates:
-        status = "yellow"
-        match = True  # soft match
-        note = "valid_date (possible date confusion in protocol)"
-        matched_event = matched_valid
     else:
         status = "red"
         match = False
@@ -481,7 +459,7 @@ def generate_reports(results: list[dict], output_dir: Path) -> dict[str, Path]:
     cache_size_mb = sum(f.stat().st_size for f in cache_files) / (1024 * 1024) if cache_files else 0.0
 
     # Date status breakdown
-    date_statuses = {"green": 0, "yellow": 0, "red": 0}
+    date_statuses = {"green": 0, "red": 0}
     for r in results:
         status = r.get("comparisons", {}).get("verification_date", {}).get("status")
         if status in date_statuses:
@@ -537,11 +515,10 @@ def generate_reports(results: list[dict], output_dir: Path) -> dict[str, Path]:
 
         f.write("\n## Статусы сравнения дат\n\n")
         f.write("- Green: дата протокола = дата поверки в АРШИН\n")
-        f.write("- Yellow: дата протокола = дата окончания срока действия (valid_date) — возможна путаница в протоколе\n")
-        f.write("- Red: дата не совпала ни с одной датой в АРШИН\n\n")
-        f.write("| Green | Yellow | Red |\n")
-        f.write("|-------|--------|-----|\n")
-        f.write(f"| {date_statuses['green']} | {date_statuses['yellow']} | {date_statuses['red']} |\n")
+        f.write("- Red: дата не совпала с датой поверки в АРШИН\n\n")
+        f.write("| Green | Red |\n")
+        f.write("|-------|-----|\n")
+        f.write(f"| {date_statuses['green']} | {date_statuses['red']} |\n")
 
         if ocr_errors:
             f.write("\n## OCR-ошибки\n\n")

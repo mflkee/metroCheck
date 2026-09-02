@@ -198,6 +198,20 @@ class CheckService:
                     self.db.add(result)
                     results.append(result)
 
+            # Check OT type (mit_number)
+            if cal.mit_number and protocol.mit_number:
+                if self._normalize_mit_number(cal.mit_number) != self._normalize_mit_number(protocol.mit_number):
+                    result = CheckResult(
+                        check_run_id=run_id,
+                        calibration_id=cal.id,
+                        protocol_data_id=protocol.id,
+                        check_type="data_match",
+                        status="error",
+                        comment=f"MIT number mismatch: ARSHIN='{cal.mit_number}' vs Protocol='{protocol.mit_number}'",
+                    )
+                    self.db.add(result)
+                    results.append(result)
+
             # Check date
             if cal.verification_date and protocol.verification_date:
                 if cal.verification_date != protocol.verification_date:
@@ -415,6 +429,11 @@ class CheckService:
         normalized = re.sub(r'[^A-Za-z0-9]', '', normalized)
         normalized = normalized.lstrip('0')
         return normalized.upper().strip()
+
+    def _normalize_mit_number(self, mit_number: str) -> str:
+        """Normalize MIT type number (ОТ) for comparison: keep digits, letters, dash."""
+        import re
+        return re.sub(r"[^A-Za-z0-9-]", "", mit_number).strip().upper()
 
     def _fuzzy_match_serial(self, serial: str, candidates: list[str]) -> str | None:
         """Fuzzy match serial number against candidates (1 char difference allowed)."""

@@ -66,6 +66,13 @@ class ReportService:
         return normalized.upper().strip()
 
     @staticmethod
+    def _normalize_mit_number(mit_number: str) -> str:
+        """Normalize MIT type number (ОТ) for comparison: keep digits, letters, dash."""
+        if not mit_number:
+            return ""
+        return re.sub(r"[^A-Za-z0-9-]", "", mit_number).strip().upper()
+
+    @staticmethod
     def _extract_range_from_text(text: str) -> str:
         """Extract measurement range from protocol text."""
         if not text:
@@ -146,11 +153,6 @@ class ReportService:
             owner = _re.split(r"\s*[Ии][Нн][Нн]", owner)[0].strip()
             owner = _re.sub(r"\s+\d[\d\s]*$", "", owner).strip()
             return owner or "Владелец не определён"
-
-        def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
-            if not a or not b:
-                return False
-            return abs((a - b).days) <= days
 
         def write_cell(r: int, c: int, value, *, fill=None, font=None, alignment=None, border=True):
             cell = ws.cell(row=r, column=c, value=value)
@@ -259,17 +261,12 @@ class ReportService:
                     date_status = "green"
                     best_cal = exact[0]
                 else:
-                    yellow = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
-                    if yellow:
-                        date_status = "yellow"
-                        best_cal = yellow[0]
-                    else:
-                        date_status = "red"
-                        best_cal = max(
-                            [c for c in cal_list if c.verification_date],
-                            key=lambda c: c.verification_date,
-                            default=cal_list[0],
-                        )
+                    date_status = "red"
+                    best_cal = max(
+                        [c for c in cal_list if c.verification_date],
+                        key=lambda c: c.verification_date,
+                        default=cal_list[0],
+                    )
             else:
                 date_status = "green"
                 best_cal = cal_list[0]
@@ -280,13 +277,16 @@ class ReportService:
 
             if date_status == "red":
                 pair_errors += 1
-            elif date_status == "yellow":
-                pair_warnings += 1
 
             if cal and cal.verifier and proto.verifier:
                 norm_proto = normalize_verifier(proto.verifier)
                 norm_cal = normalize_verifier(cal.verifier)
                 if norm_proto != norm_cal:
+                    pair_errors += 1
+
+            # Check OT type (mit_number)
+            if cal and cal.mit_number and proto.mit_number:
+                if self._normalize_mit_number(cal.mit_number) != self._normalize_mit_number(proto.mit_number):
                     pair_errors += 1
 
             if use_lk:
@@ -454,7 +454,7 @@ class ReportService:
             ("Наличие протокола", "Поверка АРШИН ↔ файл протокола. Поиск по заводскому номеру."),
             ("Сопоставление с АРШИН", "Файл протокола ↔ запись АРШИН. Поиск по заводскому номеру."),
             ("Дата поверки", "Дата в протоколе ↔ verification_date в АРШИН. Точное совпадение."),
-            ("Дата действия до", "Дата в протоколе ↔ valid_date в АРШИН. Предупреждение, если совпадает."),
+            ("ОТ (тип СИ)", "mit_number в АРШИН ↔ в протоколе. Точное совпадение."),
             ("Уникальность номера протокола", "Номера протоколов между собой. Не должно повторяться."),
             ("Соответствие номеров", "Заводской номер в имени файла ↔ в протоколе. Доп. предупреждение при расхождении."),
         ]
@@ -489,10 +489,10 @@ class ReportService:
         row += 1
 
         if use_lk:
-            error_desc = "Дата поверки не совпадает с verification_date в АРШИН; ФИО поверителя различается; условия окружающей среды не совпадают точно."
+            error_desc = "Дата поверки не совпадает с verification_date в АРШИН; обозначение типа (ОТ) различается; ФИО поверителя различается; условия окружающей среды не совпадают точно."
         else:
-            error_desc = "Дата поверки не совпадает с verification_date в АРШИН (без проверки данных ЛК)."
-        warning_desc = "Дата в протоколе совпадает с valid_date в АРШИН, но не с verification_date (возможная путаница дат); заводской номер в имени файла отличается от номера в протоколе (доп. проверка)."
+            error_desc = "Дата поверки не совпадает с verification_date в АРШИН; обозначение типа (ОТ) различается (без проверки данных ЛК)."
+        warning_desc = "Заводской номер в имени файла отличается от номера в протоколе (доп. проверка)."
         legend_items = [
             ("Ошибка", error_desc),
             ("Предупреждение", warning_desc),
@@ -731,11 +731,6 @@ class ReportService:
             except (ValueError, TypeError):
                 return str(val)
 
-        def _dates_within(a: date | None, b: date | None, days: int = 1) -> bool:
-            if not a or not b:
-                return False
-            return abs((a - b).days) <= days
-
         row_num = 3
         display_num = 1
 
@@ -761,17 +756,12 @@ class ReportService:
                     date_status = "green"
                     best_cal = exact_cals[0]
                 else:
-                    yellow_cals = [c for c in cal_list if _dates_within(c.valid_date, proto_date)]
-                    if yellow_cals:
-                        date_status = "yellow"
-                        best_cal = yellow_cals[0]
-                    else:
-                        date_status = "red"
-                        best_cal = max(
-                            [c for c in cal_list if c.verification_date],
-                            key=lambda c: c.verification_date,
-                            default=cal_list[0],
-                        )
+                    date_status = "red"
+                    best_cal = max(
+                        [c for c in cal_list if c.verification_date],
+                        key=lambda c: c.verification_date,
+                        default=cal_list[0],
+                    )
             elif cal_list:
                 date_status = "green"
                 best_cal = cal_list[0]
@@ -842,14 +832,14 @@ class ReportService:
                     vri_part = f" ({', '.join(vri_ids)})" if vri_ids else ""
                     mismatches.append(f"Записей в АРШИН: {len(cal_list)}{vri_part}")
 
-                if date_status == "yellow":
-                    proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
-                    valid_strs = [c.valid_date.strftime("%d.%m.%Y") for c in cal_list if c.valid_date]
-                    mismatches.append(f"Дата протокола ({proto_date_str}) = действует до в АРШИН ({', '.join(valid_strs)})")
-                elif date_status == "red":
+                if date_status == "red":
                     proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
                     verif_strs = [c.verification_date.strftime("%d.%m.%Y") for c in cal_list if c.verification_date]
                     mismatches.append(f"Дата: АРШИН {', '.join(verif_strs)} vs протокол {proto_date_str}")
+
+                if cal and cal.mit_number and proto.mit_number:
+                    if self._normalize_mit_number(cal.mit_number) != self._normalize_mit_number(proto.mit_number):
+                        mismatches.append(f"ОТ: АРШИН {cal.mit_number} vs протокол {proto.mit_number}")
 
                 if use_lk:
                     # Check verifier against best_cal
@@ -879,7 +869,7 @@ class ReportService:
                 status = "✓"
                 status_color = "C6EFCE"
                 status_font_color = "006100"
-            elif date_status == "green" and mismatches or date_status == "yellow":
+            elif date_status == "green" and mismatches:
                 status = "⚠"
                 status_color = "FFEB9C"
                 status_font_color = "9C5700"
@@ -901,12 +891,8 @@ class ReportService:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
                     cell.font = Font(bold=True, color=status_font_color, size=12)
                 elif col_idx == COMMENTS_COL and mismatches:
-                    if date_status == "yellow":
-                        cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-                        cell.font = Font(color="9C5700", size=9)
-                    else:
-                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                        cell.font = Font(color="9C0006", size=9)
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                    cell.font = Font(color="9C0006", size=9)
             if comments:
                 lines_needed = max(1, comments.count(';') + 1, len(comments) // 50)
                 ws.row_dimensions[row_num].height = max(20, min(lines_needed * 15, 150))

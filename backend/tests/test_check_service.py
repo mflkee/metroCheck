@@ -176,6 +176,23 @@ class TestCheckDataMatch:
         assert len(error_results) == 1
         assert "Verifier mismatch" in error_results[0].comment
 
+    async def test_mit_number_mismatch(self, mock_db, sample_calibrations, sample_protocols):
+        service = CheckService(mock_db)
+        service.cal_repo = MagicMock()
+        service.cal_repo.get_by_month = AsyncMock(return_value=[sample_calibrations[0]])
+        service.data_repo = MagicMock()
+        service.data_repo.get_by_serial = AsyncMock(return_value=sample_protocols[0])
+
+        sample_calibrations[0].verifier = sample_protocols[0].verifier
+        sample_calibrations[0].verification_date = sample_protocols[0].verification_date
+        sample_calibrations[0].mit_number = "55450-14"
+
+        results = await service._check_data_match(1, 2025, 12)
+
+        error_results = [r for r in results if r.status == "error"]
+        assert len(error_results) == 1
+        assert "MIT number mismatch" in error_results[0].comment
+
     async def test_date_mismatch(self, mock_db, sample_calibrations, sample_protocols):
         from datetime import date
 

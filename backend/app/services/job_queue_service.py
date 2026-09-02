@@ -751,11 +751,10 @@ class JobQueueService:
         generation so long-running Excel creation does not hold the worker's
         main transaction."""
         from app.core.database import AsyncSessionLocal
-        from app.repositories.check_run_repository import CheckRunRepository
         from app.repositories.email_repository import EmailRepository
         from app.services.report_service import ReportService
 
-        checks = result.get("checks", {})
+        checks = result.get("full_check", {}) if result else {}
 
         report_email = None
         report_path = None
@@ -766,18 +765,13 @@ class JobQueueService:
             if entries:
                 report_email = ", ".join(e.email for e in entries)
 
-            if job.check_run_id:
-                run_repo = CheckRunRepository(session)
-                run = await run_repo.get_by_id(job.check_run_id)
-                if run:
-                    total_calibrations = run.total_calibrations or 0
-
             try:
                 report_service = ReportService(session)
                 report_result = await report_service.generate_interim_report(
                     job.year, job.month, job_id=job.id, use_lk=job.use_lk
                 )
                 report_path = report_result.get("file_path")
+                total_calibrations = report_result.get("total_calibrations", 0)
             except Exception as e:
                 logger.error("[Email] Failed to generate report: %s", e)
 
