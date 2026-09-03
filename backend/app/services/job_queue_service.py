@@ -320,9 +320,12 @@ class JobQueueService:
         await self._check_cancelled(job.id)
 
         # Reset all protocols to pending so we process EVERY file
+        # (also clear cached OCR text so a re-run re-scans instead of reusing
+        #  a stale raw_text that may miss parser/OCR fixes e.g. (cid:N) glyphs)
         protocols = await proto_repo.get_by_month(job.year, job.month)
         for p in protocols:
             p.status = "pending"
+            p.raw_text = None
         await self.db.commit()
 
         # Refresh list after reset
