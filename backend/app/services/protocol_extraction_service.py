@@ -486,20 +486,35 @@ class ProtocolExtractionService:
         return serial
 
     def _extract_mit_number(self, text: str) -> str | None:
-        """Extract MIT number like '47279-11'."""
-        # Look in specific sections first
-        mit_section = re.search(
-            r'(Номер\s+в\s+государственном\s+реестре|реестре\s+СИ|Государственный\s+реестр)[^\n]*(?:\n[^\n]*){0,5}',
-            text, re.IGNORECASE
-        )
-        search_text = mit_section.group(0) if mit_section else text
+        """Extract MIT number like '47279-11'.
 
+        Strategy:
+          1. Search in "реестр" section with word-boundary match → handles clean text.
+          2. Fallback to entire text with length-prioritised patterns → handles
+             corrupted PDF where real MIT is broken (e.g. '65(cid:9)554-16').
+        """
+        if not text:
+            return None
+
+        # 1. Section search with word boundaries
+        for section_pat in [
+            r'(?:Номер\s+в\s+государственном\s+реестре|реестре\s+СИ|Государственный\s+реестр)[^\n]*(?:\n[^\n]*){0,5}',
+            r'(?:регистрационный\s+номер|№\s*в\s+реестре|номер\s+в\s+реестре|номер\s+описания\s+типа)[^\n]*(?:\n[^\n]*){0,3}',
+        ]:
+            m = re.search(section_pat, text, re.IGNORECASE)
+            if m:
+                block = m.group(0)
+                match = re.search(r'\b(\d{3,6}-\d{2,4})\b', block)
+                if match:
+                    return match.group(1)
+
+        # 2. Fallback — prioritise longer matches (5-6 digits first)
         patterns = [
             r'(\d{5,6}-\d{2,4})',
             r'(\d{3,6}-\d{2,4})',
         ]
         for pattern in patterns:
-            match = re.search(pattern, search_text)
+            match = re.search(pattern, text)
             if match:
                 return match.group(1)
         return None
