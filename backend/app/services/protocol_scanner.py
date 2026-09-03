@@ -5,6 +5,7 @@ import hashlib
 import logging
 import multiprocessing
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -185,6 +186,17 @@ def estimate_image_quality(img: "Image.Image") -> dict[str, Any]:
     }
 
 
+def _normalize_pdf_text(text: str) -> str:
+    """Clean pdfplumber artifacts that break regex-based extraction.
+
+    pdfplumber sometimes emits raw glyph codes like ``(cid:9)`` (with hyphen) inside
+    kerned runs of digits, e.g. ``65554-16`` -> ``65(cid:9)554-16``. Stripping these
+    restores contiguous numbers so downstream regex (MIT number, year, serial, ...)
+    matches correctly.
+    """
+    return re.sub(r"\(cid:\d+\)", "", text)
+
+
 def _extract_text_process(file_path: str, queue: Any) -> None:
     """Top-level helper for multiprocessing — runs in a separate process."""
     import pdfplumber
@@ -209,6 +221,7 @@ def _extract_text_process(file_path: str, queue: Any) -> None:
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
+                        page_text = _normalize_pdf_text(page_text)
                         text_parts.append(page_text)
             full_text = "\n".join(text_parts)
             pages = len(text_parts)
