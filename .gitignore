@@ -64,3 +64,4 @@ test_suite/reports/
 # Local token captured by token-agent
 token-agent/test/jwt-arshin-token.json
 token-agent/*.log
+.env.staging

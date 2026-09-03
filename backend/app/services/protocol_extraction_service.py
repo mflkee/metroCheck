@@ -486,37 +486,49 @@ class ProtocolExtractionService:
         return serial
 
     def _extract_mit_number(self, text: str) -> str | None:
-        """Extract MIT number like '47279-11'.
+        """Extract MIT number (номер ОТ / госреестра) like '47279-11', '4041-93'.
 
         Strategy:
-          1. Search in "реестр" section with word-boundary match → handles clean text.
-          2. Fallback to entire text with length-prioritised patterns → handles
-             corrupted PDF where real MIT is broken (e.g. '65(cid:9)554-16').
+          1. Locate lines mentioning the registry ("реестр СИ"/"госреестр"/"номер по
+             Гос. реестру") and look for a self-contained number in a small window
+             (±3 lines) around them — covers both "номер under the label" and
+             "номер between two labels" layouts. Numbers that are part of a method/
+             equation of the form "N-N-YYYY" (e.g. МП 208-088-2018) are excluded.
+          2. Fallback: whole-text search, longer numbers first, again skipping
+             "N-N-YYYY" method numbers and (cid:N)-corrupted splits.
         """
         if not text:
             return None
 
-        # 1. Section search with word boundaries
-        for section_pat in [
-            r'(?:Номер\s+в\s+государственном\s+реестре|реестре\s+СИ|Государственный\s+реестр)[^\n]*(?:\n[^\n]*){0,5}',
-            r'(?:регистрационный\s+номер|№\s*в\s+реестре|номер\s+в\s+реестре|номер\s+описания\s+типа)[^\n]*(?:\n[^\n]*){0,3}',
-        ]:
-            m = re.search(section_pat, text, re.IGNORECASE)
-            if m:
-                block = m.group(0)
-                match = re.search(r'\b(\d{3,6}-\d{2,4})\b', block)
-                if match:
-                    return match.group(1)
+        mit_token = r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])'
+        # Строки-маркеры секции реестра (наименование/подпись вокруг номера ОТ).
+        registry_markers = (
+            'реестр', 'реестра', 'реестре', 'реестру', 'реестры',
+            'госреестр', 'гос. реестр', 'гос реестр',
+            'регистрационный номер', 'в госреестре', 'в реестре', 'в гос. реестре',
+        )
 
-        # 2. Fallback — prioritise longer matches (5-6 digits first)
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            low = line.lower()
+            if not any(mk in low for mk in registry_markers):
+                continue
+            start = max(0, i - 3)
+            end = min(len(lines), i + 4)
+            window = '\n'.join(lines[start:end])
+            match = re.search(mit_token, window)
+            if match:
+                return match.group(0)
+
+        # 2. Fallback — whole text, longer numbers first.
         patterns = [
-            r'(\d{5,6}-\d{2,4})',
-            r'(\d{3,6}-\d{2,4})',
+            r'(?<![-\d])\d{5,6}-\d{2,4}(?![-\d])',
+            r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])',
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(1)
+                return match.group(0)
         return None
 
     def _extract_manufacture_year(self, text: str) -> int | None:
