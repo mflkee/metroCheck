@@ -486,41 +486,54 @@ class ProtocolExtractionService:
         return serial
 
     def _extract_mit_number(self, text: str) -> str | None:
-        """Extract MIT number (номер ОТ / госреестра) like '47279-11', '4041-93'.
+        """Extract MIT number (номер ОТ / госреестра) like '47279-11', '4041-93', '23410-13'.
 
         Strategy:
-          1. Locate lines mentioning the registry ("реестр СИ"/"госреестр"/"номер по
-             Гос. реестру") and look for a self-contained number in a small window
-             (±3 lines) around them — covers both "номер under the label" and
-             "номер between two labels" layouts. Numbers that are part of a method/
-             equation of the form "N-N-YYYY" (e.g. МП 208-088-2018) are excluded.
-          2. Fallback: whole-text search, longer numbers first, again skipping
-             "N-N-YYYY" method numbers and (cid:N)-corrupted splits.
+          1. Two-sided pattern: a registry label line ("...реестра СИ РФ"), then the
+             number, then the "номер по ... реестру" label line — covers the standard
+             layout where the MIT number sits between two registry captions.
+          2. Line scan: from each registry-marker line look below for a self-contained
+             number (±3 lines). Marker must be a real registry-СИ/government-market
+             phrase so we don't latch onto e.g. "...в реестре аккредитованных лиц".
+          3. Fallback: whole-text search, longer numbers first.
+        Numbers that are part of a method/equation of the form "N-N-YYYY" (e.g.
+        МП 208-088-2018) and model/type fragments like "Метран 286-02" are avoided.
         """
         if not text:
             return None
 
         mit_token = r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])'
-        # Строки-маркеры секции реестра (наименование/подпись вокруг номера ОТ).
-        registry_markers = (
-            'реестр', 'реестра', 'реестре', 'реестру', 'реестры',
-            'госреестр', 'гос. реестр', 'гос реестр',
-            'регистрационный номер', 'в госреестре', 'в реестре', 'в гос. реестре',
-        )
 
+        # 1. Two-sided layout: registry label → number → "номер по реестру" label.
+        two_side = re.search(
+            r'[^\n]*реестр[а-яё]*\s+СИ[^\n]*\n'
+            r'\s*(?<![-\d])(\d{3,6}-\d{2,4})(?![-\d])\s*\n'
+            r'[^\n]*номер\s+по\s+[^\n]*реестр[^\n]*',
+            text,
+            re.IGNORECASE,
+        )
+        if two_side:
+            return two_side.group(1)
+
+        # 2. Line scan below registry markers (real СИ/government-market phrases).
+        marker_re = re.compile(
+            r'реестр[а-яА-ЯёЁ]*\s+СИ\b'       # "реестра СИ" / "в реестре СИ"
+            r'|гос\.?\s*реестр'                # "Гос. реестр" / "госреестр"
+            r'|номер\s+по\s+[^\n]*реестр'      # "номер по Государственному реестру"
+            r'|номер\s+в\s+реестре',           # "номер в реестре СИ"
+            re.IGNORECASE,
+        )
         lines = text.split('\n')
         for i, line in enumerate(lines):
-            low = line.lower()
-            if not any(mk in low for mk in registry_markers):
+            if not marker_re.search(line):
                 continue
-            start = max(0, i - 3)
             end = min(len(lines), i + 4)
-            window = '\n'.join(lines[start:end])
+            window = '\n'.join(lines[i:end])
             match = re.search(mit_token, window)
             if match:
                 return match.group(0)
 
-        # 2. Fallback — whole text, longer numbers first.
+        # 3. Fallback — whole text, longer numbers first.
         patterns = [
             r'(?<![-\d])\d{5,6}-\d{2,4}(?![-\d])',
             r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])',

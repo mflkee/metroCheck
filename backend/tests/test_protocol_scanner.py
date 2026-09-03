@@ -31,6 +31,20 @@ def test_mit_number_four_digit_ot_not_method_number():
     assert _extract_mit(_normalize_pdf_text(raw)) == "4041-93"
 
 
+def test_mit_number_not_protocol_type_fragment():
+    """A type/modification fragment like 'Метран 286-02' must not be taken as the MIT
+    number; the real OT (23410-13) sits between the two registry captions."""
+    raw = (
+        "ПРОТОКОЛ ПОВЕРКИ № 12/575/25\n"
+        "Преобразователь температуры ТСПУ Метран 286-02 Exia-1-120-Н10\n"
+        "наименование, тип (согласно Государственного реестра СИ РФ)\n"
+        "23410-13\n"
+        "номер по Государственному реестру СИ РФ\n"
+        "Заводской номер (номера): 2288860\n"
+    )
+    assert _extract_mit(_normalize_pdf_text(raw)) == "23410-13"
+
+
 def test_mit_number_recovers_kerned_multi_digit():
     """pdfplumber breaks kerned MIT numbers: 65554-16 -> 65(cid:9)554-16."""
     raw = (
