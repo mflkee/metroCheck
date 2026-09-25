@@ -1,71 +1,50 @@
-name: Promote to Production
-
+name: Promote metroCheck (staging -> prod)
 on:
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Type "deploy" to promote staging to production'
-        required: true
-        default: ''
+      tag:
+        description: 'Образ для прода (staging = текущий стейдж, sha-<hash> = откат)'
+        required: false
+        default: 'staging'
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   promote:
     runs-on: [self-hosted, mkair]
     environment: production
-    if: github.event.inputs.confirm == 'deploy'
     steps:
-      - name: Ensure repo exists or clone
+      - name: Pull repo code
         run: |
-          if [ ! -d ~/apps/metroCheck/.git ]; then
-            mkdir -p ~/apps
-            git clone git@github.com:mflkee/metroCheck.git ~/apps/metroCheck
-          fi
-
-      - name: Pull latest code
+          mkdir -p ~/apps ~/.backups
+          cd ~/apps/metroCheck || git clone git@github.com:mflkee/metroCheck.git ~/apps/metroCheck
+          cd ~/apps/metroCheck
+          if [ -f .env.production ]; then cp .env.production ~/.backups/metrocheck_env_prod_$(date +%Y%m%d_%H%M%S).bak; fi
+          git fetch origin && git reset --hard origin/main
+          [ -f .env.production ] || cp .env.production.example .env.production 2>/dev/null || true
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Backup DB
+        run: |
+          mkdir -p ~/.backups
+          cd ~/apps/metroCheck
+          docker compose exec -T postgres pg_dump -U mkair mkair > ~/.backups/metroCheck_db_promote_$(date +%Y%m%d_%H%M%S).sql
+      - name: Promote (same image, tag=${{ inputs.tag }})
         run: |
           cd ~/apps/metroCheck
-          git fetch origin
-          git reset --hard origin/main
-
-      - name: Backup production database
+          IMAGE_TAG=${{ inputs.tag }} docker compose -p metrocheck --env-file .env.production pull
+          IMAGE_TAG=${{ inputs.tag }} docker compose -p metrocheck --env-file .env.production up -d
+          IMAGE_TAG=${{ inputs.tag }} docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
+      - name: Prod health
         run: |
-          docker exec metroCheck_postgres pg_dump -U mkair mkair > /tmp/metroCheck_backup_$(date +%Y%m%d_%H%M%S).sql
-          echo "Backup size: $(wc -c /tmp/metroCheck_backup_*.sql | tail -1)"
-
-      - name: Build & deploy production
-        run: |
-          cd ~/apps/metroCheck
-          docker compose -p metrocheck --env-file .env.production down
-          docker compose -p metrocheck --env-file .env.production up -d --build
-
-      - name: Apply production migrations
-        run: |
-          cd ~/apps/metroCheck
-          for _ in {1..30}; do
-            docker exec metroCheck_postgres pg_isready -U mkair -d mkair 2>/dev/null && break
-            sleep 1
+          for _ in {1..60}; do
+            curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1 && { echo PROD_OK; exit 0; }
+            sleep 2
           done
-          # Wait for backend container to be running before exec
-          for _ in {1..30}; do
-            docker ps --filter name=metroCheck_backend --filter status=running -q | grep -q . && break
-            sleep 1
-          done
-          docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
-
-      - name: Production health check
-        run: |
-          for _ in {1..30}; do
-            if curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1; then
-              echo "Production backend is ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Production backend failed to become ready within 30s"
-          exit 1
-
-      - name: Show production status
-        if: always()
-        run: |
-          cd ~/apps/metroCheck
-          docker compose -p metrocheck --env-file .env.production ps
+          echo PROD_FAIL; exit 1
