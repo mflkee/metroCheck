@@ -1,0 +1,142 @@
+name: CI metroCheck — build GHCR & deploy
+on:
+  push:
+    branches: [main, release/*]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-images:
+    runs-on: [self-hosted, mkair]
+    outputs:
+      env: ${{ steps.tag.outputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute tags
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            echo "env=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=staging" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - name: Login GHCR
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create buildx builder
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        run: |
+          mkdir -p "$DOCKER_CONFIG/cli-plugins"
+          cp ~/.docker/cli-plugins/docker-buildx "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+          docker buildx create --name ghcr-${{ github.run_id }} --use 2>/dev/null || true
+      - name: Build & push backend
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: backend/Dockerfile
+          push: true
+          builder: ghcr-${{ github.run_id }}
+          tags: |
+            ghcr.io/mflkee/metrocheck-backend:sha-${{ steps.tag.outputs.sha }}
+            ghcr.io/mflkee/metrocheck-backend:${{ steps.tag.outputs.env }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build & push frontend (static)
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend-static/Dockerfile
+          push: true
+          builder: ghcr-${{ github.run_id }}
+          tags: |
+            ghcr.io/mflkee/metrocheck-frontend:sha-${{ steps.tag.outputs.sha }}
+            ghcr.io/mflkee/metrocheck-frontend:${{ steps.tag.outputs.env }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    if: github.ref == 'refs/heads/main'
+    needs: build-images
+    runs-on: [self-hosted, mkair]
+    environment: staging
+    steps:
+      - name: Pull repo code
+        run: |
+          mkdir -p ~/apps ~/.backups
+          cd ~/apps/metroCheck || git clone git@github.com:mflkee/metroCheck.git ~/apps/metroCheck
+          cd ~/apps/metroCheck
+          if [ -f .env.staging ]; then cp .env.staging ~/.backups/metrocheck_env_stg_$(date +%Y%m%d_%H%M%S).bak; fi
+          git fetch origin && git reset --hard origin/main
+          [ -f .env.staging ] || cp .env.staging.example .env.staging 2>/dev/null || true
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy staging (pull images)
+        run: |
+          cd ~/apps/metroCheck
+          IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging pull
+          IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging up -d
+          IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging exec -T backend alembic upgrade head
+      - name: Staging health
+        run: |
+          for _ in {1..60}; do
+            curl -fsS http://127.0.0.1:9002/health >/dev/null 2>&1 && { echo STAGING_OK; exit 0; }
+            sleep 2
+          done
+          echo STAGING_FAIL; exit 1
+
+  deploy-prod:
+    if: startsWith(github.ref, 'refs/heads/release/')
+    needs: build-images
+    runs-on: [self-hosted, mkair]
+    environment: production
+    steps:
+      - name: Pull repo code
+        run: |
+          mkdir -p ~/apps ~/.backups
+          cd ~/apps/metroCheck || git clone git@github.com:mflkee/metroCheck.git ~/apps/metroCheck
+          cd ~/apps/metroCheck
+          if [ -f .env.production ]; then cp .env.production ~/.backups/metrocheck_env_prod_$(date +%Y%m%d_%H%M%S).bak; fi
+          git fetch origin && git reset --hard origin/${{ github.ref_name }}
+          [ -f .env.production ] || cp .env.production.example .env.production 2>/dev/null || true
+      - name: Backup DB
+        run: |
+          mkdir -p ~/.backups
+          cd ~/apps/metroCheck
+          docker compose exec -T postgres pg_dump -U mkair mkair > ~/.backups/metroCheck_db_$(date +%Y%m%d_%H%M%S).sql
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy prod (pull images)
+        run: |
+          cd ~/apps/metroCheck
+          IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production pull
+          IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production up -d
+          IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
+      - name: Prod health
+        run: |
+          for _ in {1..60}; do
+            curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1 && { echo PROD_OK; exit 0; }
+            sleep 2
+          done
+          echo PROD_FAIL; exit 1# runner relabel cleanup

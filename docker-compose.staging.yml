@@ -36,6 +36,7 @@ services:
       retries: 5
 
   backend:
+    image: ghcr.io/mflkee/metrocheck-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -90,6 +91,7 @@ services:
     stop_grace_period: 30s
 
   frontend:
+    image: ghcr.io/mflkee/metrocheck-frontend:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: frontend-static/Dockerfile
