@@ -55,13 +55,13 @@ jobs:
             ghcr.io/mflkee/metrocheck-backend:${{ steps.tag.outputs.env }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Build & push frontend (static)
+      - name: Build & push frontend (react + shadcn)
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/docker
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: frontend-static/Dockerfile
+          file: frontend/Dockerfile
           push: true
           builder: ghcr-${{ github.run_id }}
           tags: |

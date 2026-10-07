@@ -94,7 +94,7 @@ services:
     image: ghcr.io/mflkee/metrocheck-frontend:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: frontend-static/Dockerfile
+      dockerfile: frontend/Dockerfile
     container_name: metroCheck_frontend
     restart: always
     ports:

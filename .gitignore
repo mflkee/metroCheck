@@ -56,6 +56,9 @@ data/**/.git/
 reports/*.xlsx
 *.sql
 
+# Playwright MCP artifacts
+.playwright-mcp/
+
 # Test suite artifacts
 test_suite/.arshin_cache/
 test_suite/.llm_cache/

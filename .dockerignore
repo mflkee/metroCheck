@@ -1,0 +1,28 @@
+# Build context for the frontend image (context = repo root, file = frontend/Dockerfile).
+# Only frontend/, frontend-static/nginx.conf are needed.
+.git
+.github
+.dockerignore
+
+# Node artifacts (rebuilt inside the image)
+**/node_modules
+frontend/dist
+
+# Python / backend artifacts
+**/__pycache__
+**/*.pyc
+.ruff_cache
+backend
+
+# Repo noise
+docs
+protocols
+test_suite
+token-agent
+tokens
+*.sql
+*.zip
+.env
+.env.*
+*.bak
+.sync-conflict-*
