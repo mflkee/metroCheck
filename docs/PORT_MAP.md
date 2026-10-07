@@ -8,7 +8,7 @@
 | Service | Container Name | Internal Port | External Port | Description |
 |---------|---------------|--------------|---------------|-------------|
 | Backend | `metroCheck_backend` | 8000 | **8002** | FastAPI |
-| Frontend | `metroCheck_frontend` | 80 | **8081** | nginx static UI |
+| Frontend | `metroCheck_frontend` | 80 | **8081** | React (Vite) + nginx |
 | PostgreSQL | `metroCheck_postgres` | 5432 | **5434** | Database (db: `mkair`) |
 | Redis | `metroCheck_redis` | 6379 | **6382** | Cache & queue |
 
@@ -17,7 +17,7 @@
 | Service | Container Name | Internal Port | External Port | Description |
 |---------|---------------|--------------|---------------|-------------|
 | Backend | `metroCheck_backend_stg` | 8000 | **9002** | FastAPI |
-| Frontend | `metroCheck_frontend_stg` | 80 | **9081** | nginx static UI |
+| Frontend | `metroCheck_frontend_stg` | 80 | **9081** | React (Vite) + nginx |
 | PostgreSQL | `metroCheck_postgres_stg` | 5432 | **5435** | Database (db: `mkair_stg`) |
 | Redis | `metroCheck_redis_stg` | 6379 | **6383** | Cache & queue |
 

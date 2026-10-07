@@ -6,10 +6,11 @@
 > **not** on a local machine. Do not build, run or deploy locally.
 >
 > **Deploy only via GitHub Actions** (push):
-> - push to `main` → **staging** (`.github/workflows/staging.yml`);
-> - push to `release/*` (`.github/workflows/deploy.yml`), or run `promote.yml` manually → **production**.
+> - push to `main` → **staging** (`.github/workflows/ci.yml`, job `deploy-staging`);
+> - push to `release/*` → **production** (`.github/workflows/ci.yml`, job `deploy-prod`),
+>   or run `promote.yml` ("Promote metroCheck") manually from the GitHub UI.
 >
-> Both stacks live on that host in `~/apps/metroCheck`; runner is `[self-hosted, mkair-runner]`.
+> Both stacks live on that host in `~/apps/metroCheck`; runner is `[self-hosted, mkair]`.
 > Verify the result on the server (`docker compose ps`, logs, `~/apps/CICD.md`).
 
 ## 1. Project Identity
@@ -18,6 +19,7 @@
 |-------|-------|
 | **What** | Automated verification protocol checker for `OOO "MKAIR"` |
 | **Stack** | FastAPI + SQLAlchemy async + PostgreSQL 16 + Redis 7 + nginx |
+| **Frontend** | React 19 + Vite + Tailwind v4 + shadcn/ui (`frontend/`, static build served by nginx) |
 | **Server** | `mkair-server-tmn` — Netbird VPN `100.89.18.223`, public `80.91.19.151` (password: `<PASSWORD>`) |
 | **User** | `mflkee` on server, `Zonov` on PC in Tyumen (token provider) |
 | **Monitor** | Grafana `192.168.1.84:8090`, Prometheus `127.0.0.1:9091` |
@@ -25,6 +27,18 @@
 **Sibling repos (same infra):**
 - [mflkee/metroLog](https://github.com/mflkee/metroLog) — equipment accounting system
 - [mflkee/metroGen](https://github.com/mflkee/metroGen) — protocol generation service
+
+### Frontend (`frontend/`)
+
+React 19 + TypeScript + Vite + Tailwind CSS v4 + **shadcn/ui** (preset `radix-nova`,
+`baseColor: neutral`, dark-only, шрифт Geist). Роутинг — `react-router-dom`
+(`/` — дашборд, `/scheduler` — планировщик); API — `/api/...`, JWT в `localStorage`.
+
+- **Сборка:** мультистейдж `frontend/Dockerfile` (node build → nginx), context = корень репо.
+  Образ `ghcr.io/mflkee/metrocheck-frontend`, отдаётся nginx (конфиг `frontend-static/nginx.conf`).
+- **Добавить/обновить компонент:** `cd frontend && npx shadcn@latest add <name>`
+  (alias `@/*` → `src/*`; если CLI создаст каталог `@/` — перенести файлы в `src/`).
+- **Локально (только для отладки компиляции):** `cd frontend && npm install && npm run build`.
 
 ---
 
@@ -39,9 +53,9 @@
 | `docs/PORT_MAP.md` | Port mapping, staging/production, token paths |
 | `docker-compose.yml` | Production stack (ports 8xxx/5xxx) |
 | `docker-compose.staging.yml` | Staging stack (ports 9xxx) |
-| `.github/workflows/staging.yml` | Auto-deploy to staging on push to `main` |
+| `frontend/` | React + Vite + Tailwind v4 + shadcn/ui app (build: `frontend/Dockerfile`) |
+| `.github/workflows/ci.yml` | Build images (GHCR) + deploy: `main`→staging, `release/*`→prod |
 | `.github/workflows/promote.yml` | Manual promote staging→production via GitHub UI |
-| `.github/workflows/deploy.yml` | Deploy production on push to `release/*` |
 
 **On server:** `~/apps/CICD.md` — full CI/CD documentation with rollback procedures.
 
@@ -80,14 +94,14 @@ sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server-tmn -o StrictHostKeyChecking=
 ### Circuit A: Staging (auto-deploy)
 - **Ports:** Backend `:9002`, Frontend `:9081`, DB `:5436`, Redis `:6383`
 - **Env file:** `.env.staging` (must contain `OPENROUTER_API_KEY`, `FASTAPI_API_KEY`)
-- **Trigger:** `git push origin main` → GitHub Actions → `staging.yml`
+- **Trigger:** `git push origin main` → GitHub Actions → `ci.yml` (job `deploy-staging`)
 - **DB:** `mkair_stg` (separate from production)
 - **Purpose:** test changes before production
 
 ### Circuit B: Production (manual promote or release branch)
 - **Ports:** Backend `:8002`, Frontend `:8081`, DB `:5434`, Redis `:6382`
 - **Promote:** GitHub UI → Actions → "Promote to Production" → type `deploy` → wait 5 min
-- **Release:** `git push origin release/*` → `deploy.yml`
+- **Release:** `git push origin release/*` → `ci.yml` (job `deploy-prod`)
 - **DB:** `mkair` (production data)
 
 ### GitHub Environments
@@ -140,7 +154,7 @@ cd ~/projects/metroCheck && git add . && git commit -m "..." && git push origin 
 
 ### Staging UI access
 - **URL:** `http://192.168.1.128:9081` (local network) or via Netbird `http://100.89.18.223:9081`
-- **API key:** `CHANGE_ME_API_KEY` (hardcoded in frontend, must match `FASTAPI_API_KEY` in `.env.staging`)
+- **Вход:** `ADMIN_USERNAME` / `ADMIN_PASSWORD` из `.env.staging` на сервере (JWT-логин, не API-key)
 - **Note:** Public IP `80.91.19.151:9081` is not accessible because the server is behind NAT. Use local/Netbird IP or set up an NPM proxy host.
 
 ### Check staging health

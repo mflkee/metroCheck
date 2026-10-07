@@ -8,8 +8,6 @@ from fastapi import FastAPI
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.api.v1.routes import ai, arshin, auth, checks, protocols, reports, health, jobs
@@ -96,11 +94,3 @@ app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocol
 app.include_router(checks.router, prefix="/api/v1/checks", tags=["checks"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(jobs.router, prefix="/api/v1/jobs", tags=["jobs"])
-
-# Serve static files (UI)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-
-@app.get("/")
-async def root():
-    return FileResponse("app/static/index.html")

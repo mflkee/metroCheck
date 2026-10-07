@@ -47,7 +47,7 @@
                     │  └───────────┬───────────────────┘            │
                     │              │                                │
                     │  ┌───────────▼────────────┐                   │
-                    │  │    frontend (nginx)     │                   │
+                    │  │  frontend (React+nginx) │                   │
                     │  │    :8081/9081           │                   │
                     │  └────────────────────────┘                   │
                     └──────────────────────────────────────────────┘
@@ -74,7 +74,7 @@
 | postgres | 5434 / 5435 | PostgreSQL 16 |
 | redis | 6382 / 6383 | Redis 7 (очередь + кэш) |
 | backend | 8002 / 9002 | FastAPI приложение |
-| frontend | 8081 / 9081 | nginx статика |
+| frontend | 8081 / 9081 | React (Vite) build + nginx |
 
 ### Сеть
 
@@ -209,12 +209,12 @@ metroCheck/
 │   ├── content.js
 │   └── background.js
 ├── docs/                        # Документация
+├── frontend/                    # React + Vite + Tailwind v4 + shadcn/ui
+├── frontend-static/nginx.conf   # nginx конфиг образа фронта
 ├── docker-compose.yml           # Production стек
 ├── docker-compose.staging.yml   # Staging стек
-├── nginx.conf                   # nginx конфиг
 └── .github/workflows/           # CI/CD
-    ├── staging.yml              # Авто-деплой staging
-    ├── deploy.yml               # Production deploy
+    ├── ci.yml                   # Сборка образов (GHCR) + деплой stg/prod
     └── promote.yml              # Promote staging→production
 ```
 
@@ -239,14 +239,14 @@ NAS (Synology)
 ## CI/CD
 
 ### Staging (GitHub Actions)
-- `git push origin main` → auto-deploy на `:9002/:9081/:5435/:6383`
-- `docker compose -f docker-compose.staging.yml down && up -d --build`
+- `git push origin main` → сборка образов (GHCR) + деплой на `:9002/:9081/:5436/:6383`
+- `docker compose pull && up -d` (образы, без сборки на сервере)
 - `alembic upgrade head`
 - Healthcheck через `/health`
 
 ### Production
-- **Promote:** GitHub UI → Actions workflow → type "deploy"
-- **Release:** `git push origin release/*` → `deploy.yml`
+- **Promote:** GitHub UI → Actions → "Promote metroCheck" → type "deploy"
+- **Release:** `git push origin release/*` → `ci.yml` (job `deploy-prod`)
 - Требуется reviewer (`mflkee`), 5 min wait timer
 
 ## Токен АРШИН ЛК
