@@ -1,5 +1,17 @@
 # AGENTS.md — MetroCheck LLM Development Guide
 
+## ⚠️ Working rule: verify on the server, deploy via Actions
+
+> **All work is executed and verified on the server `mkair-server-tmn`** (Netbird `100.89.18.223`),
+> **not** on a local machine. Do not build, run or deploy locally.
+>
+> **Deploy only via GitHub Actions** (push):
+> - push to `main` → **staging** (`.github/workflows/staging.yml`);
+> - push to `release/*` (`.github/workflows/deploy.yml`), or run `promote.yml` manually → **production**.
+>
+> Both stacks live on that host in `~/apps/metroCheck`; runner is `[self-hosted, mkair-runner]`.
+> Verify the result on the server (`docker compose ps`, logs, `~/apps/CICD.md`).
+
 ## 1. Project Identity
 
 | Field | Value |
