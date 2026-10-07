@@ -100,7 +100,7 @@ sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server-tmn -o StrictHostKeyChecking=
 
 ### Circuit B: Production (manual promote or release branch)
 - **Ports:** Backend `:8002`, Frontend `:8081`, DB `:5434`, Redis `:6382`
-- **Promote:** GitHub UI → Actions → "Promote to Production" → type `deploy` → wait 5 min
+- **Promote:** GitHub UI → Actions → "Promote metroCheck" → Run workflow → input `tag` (default `staging`) → approve `production` environment (5 min wait)
 - **Release:** `git push origin release/*` → `ci.yml` (job `deploy-prod`)
 - **DB:** `mkair` (production data)
 
@@ -191,7 +191,7 @@ sshpass -p "$SSH_PASSWORD" ssh mflkee@mkair-server-tmn 'docker logs metroCheck_b
 ### Promote to production
 ```bash
 # Requires GitHub UI — I can guide you through it
-# GitHub → Actions → "Promote to Production" → Run workflow → type "deploy"
+# GitHub → Actions → "Promote metroCheck" → Run workflow → input tag (default: staging)
 ```
 
 ---
