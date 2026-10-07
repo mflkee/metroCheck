@@ -8,9 +8,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-images:
-    runs-on: [self-hosted, mkair]
+    runs-on: ubuntu-latest
     outputs:
       env: ${{ steps.tag.outputs.env }}
     steps:
@@ -32,13 +36,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create buildx builder
+      - name: Set up buildx
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/docker
         run: |
-          mkdir -p "$DOCKER_CONFIG/cli-plugins"
-          cp ~/.docker/cli-plugins/docker-buildx "$DOCKER_CONFIG/cli-plugins/docker-buildx"
-          docker buildx create --name ghcr-${{ github.run_id }} --use 2>/dev/null || true
+          docker buildx create --name ghcr-${{ github.run_id }} --driver docker-container --use 2>/dev/null || true
       - name: Build & push backend
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/docker
