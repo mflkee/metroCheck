@@ -17,7 +17,7 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-10 flex w-56 flex-col border-r border-border bg-sidebar">
+      <aside className="fixed inset-y-0 left-0 z-10 flex w-60 flex-col border-r border-border bg-sidebar">
         <div className="flex items-center gap-2.5 border-b border-border px-4 py-5">
           <LogoMark size={26} />
           <div className="overflow-hidden">
@@ -65,7 +65,7 @@ export function AppLayout() {
           </button>
         </div>
       </aside>
-      <main className="ml-56 min-w-0 flex-1 p-6 lg:p-8">
+      <main className="ml-60 min-w-0 flex-1 p-6 lg:p-8">
         <Outlet />
       </main>
     </div>
