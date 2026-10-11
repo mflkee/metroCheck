@@ -68,3 +68,6 @@ test_suite/reports/
 token-agent/test/jwt-arshin-token.json
 token-agent/*.log
 .env.staging
+
+# Syncthing conflict copies
+.sync-conflict-*
