@@ -74,5 +74,59 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
+def create_signed_payload(payload: dict, *, ttl_seconds: int) -> str:
+    """HMAC-sign an arbitrary payload with an expiry (used for the OIDC transaction cookie)."""
+
+    import hmac
+    import json
+
+    body = dict(payload)
+    now = int(datetime.now(timezone.utc).timestamp())
+    body["iat"] = now
+    body["exp"] = now + ttl_seconds
+    encoded = _b64encode(json.dumps(body, separators=(",", ":")).encode("utf-8"))
+    signature = _b64encode(
+        hmac.new(settings.SECRET_KEY.encode("utf-8"), encoded.encode("utf-8"), hashlib.sha256).digest()
+    )
+    return f"{encoded}.{signature}"
+
+
+def decode_signed_payload(token: str) -> dict:
+    """Verify a payload produced by :func:`create_signed_payload` and return it."""
+
+    import hmac
+    import json
+
+    try:
+        encoded, signature = token.split(".", maxsplit=1)
+    except ValueError as exc:
+        raise ValueError("Malformed signed payload.") from exc
+
+    expected = _b64encode(
+        hmac.new(settings.SECRET_KEY.encode("utf-8"), encoded.encode("utf-8"), hashlib.sha256).digest()
+    )
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("Invalid signature.")
+
+    try:
+        payload = json.loads(_b64decode(encoded).decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("Signed payload is invalid.") from exc
+
+    if int(payload.get("exp", 0)) < int(datetime.now(timezone.utc).timestamp()):
+        raise ValueError("Signed payload has expired.")
+
+    return payload
+
+
+def _b64encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _b64decode(value: str) -> bytes:
+    padding = "=" * ((4 - len(value) % 4) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}")
+
+
 def get_admin_info() -> dict:
     return {"username": _admin_username, "role": "admin"}

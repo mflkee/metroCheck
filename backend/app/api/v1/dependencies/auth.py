@@ -18,7 +18,12 @@ async def get_current_user(
         payload = decode_access_token(bearer.credentials)
         if payload and payload.get("sub") == "admin":
             info = get_admin_info()
-            info["auth_method"] = "jwt"
+            if payload.get("email"):
+                # SSO identity: surface who actually signed in.
+                info["email"] = payload["email"]
+                info["name"] = payload.get("name") or payload["email"]
+                info["username"] = payload["email"]
+            info["auth_method"] = payload.get("auth_method", "jwt")
             return info
 
     if api_key and api_key == settings.FASTAPI_API_KEY:
