@@ -11,7 +11,7 @@ import { useAuth } from "@/state/auth"
 
 export function LoginPage() {
   const { login, oidcError } = useAuth()
-  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -37,7 +37,7 @@ export function LoginPage() {
     setError(false)
     setBusy(true)
     try {
-      await login(username, password)
+      await login(email, password)
     } catch {
       setError(true)
     } finally {
@@ -80,12 +80,13 @@ export function LoginPage() {
           )}
           <form className="flex w-full flex-col gap-3" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="login-user">Имя пользователя</Label>
+              <Label htmlFor="login-email">Email</Label>
               <Input
-                id="login-user"
+                id="login-email"
+                type="email"
                 autoComplete="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 autoFocus
               />
             </div>

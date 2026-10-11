@@ -67,6 +67,10 @@ services:
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://metrocheck.mkair-it.ru/api/v1/auth/oidc/callback}
       FRONTEND_APP_URL: ${FRONTEND_APP_URL:-https://metrocheck.mkair-it.ru}
       OIDC_COOKIE_SECURE: ${OIDC_COOKIE_SECURE:-true}
+      ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-false}
+      ACCOUNTS_URL: ${ACCOUNTS_URL:-}
+      ACCOUNTS_SERVICE_NAME: ${ACCOUNTS_SERVICE_NAME:-metrocheck}
+      ACCOUNTS_SERVICE_TOKEN: ${ACCOUNTS_SERVICE_TOKEN:-}
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:

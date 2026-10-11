@@ -145,9 +145,9 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
 
 // ── Endpoints ──
 
-export async function login(username: string, password: string): Promise<string> {
+export async function login(email: string, password: string): Promise<string> {
   const data = await api<{ access_token: string }>("/v1/auth/login", "POST", {
-    username,
+    email,
     password,
   })
   return data.access_token

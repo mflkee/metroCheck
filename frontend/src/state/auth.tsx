@@ -13,7 +13,7 @@ interface AuthValue {
   authed: boolean
   /** Error code handed back by the SSO callback, if the flow failed. */
   oidcError: string | null
-  login: (username: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
 
@@ -43,8 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => api.setUnauthorizedHandler(null)
   }, [logout])
 
-  const login = useCallback(async (username: string, password: string) => {
-    const token = await api.login(username, password)
+  const login = useCallback(async (email: string, password: string) => {
+    const token = await api.login(email, password)
     api.setToken(token)
     setAuthed(true)
   }, [])
