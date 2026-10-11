@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && npm run check:ui && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:ui": "node scripts/fleet-ui.mjs check"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
