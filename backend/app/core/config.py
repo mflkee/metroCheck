@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     OIDC_HTTP_TIMEOUT_SECONDS: float = 10.0
     OIDC_COOKIE_SECURE: bool = True
     FRONTEND_APP_URL: str = "https://metrocheck.mkair-it.ru"
+    # Unified account registry (metroAccounts). One role: the flag is the access.
+    ACCOUNTS_ENABLED: bool = False
+    ACCOUNTS_URL: str = ""
+    ACCOUNTS_SERVICE_NAME: str = "metrocheck"
+    ACCOUNTS_SERVICE_TOKEN: str = ""
+    ACCOUNTS_TIMEOUT_SECONDS: float = 10.0
 
     # App
     APP_ENV: str = "development"
