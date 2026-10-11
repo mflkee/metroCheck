@@ -1,36 +1,18 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LogoMark } from "@/components/logo"
-import * as api from "@/lib/api"
-import { oidcErrorMessage } from "@/lib/oidc"
 import { useAuth } from "@/state/auth"
 
 export function LoginPage() {
-  const { login, oidcError } = useAuth()
+  const { login } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [ssoEnabled, setSsoEnabled] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getOidcStatus()
-      .then((status) => {
-        if (!cancelled) setSsoEnabled(status.enabled)
-      })
-      .catch(() => {
-        // Single sign-on is optional: a failure just hides the button.
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -58,26 +40,6 @@ export function LoginPage() {
             <h1 className="text-2xl font-bold">metroChek</h1>
             <p className="text-sm text-muted-foreground">Вход в систему</p>
           </div>
-          {oidcError && (
-            <p className="text-center text-sm text-destructive">{oidcErrorMessage(oidcError)}</p>
-          )}
-          {ssoEnabled && (
-            <div className="flex w-full flex-col gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  window.location.href = api.oidcLoginUrl()
-                }}
-              >
-                Войти через МКАИР
-              </Button>
-              <p className="text-center text-sm text-muted-foreground">
-                или войдите по логину и паролю
-              </p>
-            </div>
-          )}
           <form className="flex w-full flex-col gap-3" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="login-email">Email</Label>
@@ -106,7 +68,7 @@ export function LoginPage() {
             </Button>
             {error && (
               <p className="text-center text-sm text-destructive">
-                Неверное имя пользователя или пароль
+                Неверный email или пароль
               </p>
             )}
           </form>

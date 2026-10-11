@@ -11,8 +11,6 @@ import * as api from "@/lib/api"
 
 interface AuthValue {
   authed: boolean
-  /** Error code handed back by the SSO callback, if the flow failed. */
-  oidcError: string | null
   login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -20,22 +18,11 @@ interface AuthValue {
 const AuthContext = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [sso] = useState(() => api.readOidcHash())
-  const [authed, setAuthed] = useState(() => {
-    if (sso.token) {
-      api.setToken(sso.token)
-      return true
-    }
-    return api.isLoggedIn()
-  })
+  const [authed, setAuthed] = useState(() => api.isLoggedIn())
 
   const logout = useCallback(() => {
     api.clearToken()
     setAuthed(false)
-  }, [])
-
-  useEffect(() => {
-    api.clearOidcHash()
   }, [])
 
   useEffect(() => {
@@ -49,10 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthed(true)
   }, [])
 
-  const value = useMemo(
-    () => ({ authed, oidcError: sso.error, login, logout }),
-    [authed, sso.error, login, logout],
-  )
+  const value = useMemo(() => ({ authed, login, logout }), [authed, login, logout])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

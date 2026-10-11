@@ -31,17 +31,6 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin-metrochek"
     ADMIN_PASSWORD: str = ""  # auto-generate if empty
 
-    # Single sign-on (Authentik OIDC). Disabled until explicitly enabled in the env.
-    OIDC_ENABLED: bool = False
-    OIDC_ISSUER: str = "https://auth.mkair-it.ru/application/o/metrocheck/"
-    OIDC_CLIENT_ID: str = "metrocheck"
-    OIDC_CLIENT_SECRET: str = ""
-    OIDC_REDIRECT_URI: str = "https://metrocheck.mkair-it.ru/api/v1/auth/oidc/callback"
-    OIDC_SCOPES: str = "openid email profile groups"
-    OIDC_TRANSACTION_TTL_SECONDS: int = 600
-    OIDC_HTTP_TIMEOUT_SECONDS: float = 10.0
-    OIDC_COOKIE_SECURE: bool = True
-    FRONTEND_APP_URL: str = "https://metrocheck.mkair-it.ru"
     # Unified account registry (metroAccounts). One role: the flag is the access.
     ACCOUNTS_ENABLED: bool = False
     ACCOUNTS_URL: str = ""
