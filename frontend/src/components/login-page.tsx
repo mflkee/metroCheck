@@ -24,7 +24,7 @@ export function LoginPage() {
 
   return (
     <main className="auth-layout">
-      <section className="auth-panel space-y-5">
+      <section className="auth-panel space-y-6">
         <p className="text-base font-semibold tracking-[0.02em] text-signal-info">metroChek</p>
         <div>
           <h2 className="text-xl font-semibold text-ink">Вход</h2>
