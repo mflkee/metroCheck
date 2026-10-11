@@ -60,13 +60,7 @@ services:
       FROM_EMAIL: ${FROM_EMAIL:-metrocheck-reports@example.com}
       REPORT_EMAIL: ${REPORT_EMAIL:-}
       METROCHECK_DISABLE_AI: "true"
-      OIDC_ENABLED: ${OIDC_ENABLED:-false}
-      OIDC_ISSUER: ${OIDC_ISSUER:-https://auth.mkair-it.ru/application/o/metrocheck/}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-metrocheck}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      OIDC_REDIRECT_URI: ${OIDC_STG_REDIRECT_URI:-http://100.89.18.223:9081/api/v1/auth/oidc/callback}
       FRONTEND_APP_URL: ${FRONTEND_STG_APP_URL:-http://100.89.18.223:9081}
-      OIDC_COOKIE_SECURE: "false"
       ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-false}
       ACCOUNTS_URL: ${ACCOUNTS_URL:-}
       ACCOUNTS_SERVICE_NAME: ${ACCOUNTS_SERVICE_NAME:-metrocheck}

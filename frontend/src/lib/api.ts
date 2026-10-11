@@ -161,39 +161,6 @@ export function getJobsStatus(): Promise<JobsStatus> {
   return api<JobsStatus>("/v1/jobs/status")
 }
 
-// ── Single sign-on (Authentik OIDC) ──
-
-export async function getOidcStatus(): Promise<{ enabled: boolean }> {
-  return api<{ enabled: boolean }>("/v1/auth/oidc/status")
-}
-
-export function oidcLoginUrl(): string {
-  return "/api/v1/auth/oidc/login"
-}
-
-export interface OidcHash {
-  token: string | null
-  error: string | null
-}
-
-/**
- * Read the token or error the backend handed back in the URL fragment. Pure: clearing
- * the fragment is a separate step so React's double-invoked initialisers stay safe.
- * The token never reaches the server.
- */
-export function readOidcHash(): OidcHash {
-  const hash = window.location.hash.replace(/^#/, "")
-  if (!hash) return { token: null, error: null }
-  const params = new URLSearchParams(hash)
-  return { token: params.get("token"), error: params.get("oidc_error") }
-}
-
-export function clearOidcHash(): void {
-  if (window.location.hash) {
-    window.history.replaceState(null, "", window.location.pathname + window.location.search)
-  }
-}
-
 export function enqueueJob(year: number, month: number, useLk: boolean): Promise<unknown> {
   return api("/v1/jobs/enqueue", "POST", { year, month, use_lk: useLk })
 }
