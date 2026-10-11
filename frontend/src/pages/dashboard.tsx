@@ -1,33 +1,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { Download, FileText, Inbox, Loader2, Play, RefreshCw, Trash2, X } from "lucide-react"
-import { cn } from "cn"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HealthBadge, jobStatusTone, ToneBadge, TONE_TEXT, type Tone } from "@/components/tone-badge"
+import { EmptyState } from "@/components/ui/empty-state"
+import { PageHeader } from "@/components/ui/page-header"
+import { Progress } from "@/components/ui/progress"
+import { Select } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { useHealth } from "@/state/health"
 import * as api from "@/lib/api"
 import { formatSeconds, fmtDate, MONTHS, padMonth, yearOptions } from "@/lib/format"
-import { toast } from "sonner"
 
 const HEALTH_ITEMS = [
   { label: "АРШИН API", key: "arshin_api" },
@@ -73,27 +56,27 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="fade-in space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">Дашборд</h2>
-          <p className="text-sm text-muted-foreground">Контроль протоколов поверки</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={manualRefresh} disabled={refreshing}>
-          <RefreshCw className={cn(refreshing && "animate-spin")} />
-          Обновить
-        </Button>
-      </header>
+    <div className="space-y-6">
+      <PageHeader
+        title="Дашборд"
+        description="Контроль протоколов поверки"
+        action={
+          <button className="btn-secondary btn-sm" disabled={refreshing} type="button" onClick={manualRefresh}>
+            <RefreshCw className={["h-4 w-4", refreshing ? "animate-spin" : ""].join(" ")} />
+            Обновить
+          </button>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard value={pending.length} label="В очереди" tone="blue" />
+        <StatCard label="В очереди" tone="blue" value={pending.length} />
         <StatCard
-          value={running ? <Loader2 className="size-6 animate-spin" /> : "—"}
           label="Выполняется"
           tone="green"
+          value={running ? <Loader2 className="size-6 animate-spin" /> : "—"}
         />
-        <StatCard value={devices} label="Приборов в последней проверке" tone="green" />
-        <StatCard value={errors} label="Расхождений в последней проверке" tone="amber" />
+        <StatCard label="Приборов в последней проверке" tone="green" value={devices} />
+        <StatCard label="Расхождений в последней проверке" tone="amber" value={errors} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -102,88 +85,84 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Очередь</CardTitle>
-            <CardDescription>Задачи, ожидающие запуска</CardDescription>
-            <CardAction>
-              <ToneBadge tone="blue">{pending.length}</ToneBadge>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
+        <section className="section-card">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-ink">Очередь</h3>
+              <p className="mt-1 text-sm text-steel">Задачи, ожидающие запуска</p>
+            </div>
+            <ToneBadge tone="blue">{pending.length}</ToneBadge>
+          </div>
+          <div className="mt-4">
             {jobs === null ? (
-              <Skeleton className="h-24 w-full" />
+              <p className="text-sm text-steel">Загрузка...</p>
             ) : pending.length === 0 ? (
-              <EmptyState icon={<Inbox className="size-7" />} text="Очередь пуста" />
+              <EmptyState icon={<Inbox className="size-7" />} title="Очередь пуста" />
             ) : (
               <div className="space-y-2">
                 {pending.map((job) => (
                   <div
+                    className="flex min-h-9 flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2 text-sm"
                     key={job.id}
-                    className="flex min-h-9 flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
                   >
-                    <span className="font-semibold text-sky-400">#{job.id}</span>
-                    <span className="text-muted-foreground">
+                    <span className="font-semibold text-signal-info">#{job.id}</span>
+                    <span className="text-steel">
                       {job.year}-{padMonth(job.month)}
                     </span>
                     <ToneBadge tone="amber">{job.job_type === "manual" ? "Ручн" : "Авто"}</ToneBadge>
-                    <span className="flex-1 truncate text-muted-foreground">
-                      {job.progress || "Ожидание..."}
-                    </span>
+                    <span className="flex-1 truncate text-steel">{job.progress || "Ожидание..."}</span>
                     <ConfirmDialog
-                      title={`Отменить задачу #${job.id}?`}
-                      description="Задача будет удалена из очереди."
                       confirmLabel="Отменить"
+                      description="Задача будет удалена из очереди."
                       destructive
+                      title={`Отменить задачу #${job.id}?`}
                       onConfirm={async () => {
                         await api.cancelJob(job.id)
                         await load()
                       }}
                       trigger={
-                        <Button variant="destructive" size="icon-sm" title="Отменить">
-                          <X />
-                        </Button>
+                        <button className="icon-action-button icon-action-button--danger" title="Отменить" type="button">
+                          <X className="h-4 w-4" />
+                        </button>
                       }
                     />
                   </div>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Последние</CardTitle>
-            <CardDescription>История проверок</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <section className="section-card">
+          <div>
+            <h3 className="text-lg font-semibold text-ink">Последние</h3>
+            <p className="mt-1 text-sm text-steel">История проверок</p>
+          </div>
+          <div className="mt-4">
             {jobs === null ? (
-              <Skeleton className="h-24 w-full" />
+              <p className="text-sm text-steel">Загрузка...</p>
             ) : recent.length === 0 ? (
-              <EmptyState icon={<FileText className="size-7" />} text="История пуста" />
+              <EmptyState icon={<FileText className="size-7" />} title="История пуста" />
             ) : (
               <div className="space-y-2">
                 {recent.slice(0, 10).map((job) => (
                   <div
+                    className="flex min-h-9 flex-wrap items-center gap-2 rounded-2xl border border-line px-3 py-2 text-sm"
                     key={job.id}
-                    className="flex min-h-9 flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
                   >
-                    <span className="font-semibold text-sky-400">#{job.id}</span>
-                    <span className="text-muted-foreground">
+                    <span className="font-semibold text-signal-info">#{job.id}</span>
+                    <span className="text-steel">
                       {job.year}-{padMonth(job.month)}
                     </span>
                     <ToneBadge tone={jobStatusTone(job.status)}>{job.status}</ToneBadge>
-                    <span className="flex-1 truncate text-muted-foreground">{job.progress || "—"}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {fmtDate(job.completed_at || job.started_at)}
-                    </span>
+                    <span className="flex-1 truncate text-steel">{job.progress || "—"}</span>
+                    <span className="text-xs text-steel">{fmtDate(job.completed_at || job.started_at)}</span>
                     <ReportButton id={job.id} />
                     <ConfirmDialog
-                      title={`Удалить задачу #${job.id}?`}
-                      description="Действие необратимо."
                       confirmLabel="Удалить"
+                      description="Действие необратимо."
                       destructive
+                      title={`Удалить задачу #${job.id}?`}
                       onConfirm={async () => {
                         try {
                           await api.deleteJob(job.id)
@@ -195,22 +174,22 @@ export function DashboardPage() {
                         }
                       }}
                       trigger={
-                        <Button variant="destructive" size="icon-sm" title="Удалить">
-                          <Trash2 />
-                        </Button>
+                        <button className="icon-action-button icon-action-button--danger" title="Удалить" type="button">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       }
                     />
                   </div>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
 
       <RunningJobCard
-        running={running}
         loading={jobs === null}
+        running={running}
         onCancel={async () => {
           if (!running) return
           await api.cancelJob(running.id)
@@ -223,21 +202,10 @@ export function DashboardPage() {
 
 function StatCard({ value, label, tone }: { value: ReactNode; label: string; tone: Tone }) {
   return (
-    <Card className="gap-0 transition-colors hover:ring-foreground/20">
-      <CardContent>
-        <div className={cn("text-3xl leading-tight font-bold", TONE_TEXT[tone])}>{value}</div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function EmptyState({ icon, text }: { icon: ReactNode; text: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
-      <span className="text-muted-foreground/70">{icon}</span>
-      {text}
-    </div>
+    <article className="metric-card">
+      <div className={["text-3xl leading-tight font-bold", TONE_TEXT[tone]].join(" ")}>{value}</div>
+      <div className="metric-card__label mt-1">{label}</div>
+    </article>
   )
 }
 
@@ -246,25 +214,25 @@ function SystemCard() {
   const systems = data?.systems ?? {}
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Система</CardTitle>
-        <CardDescription>Состояние внешних зависимостей</CardDescription>
-        <CardAction>
-          <ToneBadge tone={problemCount === 0 ? "green" : "red"}>
-            {problemCount === 0 ? "OK" : `Ошибки: ${problemCount}`}
-          </ToneBadge>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="space-y-2">
+    <section className="section-card">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-ink">Система</h3>
+          <p className="mt-1 text-sm text-steel">Состояние внешних зависимостей</p>
+        </div>
+        <ToneBadge tone={problemCount === 0 ? "green" : "red"}>
+          {problemCount === 0 ? "OK" : `Ошибки: ${problemCount}`}
+        </ToneBadge>
+      </div>
+      <div className="mt-4 space-y-2">
         {HEALTH_ITEMS.map((item) => {
           const state = systems[item.key]
           return (
             <div
+              className="flex items-center gap-3 rounded-2xl border border-line px-3 py-2.5 text-sm"
               key={item.key}
-              className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-sm"
             >
-              <span className="text-xs text-muted-foreground">{item.label}</span>
+              <span className="text-xs text-steel">{item.label}</span>
               <div className="ml-auto flex items-center gap-2">
                 {item.key === "arshin_token" && state?.status === "ok" && fetchedAt > 0 ? (
                   <TokenTimer baseSeconds={state.age_seconds ?? 0} fetchedAt={fetchedAt} />
@@ -278,8 +246,8 @@ function SystemCard() {
             </div>
           )
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -314,55 +282,43 @@ function RunCheckCard({ onEnqueued }: { onEnqueued: () => void | Promise<void> }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Запустить проверку</CardTitle>
-        <CardDescription>Поставить задачу в очередь вручную</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <section className="section-card">
+      <div>
+        <h3 className="text-lg font-semibold text-ink">Запустить проверку</h3>
+        <p className="mt-1 text-sm text-steel">Поставить задачу в очередь вручную</p>
+      </div>
+      <div className="mt-4 space-y-3">
         <div className="flex flex-wrap items-end gap-2">
-          <div className="flex min-w-24 flex-1 flex-col gap-1.5">
-            <Label>Год</Label>
-            <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {years.map((value) => (
-                  <SelectItem key={value} value={String(value)}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex min-w-24 flex-1 flex-col gap-1.5">
-            <Label>Месяц</Label>
-            <Select value={month} onValueChange={setMonth}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONTHS.map((name, index) => (
-                  <SelectItem key={name} value={String(index + 1)}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={run} disabled={busy}>
+          <label className="block min-w-24 flex-1 text-sm text-steel">
+            Год
+            <Select
+              className="mt-1"
+              onChange={(next) => setYear(next)}
+              options={years.map((value) => ({ value: String(value), label: String(value) }))}
+              value={year}
+            />
+          </label>
+          <label className="block min-w-24 flex-1 text-sm text-steel">
+            Месяц
+            <Select
+              className="mt-1"
+              onChange={(next) => setMonth(next)}
+              options={MONTHS.map((name, index) => ({ value: String(index + 1), label: name }))}
+              value={month}
+            />
+          </label>
+          <button className="btn-primary disabled:opacity-60" disabled={busy} type="button" onClick={run}>
             {busy ? <Loader2 className="animate-spin" /> : <Play />}
             Запустить
-          </Button>
+          </button>
         </div>
-        <Separator />
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <Checkbox checked={useLk} onCheckedChange={(value) => setUseLk(value === true)} />
+        <div className="border-t border-line" />
+        <label className="flex items-center gap-3 text-sm text-ink" htmlFor="run-check-lk">
+          <Switch checked={useLk} id="run-check-lk" onCheckedChange={setUseLk} />
           С ЛК (Личный кабинет АРШИН)
         </label>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -376,57 +332,57 @@ function RunningJobCard({
   onCancel: () => void
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Активная проверка</CardTitle>
-        <CardDescription>Текущий прогресс выполнения</CardDescription>
-        <CardAction>{running && <ReportButton id={running.id} />}</CardAction>
-      </CardHeader>
-      <CardContent>
+    <section className="section-card">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-ink">Активная проверка</h3>
+          <p className="mt-1 text-sm text-steel">Текущий прогресс выполнения</p>
+        </div>
+        {running ? <ReportButton id={running.id} /> : null}
+      </div>
+      <div className="mt-4">
         {loading ? (
-          <Skeleton className="h-20 w-full" />
+          <p className="text-sm text-steel">Загрузка...</p>
         ) : !running ? (
-          <EmptyState icon={<FileText className="size-7" />} text="Нет активных проверок" />
+          <EmptyState icon={<FileText className="size-7" />} title="Нет активных проверок" />
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-2xl">{running.waiting_for_token ? "⏳" : "⚙️"}</span>
               <div className="min-w-0">
-                <div className="text-base font-semibold">
+                <div className="text-base font-semibold text-ink">
                   {running.year}-{padMonth(running.month)}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-xs text-steel">
                   #{running.id} · {running.job_type === "manual" ? "Ручная" : "Авто"}
                   {running.waiting_for_token && (
-                    <span className="text-amber-400"> · Токен истёк</span>
+                    <span className="text-[var(--warning)]"> · Токен истёк</span>
                   )}
                 </div>
               </div>
               <ConfirmDialog
-                title="Отменить текущую проверку?"
                 confirmLabel="Отменить"
                 destructive
+                title="Отменить текущую проверку?"
                 onConfirm={onCancel}
                 trigger={
-                  <Button variant="destructive" size="sm" className="ml-auto">
-                    <X />
+                  <button className="btn-danger btn-sm ml-auto" type="button">
+                    <X className="h-4 w-4" />
                     Отменить
-                  </Button>
+                  </button>
                 }
               />
             </div>
-            <div className="space-y-1.5">
-              <Progress value={running.progress_percent ?? 0} />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{running.progress || "Инициализация..."}</span>
-                <span>{running.progress_percent ?? 0}%</span>
-              </div>
-            </div>
+            <Progress
+              label={running.progress || "Инициализация..."}
+              showValue
+              value={running.progress_percent ?? 0}
+            />
             {renderPhaseStats(running)}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -435,8 +391,8 @@ function renderPhaseStats(job: api.Job) {
   if (!stats?.public_api) return null
   return (
     <>
-      <Separator />
-      <div className="text-xs text-muted-foreground">
+      <div className="border-t border-line" />
+      <div className="text-xs text-steel">
         📊 {stats.public_api?.saved ?? 0} записей · 📁 {stats.protocol_scan?.found ?? 0} файлов · 🔍{" "}
         {stats.protocol_ocr?.extracted ?? 0} обработано
       </div>
@@ -458,8 +414,14 @@ function ReportButton({ id }: { id: number }) {
     }
   }
   return (
-    <Button variant="ghost" size="icon-sm" title="Скачать отчёт" onClick={download} disabled={busy}>
-      {busy ? <Loader2 className="animate-spin" /> : <Download />}
-    </Button>
+    <button
+      className="icon-action-button"
+      disabled={busy}
+      title="Скачать отчёт"
+      type="button"
+      onClick={download}
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+    </button>
   )
 }

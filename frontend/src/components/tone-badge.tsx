@@ -1,25 +1,33 @@
 import type { ReactNode } from "react"
-import { Badge } from "@/components/ui/badge"
-import { cn } from "cn"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 
+/**
+ * metroCheck's tone vocabulary, mapped onto the fleet's `StatusBadge`.
+ *
+ * The badge used to carry the Tailwind palette directly (`text-emerald-400`,
+ * `text-sky-400`, `text-violet-400`, …), which is exactly what the fleet forbids: a
+ * colour that is not a token cannot follow the theme. Every tone now resolves to a
+ * semantic token.
+ */
 export type Tone = "green" | "red" | "amber" | "blue" | "violet" | "gray"
 
-const TONE_CLASS: Record<Tone, string> = {
-  green: "bg-emerald-500/15 text-emerald-400",
-  red: "bg-destructive/15 text-destructive",
-  amber: "bg-amber-500/15 text-amber-400",
-  blue: "bg-sky-500/15 text-sky-400",
-  violet: "bg-violet-500/15 text-violet-400",
-  gray: "bg-muted text-muted-foreground",
+const TONE_TO_STATUS: Record<Tone, StatusTone> = {
+  green: "success",
+  red: "danger",
+  amber: "warning",
+  blue: "info",
+  violet: "primary",
+  gray: "neutral",
 }
 
+/** The same tones as text, for the numbers that carry a state on their own. */
 export const TONE_TEXT: Record<Tone, string> = {
-  green: "text-emerald-400",
-  red: "text-destructive",
-  amber: "text-amber-400",
-  blue: "text-sky-400",
-  violet: "text-violet-400",
-  gray: "text-muted-foreground",
+  green: "text-[var(--success)]",
+  red: "text-[var(--danger-text)]",
+  amber: "text-[var(--warning)]",
+  blue: "text-[var(--info)]",
+  violet: "text-[var(--mention)]",
+  gray: "text-steel",
 }
 
 export function ToneBadge({
@@ -32,12 +40,9 @@ export function ToneBadge({
   className?: string
 }) {
   return (
-    <Badge
-      variant="outline"
-      className={cn("border-transparent font-semibold", TONE_CLASS[tone], className)}
-    >
+    <StatusBadge className={className} tone={TONE_TO_STATUS[tone]}>
       {children}
-    </Badge>
+    </StatusBadge>
   )
 }
 

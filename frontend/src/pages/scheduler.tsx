@@ -1,26 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, Mail, Plus, Save, Trash2 } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { ToneBadge } from "@/components/tone-badge"
+import { EmptyState } from "@/components/ui/empty-state"
+import { NumberInput } from "@/components/number-input"
+import { PageHeader } from "@/components/ui/page-header"
+import { Select } from "@/components/ui/select"
+import { TimeInput } from "@/components/ui/time-input"
 import * as api from "@/lib/api"
 
 export function SchedulerPage() {
@@ -142,149 +128,140 @@ export function SchedulerPage() {
   }
 
   return (
-    <div className="fade-in space-y-6">
-      <header>
-        <h2 className="text-2xl font-bold">Планировщик</h2>
-        <p className="text-sm text-muted-foreground">Настройка автоматических проверок</p>
-      </header>
+    <div className="space-y-6">
+      <PageHeader title="Планировщик" description="Настройка автоматических проверок" />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Расписание</CardTitle>
-            <CardDescription>{example || "—"}</CardDescription>
-            <CardAction>
-              <ToneBadge tone={mode === "auto" ? "green" : "blue"}>
-                {mode === "auto" ? "Авто" : "Ручной"}
-              </ToneBadge>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section className="section-card">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-ink">Расписание</h3>
+              <p className="mt-1 text-sm text-steel">{example || "—"}</p>
+            </div>
+            <ToneBadge tone={mode === "auto" ? "green" : "blue"}>
+              {mode === "auto" ? "Авто" : "Ручной"}
+            </ToneBadge>
+          </div>
+
+          <div className="mt-4 space-y-4">
             <div className="flex items-center gap-3">
-              <Label className="flex-1 text-muted-foreground">Режим</Label>
-              <Select value={mode} onValueChange={changeMode}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="manual">Ручной</SelectItem>
-                  <SelectItem value="auto">Автоматический</SelectItem>
-                </SelectContent>
-              </Select>
+              <label className="flex-1 text-sm text-steel">Режим</label>
+              <Select
+                className="w-48"
+                onChange={(next) => void changeMode(next)}
+                options={[
+                  { value: "manual", label: "Ручной" },
+                  { value: "auto", label: "Автоматический" },
+                ]}
+                value={mode}
+              />
             </div>
             <div className="flex items-center gap-3">
-              <Label htmlFor="sched-day" className="flex-1 text-muted-foreground">
+              <label className="flex-1 text-sm text-steel" htmlFor="sched-day">
                 День
-              </Label>
-              <Input
+              </label>
+              <NumberInput
+                className="form-input w-48"
                 id="sched-day"
-                type="number"
-                min={1}
-                max={31}
+                maxLength={2}
                 value={day}
-                onChange={(event) => setDay(event.target.value)}
-                className="w-48"
+                onValueChange={setDay}
               />
             </div>
             <div className="flex items-center gap-3">
-              <Label htmlFor="sched-time" className="flex-1 text-muted-foreground">
+              <label className="flex-1 text-sm text-steel" htmlFor="sched-time">
                 Время (МСК)
-              </Label>
-              <Input
+              </label>
+              <TimeInput
+                className="form-input w-48"
                 id="sched-time"
-                type="time"
-                step={60}
                 value={time}
-                onChange={(event) => setTime(event.target.value)}
-                className="w-48"
+                onChange={setTime}
               />
             </div>
             <div className="flex items-center gap-3">
-              <Label htmlFor="sched-offset" className="flex-1 text-muted-foreground">
+              <label className="flex-1 text-sm text-steel" htmlFor="sched-offset">
                 Сдвиг
-              </Label>
-              <Input
+              </label>
+              <NumberInput
+                allowNegative
+                className="form-input w-48"
                 id="sched-offset"
-                type="number"
-                min={-12}
-                max={0}
+                maxLength={3}
                 value={offset}
-                onChange={(event) => setOffset(event.target.value)}
-                className="w-48"
+                onValueChange={setOffset}
               />
             </div>
 
-            <Separator />
+            <div className="border-t border-line" />
 
             <div className="space-y-2">
-              <Label className="text-muted-foreground">Email для отчётов</Label>
+              <label className="text-sm text-steel">Email для отчётов</label>
               <div className="flex gap-2">
-                <Input
-                  type="email"
+                <input
+                  className="form-input"
                   placeholder="mail@example.ru"
+                  type="email"
                   value={newEmail}
                   onChange={(event) => setNewEmail(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void add()
                   }}
                 />
-                <Button variant="secondary" onClick={add} disabled={adding}>
-                  {adding ? <Loader2 className="animate-spin" /> : <Plus />}
+                <button className="btn-secondary btn-sm shrink-0" disabled={adding} type="button" onClick={add}>
+                  {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Добавить
-                </Button>
+                </button>
               </div>
               <div className="space-y-1">
                 {emails.length === 0 ? (
-                  <p className="py-2 text-xs text-muted-foreground">Email не добавлены</p>
+                  <EmptyState title="Email не добавлены" />
                 ) : (
                   emails.map((item) => (
                     <div
+                      className="flex items-center gap-2 rounded-2xl border border-line px-3 py-2 text-sm"
                       key={item.id}
-                      className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
                     >
-                      <Mail className="size-4 text-muted-foreground" />
-                      <span className="flex-1 truncate text-muted-foreground">{item.email}</span>
-                      <Button
-                        variant="destructive"
-                        size="icon-xs"
+                      <Mail className="size-4 text-steel" />
+                      <span className="flex-1 truncate text-steel">{item.email}</span>
+                      <button
+                        className="icon-action-button icon-action-button--danger icon-action-button--tiny"
                         title="Удалить"
+                        type="button"
                         onClick={() => void remove(item.id)}
                       >
-                        <Trash2 />
-                      </Button>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            <Button onClick={save} disabled={saving}>
-              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            <button className="btn-primary disabled:opacity-60" disabled={saving} type="button" onClick={save}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Сохранить
-            </Button>
-          </CardContent>
-        </Card>
+            </button>
+          </div>
+        </section>
 
-        <Card className="self-start">
-          <CardHeader>
-            <CardTitle>Информация</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+        <section className="section-card self-start">
+          <h3 className="text-lg font-semibold text-ink">Информация</h3>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-steel">
             <p>
-              <b className="text-foreground">Ручной</b> — проверка только по запросу
+              <b className="text-ink">Ручной</b> — проверка только по запросу
             </p>
             <p>
-              <b className="text-foreground">Авто</b> — запуск по расписанию
+              <b className="text-ink">Авто</b> — запуск по расписанию
             </p>
             <p>
-              <b className="text-foreground">Сдвиг</b> — какой месяц проверять (0 = текущий, -1 =
-              прошлый)
+              <b className="text-ink">Сдвиг</b> — какой месяц проверять (0 = текущий, -1 = прошлый)
             </p>
             <p>
-              <b className="text-foreground">Email</b> — отчёт отправляется всем из списка
+              <b className="text-ink">Email</b> — отчёт отправляется всем из списка
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
     </div>
   )

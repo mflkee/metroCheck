@@ -1,17 +1,13 @@
-import type { ReactNode } from "react"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { cn } from "cn"
+import { useState, type ReactNode } from "react"
+import { AppDialog } from "@/components/ui/app-dialog"
 
+/**
+ * The confirmation the app asks before something irreversible.
+ *
+ * It is the fleet dialog (from `@metro/app-dialog`) behind the call-site API the pages
+ * already use: the trigger is rendered as-is and opens the dialog, and the refusal is
+ * asked in the app's own window rather than the browser's.
+ */
 export function ConfirmDialog({
   trigger,
   title,
@@ -27,24 +23,41 @@ export function ConfirmDialog({
   destructive?: boolean
   onConfirm: () => void
 }) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Отмена</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className={cn(destructive && "bg-destructive text-white hover:bg-destructive/90")}
-          >
-            {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <>
+      {/* `contents` keeps the layout untouched while the click bubbles from the button. */}
+      <span className="contents" onClick={() => setOpen(true)}>
+        {trigger}
+      </span>
+      <AppDialog
+        description={description}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className="btn-secondary" type="button" onClick={() => setOpen(false)}>
+              Отмена
+            </button>
+            <button
+              className={destructive ? "btn-danger" : "btn-primary"}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onConfirm()
+              }}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        }
+        open={open}
+        size="sm"
+        title={title}
+        onClose={() => setOpen(false)}
+      >
+        {/* The question is the title and the consequence is the description, so the body is empty. */}
+        {null}
+      </AppDialog>
+    </>
   )
 }
