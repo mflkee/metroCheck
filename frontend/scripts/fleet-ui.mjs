@@ -154,6 +154,27 @@ function check() {
     }
   }
 
+  // A Dockerfile that copies the app selectively must also copy the guard and its
+  // manifest, or `npm run check:ui` fails inside the image and the deploy silently stops.
+  // (Skipped inside the image, where the Dockerfile is not part of the build context.)
+  const dockerfile = path.join(root, "Dockerfile");
+  if (existsSync(dockerfile)) {
+    const text = readFileSync(dockerfile, "utf8");
+    // `COPY frontend/ ./` and `COPY . .` bring the whole tree along; anything else is a
+    // list that can forget a file.
+    const copiesEverything = /^COPY\s+(?:frontend\/|\.\/?)\s+\.\/?\s*$/m.test(text);
+    if (!copiesEverything) {
+      for (const needed of ["scripts", "fleet-ui.manifest.json"]) {
+        if (!text.includes(needed)) {
+          problems.push(
+            `Dockerfile: the build copies the app selectively but never copies ${needed} — ` +
+              "the image build will fail at `npm run check:ui`",
+          );
+        }
+      }
+    }
+  }
+
   if (problems.length) {
     console.error(`fleet-ui: ${problems.length} problem(s):\n`);
     for (const problem of problems) {
