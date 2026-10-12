@@ -189,7 +189,9 @@ function check() {
   return 0;
 }
 
-const mode = process.argv[2] ?? "check";
+const args = process.argv.slice(2);
+// `npm run check:ui -- manifest` arrives as ["check", "manifest"], so manifest wins.
+const mode = args.includes("manifest") ? "manifest" : "check";
 if (mode === "manifest") {
   writeManifest();
   process.exit(0);
@@ -197,5 +199,5 @@ if (mode === "manifest") {
 if (mode === "check") {
   process.exit(check());
 }
-console.error(`fleet-ui: unknown mode "${mode}" (use check or manifest)`);
+console.error(`fleet-ui: unknown mode in "${args.join(" ")}" (use check or manifest)`);
 process.exit(2);

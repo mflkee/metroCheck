@@ -2018,6 +2018,29 @@ textarea.form-input {
   color: var(--success) !important;
 }
 
+/* The rest of the legacy `signal.*` names: they used to resolve from the app's Tailwind
+   config (the light palette) and were never re-pointed, so `hover:text-signal-info` — ten
+   of those in metroLog alone — hovered into a dark blue in a dark theme. */
+.bg-signal-info {
+  background-color: var(--accent) !important;
+}
+
+.hover\:text-signal-info:hover {
+  color: var(--accent) !important;
+}
+
+.text-signal-warn {
+  color: var(--warning) !important;
+}
+
+.text-signal-danger {
+  color: var(--danger-text) !important;
+}
+
+.border-signal-danger {
+  border-color: var(--danger) !important;
+}
+
 .hover\:text-ink:hover {
   color: var(--text-primary) !important;
 }
@@ -2447,4 +2470,71 @@ textarea.form-input {
   border: 1px solid var(--border-color);
   border-radius: 20px;
   background: var(--preview-surface);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Toned surfaces.
+ *
+ * A tinted block (a status chip, an inline notice) used to be a light-theme hex
+ * (`bg-[#edf2f5]`, `bg-[#e7f3eb]`, …) that the theme then had to re-point with
+ * `!important`. These classes are that tint as a token, and they set the background
+ * only — the geometry (radius, padding, type) stays with the caller.
+ * ---------------------------------------------------------------------------
+ */
+.tint-neutral {
+  background: color-mix(in srgb, var(--tone-child-bg) 92%, transparent);
+}
+
+.tint-info {
+  background: color-mix(in srgb, var(--info) 14%, var(--tone-child-bg));
+}
+
+.tint-success {
+  background: color-mix(in srgb, var(--success) 14%, var(--tone-child-bg));
+}
+
+.tint-warning {
+  background: color-mix(in srgb, var(--warning) 16%, var(--tone-child-bg));
+}
+
+.tint-danger {
+  background: color-mix(in srgb, var(--danger) 12%, var(--tone-child-bg));
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Data tables.
+ *
+ * Every service lists things in a table, and each one had grown its own header: a filled
+ * background here, a different type scale there. `.data-table` is the fleet's table —
+ * the same one metroLog's pages draw with utilities: a transparent header in small
+ * uppercase letters, a rule under it, and a rule between rows.
+ * ---------------------------------------------------------------------------
+ */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.data-table thead th {
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.data-table tbody td {
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px;
+  vertical-align: top;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
 }
