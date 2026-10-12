@@ -2400,6 +2400,10 @@ textarea.form-input {
 :root {
   /* A document preview is paper: white in every theme. */
   --preview-surface: oklch(1 0 0);
+  /* A scrim over a photo (an attachment preview, a lightbox) is dark in every theme:
+     it sits on the image, not on the panel. Sites write `rgb(var(--scrim-rgb)/0.72)`
+     so the shade stays one value and only the alpha varies. */
+  --scrim-rgb: 11 20 27;
 }
 
 .metric-card {
