@@ -2,6 +2,7 @@
   "$comment": "Hashes of the files vendored from the metro-ui registry. Regenerate with `npm run check:ui -- manifest` right after adding or updating an item; never edit these files by hand.",
   "registry": "https://raw.githubusercontent.com/mflkee/metro-ui/main/public/r/{name}.json",
   "files": {
+    "src/components/account-menu.tsx": "1109e7f1946494539c487a5e28be34008246e7df9b7ad7deb9b041ebb91db427",
     "src/components/app-shell.tsx": "56b64b2198864539468b63bafacc90c091bcaaa37c233f120b52fe99516659b1",
     "src/components/date-input.tsx": "a4b8b238f29b6a18bcec6515235b7bab04f9cbf9ca7361d91623a13b71613a07",
     "src/components/floating-autocomplete-menu.tsx": "f725a1aa63f2efcbc6de3e64c38fe30f37f82e0262ec9f077c874a579d9d49e3",

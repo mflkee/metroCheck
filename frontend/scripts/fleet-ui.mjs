@@ -34,6 +34,7 @@ const VENDORED = [
   "src/lib/numericInput.ts",
   "src/components/app-shell.tsx",
   "src/components/theme-switcher.tsx",
+  "src/components/account-menu.tsx",
   "src/components/version-badge.tsx",
   "src/components/date-input.tsx",
   "src/components/time-input.tsx",
@@ -53,6 +54,8 @@ const PALETTE_UTILITY = new RegExp(
   `\\b(?:text|bg|border|ring|divide|from|to|via|fill|stroke|outline|shadow|decoration|accent|caret)-\\[?(?:${PALETTE})-\\d{2,3}`,
 );
 const HEX_COLOUR = /#[0-9a-fA-F]{3,8}\b/;
+/** `rgb(11 20 27 / .7)` is a token; `rgba(11,20,27,0.7)` is a literal. */
+const COLOUR_FUNCTION = /\b(?:rgba?|hsla?)\(\s*[\d.]/;
 
 /** `#rrggbb` is fine in these places (the theme itself, tests, comments about them). */
 const HEX_ALLOWED_IN = [/\.test\.[jt]sx?$/, /src[\\/]metro-theme\.css$/];
@@ -149,6 +152,9 @@ function check() {
         }
         if (HEX_COLOUR.test(line) && !HEX_ALLOWED_IN.some((pattern) => pattern.test(rel))) {
           problems.push(`${rel}:${index + 1}: hardcoded colour — use a theme token`);
+        }
+        if (COLOUR_FUNCTION.test(line)) {
+          problems.push(`${rel}:${index + 1}: hardcoded colour literal — use a theme token (rgb(var(--scrim-rgb)/0.7), …)`);
         }
       });
     }

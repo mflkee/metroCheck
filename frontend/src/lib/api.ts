@@ -145,12 +145,27 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
 
 // ── Endpoints ──
 
-export async function login(email: string, password: string): Promise<string> {
-  const data = await api<{ access_token: string }>("/v1/auth/login", "POST", {
+export type AuthUser = {
+  username: string
+  role: string
+  email: string
+  name: string
+  auth_method?: string
+}
+
+export async function login(
+  email: string,
+  password: string,
+): Promise<{ accessToken: string; user: AuthUser }> {
+  const data = await api<{ access_token: string; user: AuthUser }>("/v1/auth/login", "POST", {
     email,
     password,
   })
-  return data.access_token
+  return { accessToken: data.access_token, user: data.user }
+}
+
+export function getMe(): Promise<AuthUser> {
+  return api<AuthUser>("/v1/auth/me")
 }
 
 export function getHealth(): Promise<HealthResponse> {

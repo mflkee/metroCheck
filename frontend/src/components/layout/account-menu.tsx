@@ -1,23 +1,18 @@
-import { ThemeSwitcher } from "@/components/theme-switcher"
+import { AccountMenu as FleetAccountMenu } from "@/components/account-menu"
 import { useAuth } from "@/state/auth"
 
 /**
- * The top-bar actions: the fleet theme picker and the way out.
- *
- * metroCheck has no profile or settings screen of its own, so the account block is
- * just the exit — there is nothing else to put behind it.
+ * metroCheck's account block — the fleet's menu (from `@metro/account-menu`) with this app's
+ * identity. metroCheck has no profile screen, so the menu offers only the identity and the exit.
  */
 export function AccountMenu() {
-  const { logout } = useAuth()
+  const { user, logout } = useAuth()
 
   return (
-    <div className="flex min-w-0 items-center justify-end gap-2">
-      <div className="hidden md:flex">
-        <ThemeSwitcher />
-      </div>
-      <button className="btn-secondary btn-sm shrink-0" type="button" onClick={logout}>
-        Выйти
-      </button>
-    </div>
+    <FleetAccountMenu
+      identity={user ? `${user.name || user.email} · ${user.email}` : undefined}
+      loginTo={user ? undefined : "/"}
+      onLogout={logout}
+    />
   )
 }
