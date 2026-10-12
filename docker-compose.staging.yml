@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data_stg:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_STG_PORT:-5436}:5432"
+      - "172.17.0.1:${POSTGRES_STG_PORT:-5436}:5432"
     networks:
       - backend_network_stg
     healthcheck:
@@ -26,7 +26,7 @@ services:
     volumes:
       - redis_data_stg:/data
     ports:
-      - "${REDIS_STG_PORT:-6383}:6379"
+      - "172.17.0.1:${REDIS_STG_PORT:-6383}:6379"
     networks:
       - backend_network_stg
     healthcheck:
