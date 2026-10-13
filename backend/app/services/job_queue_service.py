@@ -783,7 +783,7 @@ class JobQueueService:
             except Exception as e:
                 logger.error("[Email] Failed to generate report: %s", e)
 
-        await self.email.send_check_report(
+        sent = await self.email.send_check_report(
             year=job.year,
             month=job.month,
             total_devices=total_calibrations,
@@ -795,7 +795,12 @@ class JobQueueService:
             recipient_email=report_email,
         )
 
-        job.email_sent = True
+        job.email_sent = sent
+        if not sent:
+            logger.warning(
+                "Report email was NOT sent for job %s (%02d.%s)",
+                job.id, job.month, job.year,
+            )
         await self.db.commit()
 
     async def cancel_job(self, job_id: int, db: AsyncSession | None = None) -> bool:
