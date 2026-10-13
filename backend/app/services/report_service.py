@@ -1,6 +1,7 @@
 """ReportService — генерация детализированных Excel отчетов с тремя источниками."""
 
 import json
+import math
 import os
 import re
 from datetime import date, datetime
@@ -9,6 +10,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 from app.utils import format_verifier, normalize_verifier
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +29,118 @@ class ReportService:
         self.result_repo = CheckResultRepository(db)
         self.run_repo = CheckRunRepository(db)
         self.proto_repo = ProtocolDataRepository(db)
+        self._period = ""
+
+    # ------------------------------------------------------------------
+    # Autosizing / presentation helpers
+    # ------------------------------------------------------------------
+    _DEFAULT_COL_WIDTH = 8.43
+    _LINE_HEIGHT = 14.5          # px per wrapped line (≈11pt)
+    _ROW_PADDING = 4.0
+    _MAX_ROW_HEIGHT = 409.0      # Excel hard limit for a row
+
+    @staticmethod
+    def _to_number(val: Any) -> Any:
+        """Return a numeric value when possible, otherwise the original value."""
+        if val is None or val == "":
+            return ""
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return val
+
+    def _col_width(self, ws, col_idx: int) -> float:
+        dim = ws.column_dimensions.get(get_column_letter(col_idx))
+        if dim is not None and dim.width:
+            return float(dim.width)
+        default = ws.sheet_format.defaultColWidth
+        return float(default) if default else self._DEFAULT_COL_WIDTH
+
+    def _fit_row_heights(self, ws, first_row: int = 1, last_row: int | None = None) -> None:
+        """Size rows so wrapped text is fully visible.
+
+        Excel never auto-fits rows that carry an explicit height and never
+        auto-fits merged cells, so we estimate the number of wrapped lines each
+        row needs (counting merged spans as their combined width) and grow the
+        row height accordingly.
+        """
+        last_row = last_row or ws.max_row
+        if last_row < first_row:
+            return
+        max_col = ws.max_column or 1
+
+        merged_width: dict[tuple[int, int], float] = {}
+        merged_skip: set[tuple[int, int]] = set()
+        for rng in list(ws.merged_cells.ranges):
+            width = sum(self._col_width(ws, c) for c in range(rng.min_col, rng.max_col + 1))
+            for r in range(rng.min_row, rng.max_row + 1):
+                for c in range(rng.min_col, rng.max_col + 1):
+                    if (r, c) == (rng.min_row, rng.min_col):
+                        merged_width[(r, c)] = width
+                    else:
+                        merged_skip.add((r, c))
+
+        for row in range(first_row, last_row + 1):
+            lines_needed = 1
+            for col in range(1, max_col + 1):
+                if (row, col) in merged_skip:
+                    continue
+                cell = ws.cell(row=row, column=col)
+                value = cell.value
+                if value is None:
+                    continue
+                align = cell.alignment
+                if not (align and align.wrap_text):
+                    continue
+                width = merged_width.get((row, col), self._col_width(ws, col))
+                chars = max(width - 1.0, 1.0)
+                cell_lines = 0
+                for part in str(value).split("\n"):
+                    cell_lines += max(1, math.ceil(len(part) / chars))
+                lines_needed = max(lines_needed, cell_lines)
+            if lines_needed <= 1:
+                continue
+            needed = min(
+                self._MAX_ROW_HEIGHT,
+                lines_needed * self._LINE_HEIGHT + self._ROW_PADDING,
+            )
+            current = ws.row_dimensions[row].height or 0
+            if needed > current:
+                ws.row_dimensions[row].height = needed
+
+    def _setup_print(self, ws, *, landscape: bool = True, title_rows: str = "1:1") -> None:
+        ws.page_setup.orientation = "landscape" if landscape else "portrait"
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        if title_rows:
+            ws.print_title_rows = title_rows
+        ws.print_options.horizontalCentered = True
+        ws.page_margins.left = ws.page_margins.right = 0.4
+        ws.page_margins.top = ws.page_margins.bottom = 0.5
+        ws.oddFooter.center.text = "Стр. &P из &N"
+        if self._period:
+            ws.oddHeader.right.text = self._period
+            ws.oddHeader.right.size = 9
+
+    def _finalize_sheet(
+        self,
+        ws,
+        *,
+        tab_color: str | None = None,
+        freeze: str | None = None,
+        landscape: bool = True,
+        title_rows: str = "1:1",
+        show_gridlines: bool = True,
+    ) -> None:
+        """Apply print setup, freeze panes and auto row heights to a sheet."""
+        if tab_color:
+            ws.sheet_properties.tabColor = tab_color
+        if freeze:
+            ws.freeze_panes = freeze
+        ws.sheet_view.showGridLines = show_gridlines
+        self._fit_row_heights(ws, 1, ws.max_row)
+        self._setup_print(ws, landscape=landscape, title_rows=title_rows)
 
     @staticmethod
     def _combine_name_type(name: str, type_: str) -> str:
@@ -93,6 +207,7 @@ class ReportService:
 
     async def generate_interim_report(self, year: int, month: int, output_dir: str = "/reports", job_id: int | None = None, use_lk: bool = True) -> dict[str, Any]:
         """Generate interim Excel report with full comparison layout."""
+        self._period = f"Период: {month:02d}.{year}"
         calibrations = await self.cal_repo.get_by_month(year, month)
         protocols = await self.proto_repo.get_by_month(year, month)
 
@@ -371,7 +486,15 @@ class ReportService:
                    fill=section_fill, font=section_font,
                    alignment=Alignment(horizontal="center", vertical="center"))
         ws.row_dimensions[row].height = 30
-        row += 2
+        row += 1
+
+        # Generation stamp
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(row, 1,
+                   f"Сформировано: {datetime.now().strftime('%d.%m.%Y %H:%M')}  ·  metroCheck",
+                   font=Font(color="808080", size=9, italic=True),
+                   alignment=Alignment(horizontal="right", vertical="center"))
+        row += 1
 
         # KPI row
         kpi_items = [
@@ -396,7 +519,6 @@ class ReportService:
         row += 3
 
         # Section: Per owner breakdown
-        section_row = row
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
         write_cell(row, 1, "Разбивка по Заказчикам", fill=section_fill, font=section_font,
                    alignment=Alignment(horizontal="left", vertical="center"))
@@ -410,9 +532,8 @@ class ReportService:
         ws.row_dimensions[row].height = 21.75
         row += 1
 
-        owner_table_start = row
         for owner, stats in sorted_owners:
-            write_cell(row, 1, owner)
+            write_cell(row, 1, owner, alignment=Alignment(horizontal="left", vertical="center", wrap_text=True))
             write_cell(row, 2, stats["protocols"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 3, stats["matched"], alignment=Alignment(horizontal="center", vertical="center"))
             write_cell(row, 4, stats["missing"], alignment=Alignment(horizontal="center", vertical="center"))
@@ -429,9 +550,33 @@ class ReportService:
             else:
                 write_cell(row, 8, "Внимание", fill=bad_fill, font=bad_font,
                            alignment=Alignment(horizontal="center", vertical="center"))
-            ws.row_dimensions[row].height = 15.75
             row += 1
-        owner_table_end = row - 1
+
+        # Totals row
+        total_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        total_font = Font(bold=True, color="305496")
+        write_cell(row, 1, "Итого", fill=total_fill, font=total_font)
+        for col_idx, key in enumerate(
+            ("protocols", "matched", "missing", "extra", "errors", "warnings"), start=2
+        ):
+            write_cell(row, col_idx, sum(s[key] for s in per_owner.values()),
+                       fill=total_fill, font=total_font,
+                       alignment=Alignment(horizontal="center", vertical="center"))
+        write_cell(row, 8, "", fill=total_fill)
+        ws.row_dimensions[row].height = 15.75
+        row += 1
+
+        # Status counters
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        write_cell(
+            row, 1,
+            "Заказчиков: "
+            f"OK {status_groups['OK']} · "
+            f"есть замечания {status_groups['Есть замечания']} · "
+            f"требует внимания {status_groups['Требует внимания']}",
+            font=Font(color="595959", size=9, italic=True),
+            alignment=Alignment(horizontal="left", vertical="center"),
+        )
         row += 2
 
         # Section: Performed checks
@@ -558,6 +703,8 @@ class ReportService:
         # Keep fixed widths from the manually tuned report
         ws.column_dimensions[get_column_letter(8)].width = max(ws.column_dimensions[get_column_letter(8)].width, 13)
 
+        self._finalize_sheet(ws, tab_color="305496", landscape=False, title_rows="", show_gridlines=False)
+
         return {
             "error_count": error_count,
             "warning_count": warning_count,
@@ -582,11 +729,13 @@ class ReportService:
                 result_text = ""
             row = [idx, cal.vri_id, cal.mit_number, cal.mit_title, cal.mit_notation,
                    cal.mi_modification, cal.mi_number,
-                   cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
-                   cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
+                   cal.verification_date or "",
+                   cal.valid_date or "",
                    cal.result_docnum, result_text]
-            self._write_data_row(ws, row, idx, "DDEBF7")
+            self._write_data_row(ws, row, idx, "DDEBF7",
+                                 number_formats={8: "DD.MM.YYYY", 9: "DD.MM.YYYY"})
         self._auto_fit_columns(ws)
+        self._finalize_sheet(ws, tab_color="4472C4", freeze="A2")
 
     def _fill_lk_sheet(self, ws, calibrations) -> None:
         headers = ["№", "VRI ID", "Поверитель", "t, °C", "φ, %", "P, кПа"]
@@ -601,11 +750,13 @@ class ReportService:
             has_lk = bool(cal.verifier or cal.conditions)
             row = [idx, cal.vri_id,
                    format_verifier(cal.verifier) or ("Н/Д" if not has_lk else ""),
-                   conditions.get("temperature", ""),
-                   conditions.get("humidity", ""),
-                   conditions.get("pressure", "")]
-            self._write_data_row(ws, row, idx, "E2EFDA")
+                   self._to_number(conditions.get("temperature", "")),
+                   self._to_number(conditions.get("humidity", "")),
+                   self._to_number(conditions.get("pressure", ""))]
+            self._write_data_row(ws, row, idx, "E2EFDA",
+                                 number_formats={4: "0.0", 5: "0.0", 6: "0.0"})
         self._auto_fit_columns(ws)
+        self._finalize_sheet(ws, tab_color="70AD47", freeze="A2")
 
     def _fill_protocol_sheet(self, ws, protocols) -> None:
         headers = ["№", "№ протокола", "Наименование", "Зав№",
@@ -613,26 +764,20 @@ class ReportService:
                    "Поверитель", "t, °C", "φ, %", "P, кПа", "Источник"]
         self._write_headers(ws, headers, "ED7D31")
 
-        def fmt_num(val):
-            if val is None:
-                return ""
-            try:
-                return f"{float(val):.1f}"
-            except (ValueError, TypeError):
-                return str(val)
-
         for idx, proto in enumerate(protocols, 1):
             full_name = self._combine_name_type(proto.device_name, proto.device_type)
             row = [idx, proto.protocol_number or "", full_name,
                    proto.serial_number or "",
                    proto.mit_number or "", proto.verification_method or "",
                    proto.manufacture_year or "", proto.owner or "",
-                   proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
-                   format_verifier(proto.verifier), fmt_num(proto.temperature),
-                   fmt_num(proto.humidity), fmt_num(proto.pressure),
+                   proto.verification_date or "",
+                   format_verifier(proto.verifier), self._to_number(proto.temperature),
+                   self._to_number(proto.humidity), self._to_number(proto.pressure),
                    proto.model_used or "OCR"]
-            self._write_data_row(ws, row, idx, "FCE4D6")
+            self._write_data_row(ws, row, idx, "FCE4D6",
+                                 number_formats={9: "DD.MM.YYYY", 11: "0.0", 12: "0.0", 13: "0.0"})
         self._auto_fit_columns(ws)
+        self._finalize_sheet(ws, tab_color="ED7D31", freeze="A2")
 
     def _fill_comparison_sheet(self, ws, calibrations, protocols, use_lk: bool = True) -> None:
         from collections import defaultdict
@@ -734,13 +879,15 @@ class ReportService:
         STATUS_COL = 1
         COMMENTS_COL = 2
 
-        def fmt_num(val):
-            if val is None:
-                return ""
-            try:
-                return f"{float(val):.1f}"
-            except (ValueError, TypeError):
-                return str(val)
+        # 1-based columns rendered as real dates / numbers
+        date_cols = {public_offset + 8, public_offset + 9, proto_offset + 8}
+        num_cols = {proto_offset + 10, proto_offset + 11, proto_offset + 12}
+        if use_lk:
+            num_cols |= {lk_offset + 2, lk_offset + 3, lk_offset + 4}
+
+        zebra_fill = PatternFill(start_color="F5F8FC", end_color="F5F8FC", fill_type="solid")
+        error_fill = PatternFill(start_color="FDECEA", end_color="FDECEA", fill_type="solid")
+        warn_fill_row = PatternFill(start_color="FFF8E1", end_color="FFF8E1", fill_type="solid")
 
         row_num = 3
         display_num = 1
@@ -803,8 +950,8 @@ class ReportService:
                 cal.mit_notation if cal else "",
                 cal.mi_modification if cal else "",
                 cal.mi_number if cal else "",
-                cal.verification_date.strftime("%d.%m.%Y") if cal and cal.verification_date else "",
-                cal.valid_date.strftime("%d.%m.%Y") if cal and cal.valid_date else "",
+                (cal.verification_date if cal and cal.verification_date else ""),
+                (cal.valid_date if cal and cal.valid_date else ""),
                 cal.result_docnum if cal else "",
                 proto.protocol_number or "",
                 full_name,
@@ -813,11 +960,11 @@ class ReportService:
                 (proto.verification_method if proto.verification_method else "—"),
                 proto.manufacture_year or "",
                 proto.owner or "",
-                proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else "",
+                (proto.verification_date or ""),
                 format_verifier(proto.verifier),
-                fmt_num(proto.temperature),
-                fmt_num(proto.humidity),
-                fmt_num(proto.pressure),
+                self._to_number(proto.temperature),
+                self._to_number(proto.humidity),
+                self._to_number(proto.pressure),
                 proto.model_used or "OCR",
             ]
 
@@ -825,9 +972,9 @@ class ReportService:
                 # Inject LK columns between the public block and the protocol block
                 lk_vals = [
                     format_verifier(cal.verifier) if cal else "",
-                    fmt_num(lk_conditions.get("temperature")) if cal else "",
-                    fmt_num(lk_conditions.get("humidity")) if cal else "",
-                    fmt_num(lk_conditions.get("pressure")) if cal else "",
+                    self._to_number(lk_conditions.get("temperature")) if cal else "",
+                    self._to_number(lk_conditions.get("humidity")) if cal else "",
+                    self._to_number(lk_conditions.get("pressure")) if cal else "",
                 ]
                 insert_at = 2 + len(public_headers)  # after compare(2) + public(11) columns
                 row_data[insert_at:insert_at] = lk_vals
@@ -893,22 +1040,32 @@ class ReportService:
             comments = "; ".join(mismatches) if mismatches else ""
             row_data[COMMENTS_COL - 1] = comments
 
+            if status == "❌":
+                row_fill = error_fill
+            elif status == "⚠":
+                row_fill = warn_fill_row
+            elif display_num % 2 == 0:
+                row_fill = zebra_fill
+            else:
+                row_fill = None
+
             for col_idx, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_num, column=col_idx, value=value)
                 cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
                                    top=Side(style='thin'), bottom=Side(style='thin'))
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                if col_idx in date_cols:
+                    cell.number_format = "DD.MM.YYYY"
+                elif col_idx in num_cols:
+                    cell.number_format = "0.0"
                 if col_idx == STATUS_COL:
                     cell.fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
                     cell.font = Font(bold=True, color=status_font_color, size=12)
                 elif col_idx == COMMENTS_COL and mismatches:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(color="9C0006", size=9)
-            if comments:
-                lines_needed = max(1, comments.count(';') + 1, len(comments) // 50)
-                ws.row_dimensions[row_num].height = max(20, min(lines_needed * 15, 150))
-            else:
-                ws.row_dimensions[row_num].height = 20
+                elif row_fill is not None:
+                    cell.fill = row_fill
             row_num += 1
             display_num += 1
 
@@ -933,16 +1090,16 @@ class ReportService:
                 cal.mit_notation or "",
                 cal.mi_modification or "",
                 cal_serial,
-                cal.verification_date.strftime("%d.%m.%Y") if cal.verification_date else "",
-                cal.valid_date.strftime("%d.%m.%Y") if cal.valid_date else "",
+                (cal.verification_date or ""),
+                (cal.valid_date or ""),
                 cal.result_docnum or "",
             ]
             if use_lk:
                 row_data += [
                     format_verifier(cal.verifier),
-                    fmt_num(lk_conditions.get("temperature")),
-                    fmt_num(lk_conditions.get("humidity")),
-                    fmt_num(lk_conditions.get("pressure")),
+                    self._to_number(lk_conditions.get("temperature")),
+                    self._to_number(lk_conditions.get("humidity")),
+                    self._to_number(lk_conditions.get("pressure")),
                 ]
             row_data += ["", "", "", "", "", "", "", "", "", "", "", "", ""]
             for col_idx, value in enumerate(row_data, 1):
@@ -950,17 +1107,30 @@ class ReportService:
                 cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
                                    top=Side(style='thin'), bottom=Side(style='thin'))
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                if col_idx in date_cols:
+                    cell.number_format = "DD.MM.YYYY"
+                elif col_idx in num_cols:
+                    cell.number_format = "0.0"
                 if col_idx == STATUS_COL:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(bold=True, color="9C0006", size=12)
                 elif col_idx == COMMENTS_COL:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     cell.font = Font(color="9C0006", size=9)
-            ws.row_dimensions[row_num].height = 20
+                else:
+                    cell.fill = error_fill
             row_num += 1
             display_num += 1
 
         self._auto_fit_columns(ws)
+        self._finalize_sheet(
+            ws,
+            tab_color="5B9BD5",
+            freeze="A3",
+            landscape=True,
+            title_rows="1:2",
+            show_gridlines=False,
+        )
 
     def _extract_serial_from_filename(self, file_name: str) -> str:
         """Extract serial number from protocol filename.
@@ -1000,15 +1170,18 @@ class ReportService:
         last_col = get_column_letter(len(headers))
         ws.auto_filter.ref = f"A1:{last_col}1"
 
-    def _write_data_row(self, ws, row_data, row_idx, color) -> None:
+    def _write_data_row(self, ws, row_data, row_idx, color, number_formats: dict[int, str] | None = None) -> None:
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
         border = Border(left=Side(style='thin'), right=Side(style='thin'),
                        top=Side(style='thin'), bottom=Side(style='thin'))
+        number_formats = number_formats or {}
         for col_idx, value in enumerate(row_data, 1):
             cell = ws.cell(row=row_idx + 1, column=col_idx, value=value)
             cell.fill = fill
             cell.border = border
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            if col_idx in number_formats:
+                cell.number_format = number_formats[col_idx]
 
     def _set_column_widths(self, ws, widths) -> None:
         from openpyxl.utils import get_column_letter
@@ -1016,15 +1189,20 @@ class ReportService:
             ws.column_dimensions[get_column_letter(idx)].width = width
 
     def _auto_fit_columns(self, ws) -> None:
-        from openpyxl.utils import get_column_letter
         for column in ws.columns:
             max_length = 0
             column_letter = get_column_letter(column[0].column)
             for cell in column:
                 try:
                     if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
+                        longest = max(
+                            (len(part) for part in str(cell.value).split("\n")),
+                            default=0,
+                        )
+                        max_length = max(max_length, longest)
                 except Exception:
                     pass
-            adjusted_width = min(max_length + 2, 50)
+            if max_length == 0:
+                continue
+            adjusted_width = min(max(max_length + 2, 6), 50)
             ws.column_dimensions[column_letter].width = adjusted_width
