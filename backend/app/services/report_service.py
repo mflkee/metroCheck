@@ -82,6 +82,7 @@ class ReportService:
 
         for row in range(first_row, last_row + 1):
             lines_needed = 1
+            has_wrapped = False
             for col in range(1, max_col + 1):
                 if (row, col) in merged_skip:
                     continue
@@ -92,13 +93,14 @@ class ReportService:
                 align = cell.alignment
                 if not (align and align.wrap_text):
                     continue
+                has_wrapped = True
                 width = merged_width.get((row, col), self._col_width(ws, col))
                 chars = max(width - 1.0, 1.0)
                 cell_lines = 0
                 for part in str(value).split("\n"):
                     cell_lines += max(1, math.ceil(len(part) / chars))
                 lines_needed = max(lines_needed, cell_lines)
-            if lines_needed <= 1:
+            if not has_wrapped:
                 continue
             needed = min(
                 self._MAX_ROW_HEIGHT,
