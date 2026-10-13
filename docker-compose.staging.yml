@@ -42,15 +42,15 @@ services:
       dockerfile: Dockerfile
     container_name: metroCheck_backend_stg
     restart: unless-stopped
+    # Конфигурация приложения берётся из env-файла (compose читает его сам),
+    # поэтому запуск без `--env-file` больше не подменяет настройки дефолтами.
+    env_file:
+      - .env.staging
     environment:
+      # Только то, что вычисляется в compose или не хранится в env-файле.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mkair}:${POSTGRES_PASSWORD:-mkair_secret}@postgres:5432/${POSTGRES_DB:-mkair_stg}
       REDIS_URL: redis://redis:6379/0
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
-      FASTAPI_API_KEY: ${FASTAPI_API_KEY:-mkair-secret-key}
-      APP_ENV: staging
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin-metrochek}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN:-}
       TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/jwt-arshin-token.json}
       METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
@@ -61,16 +61,12 @@ services:
       REPORT_EMAIL: ${REPORT_EMAIL:-}
       METROCHECK_DISABLE_AI: "true"
       FRONTEND_APP_URL: ${FRONTEND_STG_APP_URL:-http://100.89.18.223:9081}
-      ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-false}
-      ACCOUNTS_URL: ${ACCOUNTS_URL:-}
-      ACCOUNTS_SERVICE_NAME: ${ACCOUNTS_SERVICE_NAME:-metrocheck}
-      ACCOUNTS_SERVICE_TOKEN: ${ACCOUNTS_SERVICE_TOKEN:-}
     ports:
       - "${BACKEND_STG_PORT:-9002}:8000"
     volumes:
       - ./backend:/app
       - /home/mflkee/SynologyDrive/tokens:/shared/tokens
-      - ${PROTOCOLS_HOST_PATH:-./protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
+      - ${PROTOCOLS_HOST_PATH:-/home/mflkee/staging_protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
       - /home/mflkee/reports:/reports
     networks:
       - backend_network_stg

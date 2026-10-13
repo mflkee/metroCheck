@@ -24,6 +24,7 @@ class HealthMonitor:
             "arshin_token": {"status": "unknown", "age_seconds": None, "age_minutes": None, "last_check": 0},
             "openrouter": {"status": "unknown", "last_check": 0},
             "token_agent": {"status": "unknown", "last_check": 0},
+            "email": {"status": "unknown", "last_check": 0},
         }
         self._last_update = 0
 
@@ -35,9 +36,35 @@ class HealthMonitor:
             self._check_openrouter(),
             self._check_token_agent(),
             self._check_current_job(),
+            self._check_email(),
         )
         self._last_update = time.time()
         return self._status
+
+    async def _check_email(self) -> None:
+        """Report SMTP configuration so a missing env file is visible immediately."""
+        try:
+            from app.services.email_service import EmailService
+
+            service = EmailService()
+            configured = service.is_configured()
+            self._status["email"] = {
+                "status": "ok" if configured else "not_configured",
+                "configured": configured,
+                "host": service.smtp_host,
+                "port": service.smtp_port,
+                "user": service.smtp_user,
+                "from": service.from_email,
+                "report_email": service.recipients(),
+                "note": "" if configured else "SMTP_USER/SMTP_PASS не заданы — письма с отчётами не отправляются",
+                "last_check": time.time(),
+            }
+        except Exception as exc:
+            self._status["email"] = {
+                "status": "error",
+                "note": str(exc),
+                "last_check": time.time(),
+            }
 
     async def _check_current_job(self) -> None:
         """Check current running job status."""

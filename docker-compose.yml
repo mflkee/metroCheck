@@ -42,35 +42,24 @@ services:
       dockerfile: Dockerfile
     container_name: metroCheck_backend
     restart: always
+    # Конфигурация приложения берётся из env-файла: compose подхватывает его сам,
+    # поэтому `docker compose up -d` без `--env-file` больше не запускает
+    # приложение на дефолтах (и не отключает, например, отправку писем молча).
+    env_file:
+      - .env.production
     environment:
+      # Только то, что вычисляется в compose или не хранится в env-файле.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mkair}:${POSTGRES_PASSWORD:-mkair_secret}@postgres:5432/${POSTGRES_DB:-mkair}
       REDIS_URL: redis://redis:6379/0
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN}
-      FASTAPI_API_KEY: ${FASTAPI_API_KEY:-CHANGE_ME_API_KEY}
-      APP_ENV: ${APP_ENV:-development}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin-metrochek}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      TOKEN_FILE_PATH: ${TOKEN_FILE_PATH:-/shared/tokens/jwt-arshin-token.json}
-      METROCHECK_PROTOCOLS_PATH: ${METROCHECK_PROTOCOLS_PATH:-/protocols}
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      FROM_EMAIL: ${FROM_EMAIL:-metrocheck-reports@example.com}
-      REPORT_EMAIL: ${REPORT_EMAIL:-}
+      ARSHIN_BEARER_TOKEN: ${ARSHIN_BEARER_TOKEN:-}
       METROCHECK_DISABLE_AI: "true"
       FRONTEND_APP_URL: ${FRONTEND_APP_URL:-https://metrocheck.mkair-it.ru}
-      ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-false}
-      ACCOUNTS_URL: ${ACCOUNTS_URL:-}
-      ACCOUNTS_SERVICE_NAME: ${ACCOUNTS_SERVICE_NAME:-metrocheck}
-      ACCOUNTS_SERVICE_TOKEN: ${ACCOUNTS_SERVICE_TOKEN:-}
     ports:
       - "${BACKEND_PORT:-8002}:8000"
     volumes:
       - ./backend:/app
       - /home/mflkee/SynologyDrive/tokens:/shared/tokens
-      - ${PROTOCOLS_HOST_PATH:-./protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
+      - ${PROTOCOLS_HOST_PATH:-/home/mflkee/protocols}:${METROCHECK_PROTOCOLS_PATH:-/protocols}:ro
       - /home/mflkee/reports:/reports
     networks:
       - backend_network

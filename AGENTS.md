@@ -230,3 +230,24 @@ Inside container: `/shared/tokens/jwt-arshin-token.json`
 | Netbird (server) | `100.89.59.195` | — |
 
 **Monitoring stack** (`~/apps/monitoring/`): separate Docker Compose — Prometheus, Grafana, cAdvisor, Node Exporter, Alertmanager, Blackbox.
+
+---
+
+## 11. Окружение (env-файлы)
+
+- Конфигурацию приложение берёт из env-файла, и **compose читает его сам**
+  (`services.backend.env_file`): prod → `.env.production`, staging → `.env.staging`.
+  Поэтому `docker compose -p metrocheck up -d` **без** `--env-file` больше не
+  запускает приложение на дефолтах (раньше именно так молча отключалась
+  отправка писем: `SMTP_USER`/`SMTP_PASS` были пустыми).
+- В `environment:` оставлено только то, что вычисляется в compose (`DATABASE_URL`,
+  `REDIS_URL`) либо не хранится в env-файле (`METROCHECK_DISABLE_AI`,
+  `FRONTEND_APP_URL`, `SMTP_*` для staging). Помните: `environment:` **переопределяет**
+  `env_file` — не дублируйте там ключи, которые должны приходить из env-файла.
+- Нет `.env.production` → `docker compose up -d` падает сразу (лучше, чем тихо
+  работать на дефолтах).
+- Быстрая проверка конфигурации:
+  - при старте бэкенд логирует `Email: SMTP configured …` или `Email: SMTP is NOT configured …`;
+  - `GET /health` → блок `systems.email` (`status: ok | not_configured`).
+- Шаблоны: `.env.production.example`, `.env.staging.example` (копировать в
+  `.env.production` / `.env.staging` на сервере). Секретов в git быть не должно.

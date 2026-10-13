@@ -33,6 +33,22 @@ async def lifespan(app: FastAPI):
         logger.info("  AUTH: Save this password — it won't be shown again")
         logger.info("=" * 60)
 
+    # Email / SMTP — fail loudly instead of silently skipping report emails
+    from app.services.email_service import EmailService
+    email_service = EmailService()
+    if email_service.is_configured():
+        logger.info(
+            "Email: SMTP configured (%s:%s as %s)",
+            email_service.smtp_host, email_service.smtp_port, email_service.smtp_user,
+        )
+    else:
+        logger.error(
+            "Email: SMTP is NOT configured (SMTP_USER set=%s, SMTP_PASS set=%s) — "
+            "report emails will be skipped. Set SMTP_* in the environment "
+            "(docker-compose env_file: .env.production / .env.staging).",
+            bool(settings.SMTP_USER), bool(settings.SMTP_PASS),
+        )
+
     db = AsyncSessionLocal()
     
     # Recover orphaned jobs after restart

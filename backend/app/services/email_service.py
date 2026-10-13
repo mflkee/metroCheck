@@ -35,11 +35,15 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
 
-    def _is_configured(self) -> bool:
+    def is_configured(self) -> bool:
         if not self.smtp_user or not self.smtp_pass:
             print(f"[Email] SMTP not configured (user={bool(self.smtp_user)}, pass={bool(self.smtp_pass)}), skipping")
             return False
         return True
+
+    def recipients(self) -> list[str]:
+        """Recipients from REPORT_EMAIL (DB list is used first by the job worker)."""
+        return [e.strip() for e in (self.to_email or "").split(",") if e.strip()]
 
     async def send_check_report(
         self,
@@ -54,7 +58,7 @@ class EmailService:
         recipient_email: Optional[str] = None,
     ) -> bool:
         """Send email report after check completion."""
-        if not self._is_configured():
+        if not self.is_configured():
             return False
 
         to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
@@ -134,7 +138,7 @@ class EmailService:
 
     async def send_alert(self, subject: str, message: str, recipient_email: Optional[str] = None) -> bool:
         """Send alert email."""
-        if not self._is_configured():
+        if not self.is_configured():
             return False
 
         to_emails = [e.strip() for e in (recipient_email or self.to_email).split(",") if e.strip()]
@@ -171,7 +175,7 @@ class EmailService:
             print("[Email] No recipients configured, skipping token alert")
             return False
 
-        if not self._is_configured():
+        if not self.is_configured():
             return False
 
         month_name = self._month_name(month)
@@ -214,7 +218,7 @@ metroCheck Robot
             print("[Email] No recipients configured, skipping token resumed alert")
             return False
 
-        if not self._is_configured():
+        if not self.is_configured():
             return False
 
         month_name = self._month_name(month)
