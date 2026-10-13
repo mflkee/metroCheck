@@ -1,0 +1,42 @@
+name: Release branch cleanup
+
+# `release/*` is a one-shot branch: the tag is the record of the release. Retiring an
+# old branch from a local `git push --delete` would trigger that branch's OWN copy of
+# ci.yml (with the SHA reverted to the default branch) — i.e. rebuild `:latest` from the
+# wrong code. Deleting with GITHUB_TOKEN, as done here, does not create workflow runs.
+# It also runs on `workflow_dispatch`, which GITHUB_TOKEN events never do.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branches:
+        description: 'Ветки через запятую, напр. release/0.3.3,release/0.3.4'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCHES: ${{ inputs.branches }}
+        run: |
+          set -u
+          fail=0
+          for b in $(echo "$BRANCHES" | tr ',' ' '); do
+            code=$(curl -s -o /tmp/out -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/$b")
+            if [ "$code" = "204" ]; then
+              echo "deleted $b"
+            else
+              echo "::warning::не удалось удалить $b (HTTP $code): $(cat /tmp/out)"
+              fail=1
+            fi
+          done
+          exit $fail
