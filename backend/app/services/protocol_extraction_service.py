@@ -22,6 +22,19 @@ class ProtocolExtractionService:
         'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12',
     }
 
+    @classmethod
+    def _month_from_word(cls, word: str) -> str | None:
+        """«марта»/«март»/«мая»/«май» → '03'/'05' (по первым буквам)."""
+        w = (word or "").lower().strip()
+        if not w:
+            return None
+        if w in cls.MONTH_MAP:
+            return cls.MONTH_MAP[w]
+        for key, value in cls.MONTH_MAP.items():
+            if w.startswith(key[:3]) or key.startswith(w[:3]):
+                return value
+        return None
+
     async def extract(self, text: str, file_name: str | None = None, file_path: str | None = None) -> dict[str, Any]:
         """Extract all protocol data using regex + AI hybrid.
 
@@ -463,25 +476,38 @@ class ProtocolExtractionService:
             elif len(serial) <= 1 or len(serial) > 40:
                 serial = None
 
-        # If serial ends with a small integer (likely table row number leaked in), trim it
+        # If serial ends with a small integer (likely table row number leaked in), trim it.
+        # Не трогаем случаи вроде «A 59» / «S 12», где короткий хвост — часть номера.
         if serial:
             parts = serial.split()
-            if len(parts) > 1 and parts[-1].isdigit() and len(parts[-1]) <= 2:
+            previous_is_single_letter = len(parts) > 1 and len(parts[-2]) == 1 and parts[-2].isalpha()
+            if (
+                len(parts) > 1
+                and parts[-1].isdigit()
+                and len(parts[-1]) <= 2
+                and not previous_is_single_letter
+            ):
                 serial = ' '.join(parts[:-1]).strip()
                 if len(serial) <= 1:
                     serial = None
 
-        # Fallback: extract from file name
+        # Fallback: extract from file name (имя файла обычно содержит полный номер,
+        # в т.ч. составной: «№ S V-K7B65110», «№ 828-1 828»).
         if not serial and file_name:
-            # Match patterns like "№ 2062117", "№2062117", "2062117"
-            match = re.search(r'№\s*([A-Za-zА-Яа-яЁё0-9\-/]+)', file_name)
+            match = re.search(r'№\s*([^()\n]+?)\s*(?:\(|\.pdf|$)', file_name, re.IGNORECASE)
             if match:
                 serial = match.group(1).strip()
             else:
-                # Try to extract number before extension
-                match = re.search(r'([A-Za-zА-Яа-яЁё0-9\-/]+)\s*\([^)]*\)\.pdf', file_name)
+                match = re.search(
+                    r'([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9\-/ ]*?)\s*(?:\([^)]*\))?\.pdf',
+                    file_name,
+                    re.IGNORECASE,
+                )
                 if match:
                     serial = match.group(1).strip()
+
+        if serial:
+            serial = re.sub(r'\s+', ' ', serial).strip(" ,;.-")
 
         return serial
 
@@ -502,7 +528,16 @@ class ProtocolExtractionService:
         if not text:
             return None
 
-        mit_token = r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])'
+        # 0. Стандартная шапка протокола: номер ОТ стоит строкой сразу после
+        #    «Наименование прибора …». Это самый надёжный источник — раньше regex
+        #    мог поймать номер методики (напр. «НА.ГНМЦ.0147-17»).
+        after_name = re.search(
+            r'Наименование\s+прибора[^\n]*\n\s*(\d{3,6}-\d{2,4})(?![-\d])',
+            text,
+            re.IGNORECASE,
+        )
+        if after_name:
+            return after_name.group(1)
 
         # 1. Two-sided layout: registry label → number → "номер по реестру" label.
         two_side = re.search(
@@ -523,20 +558,29 @@ class ProtocolExtractionService:
             r'|номер\s+в\s+реестре',           # "номер в реестре СИ"
             re.IGNORECASE,
         )
+        standalone_re = re.compile(r'^\s*(\d{3,6}-\d{2,4})\s*$')
+        # Токен «настоящего» номера ОТ: не внутри слова/после точки
+        # (иначе ловятся «НА.ГНМЦ.0147-17»), но допускает OCR-мусор вокруг
+        # («65(cid:9)554-16»).
+        mit_token = r'(?<![\w.\-])\d{3,6}-\d{2,4}(?![\w\-])'
         lines = text.split('\n')
         for i, line in enumerate(lines):
             if not marker_re.search(line):
                 continue
             end = min(len(lines), i + 4)
             window = '\n'.join(lines[i:end])
+            for candidate_line in lines[i:end]:
+                match = standalone_re.match(candidate_line)
+                if match:
+                    return match.group(1)
             match = re.search(mit_token, window)
             if match:
                 return match.group(0)
 
         # 3. Fallback — whole text, longer numbers first.
         patterns = [
-            r'(?<![-\d])\d{5,6}-\d{2,4}(?![-\d])',
-            r'(?<![-\d])\d{3,6}-\d{2,4}(?![-\d])',
+            r'(?<![\w.\-])\d{5,6}-\d{2,4}(?![\w\-])',
+            r'(?<![\w.\-])\d{3,6}-\d{2,4}(?![\w\-])',
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
@@ -562,31 +606,82 @@ class ProtocolExtractionService:
                 pass
         return None
 
+    # Слова-«шум»: заголовки таблиц и названия полей формы, которые regex
+    # иногда ловит вместо названия организации (напр. «Владелец Диапазон
+    # температуры, ℃ …» из шапки таблицы или «Принадлежность: Юридическое лицо»).
+    _OWNER_NOISE = (
+        "диапазон", "диаметр", "масса", "класс", "разряд", "замечания",
+        "юридическое лицо", "физическое лицо", "нормативный документ",
+        "технические характеристики", "установленный диапазон",
+        "заводской номер", "год выпуска", "дата выпуска", "средства поверки",
+        "регистрационный номер", "номер по государственному реестру",
+        "наименование", "принадлежн", "принадлежащ", "внешнему осмотру",
+        "поверитель", "методика", "значение", "параметр", "результат",
+    )
+    # Название организации по аббревиатуре — сильный признак заказчика.
+    _ORG_RE = re.compile(
+        r'\b(?:ООО|ОАО|ЗАО|ПАО|НАО|АО|ИП|ФГУП|ГУП|МУП|ФГБУ|АНО)\b'
+        r'\s*[«"\']?[^\n«»"\',;]{2,90}',
+        re.IGNORECASE,
+    )
+
     def _extract_owner(self, text: str) -> str | None:
-        """Extract owner organization."""
-        # Look for organization name near "Владелец" or standalone
+        """Extract owner organization.
+
+        Перебирает кандидатов по приоритету: сначала подписанные поля
+        («Принадлежность», «Владелец», «Организация»), затем — название
+        организации по аббревиатуре (ООО/АО/…). Первый кандидат, который
+        похож на реальное название (а не на заголовок таблицы/поле формы),
+        и возвращается.
+        """
+        if not text:
+            return None
+
         patterns = [
-            r'(?:\d+\.\s*)?Принадлеж(?:ащее|н(?:ость|ое|ность))[:\s]+([^\n\r]{3,100})',
-            r'(?:\d+\.\s*)?Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,100})',
-            r'(?:\d+\.\s*)?Владелец[:\s]+([^\n\r]{3,100})',
-            r'(?:\d+\.\s*)?Организация[-\s]*владелец[:\s]+([^\n\r]{3,100})',
-            r'(?:\d+\.\s*)?Организация[:\s]+([^\n\r]{3,100})',
+            r'(?:\d+\.\s*)?Принадлеж\w*[:\s]+([^\n\r]{3,120})',
+            r'(?:\d+\.\s*)?Владелец\s+средства\s+измерений[:\s]+([^\n\r]{3,120})',
+            r'(?:\d+\.\s*)?Владелец[:\s]+([^\n\r]{3,120})',
+            r'(?:\d+\.\s*)?Организация[-\s]*владелец[:\s]+([^\n\r]{3,120})',
+            r'(?:\d+\.\s*)?Организация[:\s]+([^\n\r]{3,120})',
         ]
-        owner = self._match_first(text, patterns)
-        if owner:
-            # Clean: remove INN/KPP and trailing garbage
-            owner = re.sub(r'\s*,?\s*ИНН\s*/?\s*КПП?\s*\d*', ' ', owner, flags=re.IGNORECASE)
-            owner = re.sub(r'\s*,?\s*ИНН\s*\d{10,14}\s*', ' ', owner, flags=re.IGNORECASE)
-            owner = re.sub(r'\s+\d{10,14}\s*', ' ', owner)
-            owner = re.sub(r'["«»]', '', owner)
-            # Stop at first comma or semicolon
-            owner = re.split(r'[;,]\s*', owner)[0].strip()
-            # Remove trailing numbered section headers (e.g. "3. Дата выпуска:")
-            owner = re.sub(r'\s*\d+\.\s*[^\s]+.*$', '', owner).strip()
-            owner = re.sub(r'\s+', ' ', owner).strip()
-            if len(owner) > 3:
+        candidates: list[str] = []
+        for pattern in patterns:
+            candidates.extend(m.group(1) for m in re.finditer(pattern, text, re.IGNORECASE))
+        candidates.extend(m.group(0) for m in self._ORG_RE.finditer(text))
+
+        for raw in candidates:
+            owner = self._clean_owner(raw)
+            if owner:
                 return owner
         return None
+
+    def _clean_owner(self, raw: str) -> str | None:
+        """Очистить кандидата и отбросить шум (заголовки таблиц, поля формы)."""
+        owner = raw
+        # ИНН/КПП в любом виде, включая разбитый OCR пробелами: «ИНН 8 901001822»
+        owner = re.sub(
+            r'\s*,?\s*ИНН\s*(?:/\s*КПП)?\s*:?\s*[\d\s]*', ' ', owner, flags=re.IGNORECASE
+        )
+        # «Голый» хвостовой ИНН, который OCR разбил пробелами (≥10 цифр)
+        tail_digits = re.search(r'(?:\s*\d){10,}\s*$', owner)
+        if tail_digits:
+            owner = owner[:tail_digits.start()]
+        owner = re.sub(r'["«»\']', '', owner)
+        # Название организации заканчивается на первом разделителе
+        owner = re.split(r'[;,]\s*', owner)[0]
+        # Убрать хвостовые нумерованные заголовки («3. Дата выпуска: …»)
+        owner = re.sub(r'\s*\d+\.\s*[^\s]+.*$', '', owner)
+        owner = re.sub(r'\s+', ' ', owner).strip(" ,;.-")
+
+        if len(owner) < 4:
+            return None
+        lowered = owner.lower()
+        if any(noise in lowered for noise in self._OWNER_NOISE):
+            return None
+        if not re.search(r'[А-Яа-яЁёA-Za-z]{2,}', owner):
+            return None
+        return owner
+
 
     def _extract_verification_date(self, text: str) -> str | None:
         """Extract verification date in YYYY-MM-DD format."""
@@ -601,6 +696,14 @@ class ProtocolExtractionService:
             day, month, year = match.groups()
             return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
 
+        # Pattern: "Дата поверки: 31 марта 2026 г." (месяц словом)
+        match = re.search(r'Дата\s+поверки[:\s]+(\d{1,2})\s+([А-Яа-яЁё]+)\s+(\d{4})', search_text)
+        if match:
+            day, month_ru, year = match.groups()
+            month = self._month_from_word(month_ru)
+            if month:
+                return f"{year}-{month}-{day.zfill(2)}"
+
         # Fallback: "от 11.01.2024г." - but only in the last 1000 chars
         last_part = text[-1000:]
         match = re.search(r'от\s+(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', last_part)
@@ -612,7 +715,7 @@ class ProtocolExtractionService:
         match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', last_part)
         if match:
             day, month_ru, year = match.groups()
-            month = self.MONTH_MAP.get(month_ru.lower())
+            month = self._month_from_word(month_ru)
             if month:
                 return f"{year}-{month}-{day.zfill(2)}"
 

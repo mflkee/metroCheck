@@ -4,7 +4,7 @@ import json
 import math
 import os
 import re
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
@@ -432,7 +432,7 @@ class ReportService:
             file_name_serial = ""
             if proto.protocol_file and proto.protocol_file.file_name:
                 file_name_serial = self._extract_serial_from_filename(proto.protocol_file.file_name)
-            if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
+            if file_name_serial and serial and self._serials_differ(file_name_serial, serial):
                 pair_warnings += 1
 
             if pair_errors:
@@ -1021,7 +1021,7 @@ class ReportService:
                                 pass
 
             # Check serial from filename vs protocol (warning context only)
-            if file_name_serial and serial and self._normalize_serial(file_name_serial) != self._normalize_serial(serial):
+            if file_name_serial and serial and self._serials_differ(file_name_serial, serial):
                 mismatches.append(f"Зав№ в имени файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
 
             # Status symbol and color
@@ -1138,16 +1138,20 @@ class ReportService:
         """Extract serial number from protocol filename.
 
         Expected filename patterns:
-            2025-10-06 № 009922 (МПИ-2).pdf  -> 009922
-            2025.10.29 - 971041 (МПИ-2).pdf  -> 971041
-            2025-10-01 № 735323116А16.pdf    -> 735323116А16
+            2025-10-06 № 009922 (МПИ-2).pdf      -> 009922
+            2025.10.29 - 971041 (МПИ-2).pdf      -> 971041
+            2026.03.10 № 828-1 828 (МПИ-3).pdf   -> 828-1 828
+            2026-03-10 № S V-K7B65110 (МПИ-5).pdf -> S V-K7B65110
         """
-        import re
         base = re.sub(r"\.pdf$", "", file_name, flags=re.IGNORECASE).strip()
         # Remove trailing parenthesized groups like (МПИ-2)
         base = re.sub(r"\s*\([^()]+\)\s*$", "", base)
-        # Pattern: optional date prefix, then '№' or '-' followed by serial
-        match = re.search(r"(?:№|[-–—])\s*([A-Za-zА-Яа-я0-9\-]+)$", base)
+        # Everything after "№" is the serial (may be compound: "828-1 828")
+        match = re.search(r"№\s*(.+)$", base)
+        if match:
+            return match.group(1).strip()
+        # Fallback: last token after a dash separator
+        match = re.search(r"[-–—]\s*([A-Za-zА-Яа-я0-9\-]+(?:\s+[A-Za-zА-Яа-я0-9\-]+)?)$", base)
         if match:
             return match.group(1).strip()
         # Fallback: last whitespace-separated token
@@ -1155,6 +1159,33 @@ class ReportService:
         if tokens:
             return tokens[-1].strip()
         return ""
+
+    def _serials_differ(self, a: str, b: str) -> bool:
+        """True, если заводские номера действительно разные.
+
+        Сравниваем нормализованные значения, а для составных номеров
+        («02351116 03283332», «828-1/828», «ER 230222065») — ещё и наборы
+        токенов: если один номер содержит другой или есть общий токен, это
+        не расхождение, а разная запись одного номера.
+        """
+        na, nb = self._normalize_serial(a), self._normalize_serial(b)
+        if not na or not nb or na == nb:
+            return False
+        if na in nb or nb in na:
+            return False
+        tokens_a = {
+            self._normalize_serial(t)
+            for t in re.split(r"[\s,/]+", a or "")
+            if self._normalize_serial(t)
+        }
+        tokens_b = {
+            self._normalize_serial(t)
+            for t in re.split(r"[\s,/]+", b or "")
+            if self._normalize_serial(t)
+        }
+        if tokens_a & tokens_b:
+            return False
+        return True
 
     def _write_headers(self, ws, headers, color) -> None:
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
