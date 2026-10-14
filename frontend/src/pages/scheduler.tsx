@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { NumberInput } from "@/components/number-input"
 import { PageHeader } from "@/components/ui/page-header"
 import { Select } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { TimeInput } from "@/components/ui/time-input"
 import * as api from "@/lib/api"
 
@@ -14,6 +15,7 @@ export function SchedulerPage() {
   const [day, setDay] = useState("1")
   const [time, setTime] = useState("09:00")
   const [offset, setOffset] = useState("-1")
+  const [autoSend, setAutoSend] = useState(true)
   const [example, setExample] = useState("")
   const [emails, setEmails] = useState<api.Email[]>([])
   const [newEmail, setNewEmail] = useState("")
@@ -30,6 +32,7 @@ export function SchedulerPage() {
         setDay(String(scheduler.auto_day ?? 1))
         setTime(scheduler.auto_time ?? "09:00")
         setOffset(String(scheduler.month_offset ?? -1))
+        setAutoSend(scheduler.auto_send_report ?? true)
       } else {
         setMode(scheduler.mode ?? "manual")
       }
@@ -86,6 +89,7 @@ export function SchedulerPage() {
         auto_day: dayNumber,
         auto_time: time,
         month_offset: offsetNumber,
+        auto_send_report: autoSend,
       })
       toast.success("Расписание сохранено")
       await loadStatus(true)
@@ -191,6 +195,19 @@ export function SchedulerPage() {
                 value={offset}
                 onValueChange={setOffset}
               />
+            </div>
+
+            <div className="border-t border-line" />
+
+            <div className="space-y-1">
+              <label className="flex items-center gap-3 text-sm text-ink" htmlFor="sched-auto-send">
+                <Switch checked={autoSend} id="sched-auto-send" onCheckedChange={setAutoSend} />
+                Автоматически отправлять отчёт после проверки
+              </label>
+              <p className="pl-11 text-xs text-steel">
+                Если выключено — отчёт формируется, но письмо не уходит. Отправить вручную можно
+                на дашборде кнопкой «Отправить отчёт».
+              </p>
             </div>
 
             <div className="border-t border-line" />

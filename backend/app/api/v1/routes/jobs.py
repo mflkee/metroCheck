@@ -226,6 +226,82 @@ async def generate_job_report(
     )
 
 
+class SendReportRequest(BaseModel):
+    emails: list[str] = []
+
+
+@router.post("/{job_id}/send-report")
+async def send_job_report(
+    job_id: int,
+    payload: SendReportRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Сгенерировать отчёт по задаче и отправить его выбранным адресатам.
+
+    Если `emails` пуст — берутся все адреса из планировщика (`report_emails`).
+    """
+    from app.repositories.email_repository import EmailRepository
+    from app.repositories.job_repository import JobRepository
+    from app.services.email_service import EmailService
+    from app.services.report_service import ReportService
+
+    repo = JobRepository(db)
+    job = await repo.get_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    selected = [e.strip() for e in payload.emails if e.strip()]
+    if selected:
+        recipients = selected
+    else:
+        entries = await EmailRepository(db).get_all()
+        recipients = [e.email for e in entries]
+
+    invalid = [e for e in recipients if "@" not in e]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Некорректные адреса: {', '.join(invalid)}")
+    if not recipients:
+        raise HTTPException(status_code=400, detail="Не выбран ни один получатель")
+
+    report_result = await ReportService(db).generate_interim_report(
+        job.year, job.month, job_id=job.id, use_lk=job.use_lk
+    )
+    file_path = report_result.get("file_path")
+
+    email_service = EmailService()
+    if not email_service.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="SMTP не сконфигурирован — отправка писем недоступна",
+        )
+
+    sent = await email_service.send_check_report(
+        year=job.year,
+        month=job.month,
+        total_devices=report_result.get("total_calibrations", 0),
+        errors=report_result.get("error_count", 0),
+        warnings=report_result.get("warning_count", 0),
+        missing=report_result.get("missing_protocols", 0),
+        check_run_id=job.check_run_id or 0,
+        report_path=file_path,
+        recipient_email=", ".join(recipients),
+    )
+    if not sent:
+        raise HTTPException(status_code=502, detail="Не удалось отправить письмо")
+
+    job.email_sent = True
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "job_id": job.id,
+        "year": job.year,
+        "month": job.month,
+        "filename": report_result.get("filename"),
+        "sent": recipients,
+    }
+
+
 @router.delete("/{job_id}")
 async def delete_job(
     job_id: int,

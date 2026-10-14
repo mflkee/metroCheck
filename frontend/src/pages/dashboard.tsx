@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react"
-import { Download, FileText, Inbox, Loader2, Play, RefreshCw, Trash2, X } from "lucide-react"
+import { Download, FileText, Inbox, Loader2, Mail, Play, RefreshCw, Send, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HealthBadge, jobStatusTone, ToneBadge, TONE_TEXT, type Tone } from "@/components/tone-badge"
+import { AppDialog } from "@/components/ui/app-dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { PageHeader } from "@/components/ui/page-header"
 import { Progress } from "@/components/ui/progress"
@@ -158,6 +159,7 @@ export function DashboardPage() {
                     <span className="flex-1 truncate text-steel">{job.progress || "—"}</span>
                     <span className="text-xs text-steel">{fmtDate(job.completed_at || job.started_at)}</span>
                     <ReportButton id={job.id} />
+                    <SendReportButton job={job} />
                     <ConfirmDialog
                       confirmLabel="Удалить"
                       description="Действие необратимо."
@@ -339,6 +341,7 @@ function RunningJobCard({
           <p className="mt-1 text-sm text-steel">Текущий прогресс выполнения</p>
         </div>
         {running ? <ReportButton id={running.id} /> : null}
+        {running ? <SendReportButton job={running} /> : null}
       </div>
       <div className="mt-4">
         {loading ? (
@@ -423,5 +426,134 @@ function ReportButton({ id }: { id: number }) {
     >
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
     </button>
+  )
+}
+
+function SendReportButton({ job }: { job: api.Job }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        className="icon-action-button"
+        title="Отправить отчёт"
+        type="button"
+        onClick={() => setOpen(true)}
+      >
+        <Send className="h-4 w-4" />
+      </button>
+      <SendReportDialog job={job} open={open} onClose={() => setOpen(false)} />
+    </>
+  )
+}
+
+function SendReportDialog({
+  job,
+  open,
+  onClose,
+}: {
+  job: api.Job
+  open: boolean
+  onClose: () => void
+}) {
+  const [emails, setEmails] = useState<api.Email[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    setSelected(new Set())
+    api
+      .getEmails()
+      .then((data) => setEmails(data.emails ?? []))
+      .catch(() => toast.error("Не удалось загрузить список адресов"))
+      .finally(() => setLoading(false))
+  }, [open])
+
+  function toggle(email: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(email)) {
+        next.delete(email)
+      } else {
+        next.add(email)
+      }
+      return next
+    })
+  }
+
+  async function send() {
+    if (selected.size === 0) {
+      toast.error("Отметьте хотя бы одного получателя")
+      return
+    }
+    setSending(true)
+    try {
+      const result = await api.sendReport(job.id, [...selected])
+      toast.success(
+        `Отчёт за ${padMonth(job.month)}.${job.year} отправлен (${result.sent.length})`,
+      )
+      onClose()
+    } catch (error) {
+      toast.error(
+        error instanceof api.ApiError ? error.message : "Не удалось отправить отчёт",
+      )
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <AppDialog
+      description="Отчёт будет сгенерирован заново по актуальным данным и отправлен письмом."
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" disabled={sending} type="button" onClick={onClose}>
+            Отмена
+          </button>
+          <button
+            className="btn-primary disabled:opacity-60"
+            disabled={sending || loading || selected.size === 0}
+            type="button"
+            onClick={send}
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Отправить{selected.size > 0 ? ` (${selected.size})` : ""}
+          </button>
+        </div>
+      }
+      open={open}
+      size="sm"
+      title={`Отправить отчёт за ${padMonth(job.month)}.${job.year}`}
+      onClose={onClose}
+    >
+      {loading ? (
+        <p className="text-sm text-steel">Загрузка...</p>
+      ) : emails.length === 0 ? (
+        <EmptyState
+          description="Добавьте адреса в планировщике"
+          icon={<Mail className="size-7" />}
+          title="Список адресов пуст"
+        />
+      ) : (
+        <div className="space-y-1">
+          {emails.map((item) => (
+            <label
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm"
+              key={item.id}
+            >
+              <input
+                checked={selected.has(item.email)}
+                className="size-4 accent-[var(--primary)]"
+                type="checkbox"
+                onChange={() => toggle(item.email)}
+              />
+              <span className="truncate text-ink">{item.email}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </AppDialog>
   )
 }

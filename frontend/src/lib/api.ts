@@ -55,6 +55,8 @@ export interface Scheduler {
   auto_day?: number
   auto_time?: string
   month_offset?: number
+  report_email?: string
+  auto_send_report?: boolean
   example?: string
 }
 
@@ -214,6 +216,7 @@ export interface SchedulerSettings {
   auto_day: number
   auto_time: string
   month_offset: number
+  auto_send_report?: boolean
 }
 
 export function setSchedulerSettings(settings: SchedulerSettings): Promise<unknown> {
@@ -230,6 +233,20 @@ export function addEmail(email: string): Promise<unknown> {
 
 export function removeEmail(id: number): Promise<unknown> {
   return api(`/v1/arshin/scheduler/emails/${id}`, "DELETE")
+}
+
+export interface SendReportResult {
+  status: string
+  job_id: number
+  year: number
+  month: number
+  filename?: string
+  sent: string[]
+}
+
+/** Сгенерировать отчёт по задаче и отправить его на выбранные адреса. */
+export function sendReport(jobId: number, emails: string[]): Promise<SendReportResult> {
+  return api<SendReportResult>(`/v1/jobs/${jobId}/send-report`, "POST", { emails })
 }
 
 // ── Download helper ──

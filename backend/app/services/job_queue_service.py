@@ -749,6 +749,19 @@ class JobQueueService:
         except Exception as e:
             logger.error("Failed to send token resumed alert: %s", e)
 
+    @staticmethod
+    def auto_send_enabled() -> bool:
+        """Читает флаг «автоматически отправлять отчёт» из состояния планировщика."""
+        import json
+        import os
+
+        state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
+        try:
+            with open(state_file) as f:
+                return bool(json.load(f).get("auto_send_report", True))
+        except Exception:
+            return True
+
     async def _send_report(self, job: Job, result: dict[str, Any]) -> None:
         """Send email report after completion using a fresh session for report
         generation so long-running Excel creation does not hold the worker's
@@ -782,6 +795,13 @@ class JobQueueService:
                 total_missing = report_result.get("missing_protocols", 0)
             except Exception as e:
                 logger.error("[Email] Failed to generate report: %s", e)
+
+        if not self.auto_send_enabled():
+            logger.info(
+                "Auto report sending is disabled — report for job %s (%02d.%s) generated, email skipped",
+                job.id, job.month, job.year,
+            )
+            return
 
         sent = await self.email.send_check_report(
             year=job.year,
