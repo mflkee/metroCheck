@@ -35,7 +35,6 @@ class SchedulerService:
             "auto_day": 1,  # day of month when check runs
             "month_offset": -1,  # which month to check: -1=previous, -2=two months ago, etc.
             "report_email": "",  # email for sending reports after check
-            "auto_send_report": True,  # отправлять отчёт автоматически после проверки
         }
         try:
             if os.path.exists(STATE_FILE):

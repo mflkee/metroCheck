@@ -300,7 +300,6 @@ class SchedulerSettingsRequest(BaseModel):
     auto_day: Optional[int] = None   # 1-31
     month_offset: Optional[int] = None  # -12 to 0
     report_email: Optional[str] = None  # email for reports
-    auto_send_report: bool | None = None  # отправлять отчёт автоматически после проверки
 
 
 @router.get("/scheduler/status")
@@ -321,7 +320,6 @@ async def scheduler_status(
             "auto_day": 1,
             "month_offset": -1,
             "report_email": "",
-            "auto_send_report": True,
         }
     
     # Calculate example
@@ -425,9 +423,6 @@ async def update_scheduler_settings(
         state["report_email"] = payload.report_email
         updated["report_email"] = payload.report_email
 
-    if payload.auto_send_report is not None:
-        state["auto_send_report"] = payload.auto_send_report
-        updated["auto_send_report"] = payload.auto_send_report
     
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
@@ -508,7 +503,31 @@ async def list_emails(
     from app.repositories.email_repository import EmailRepository
     repo = EmailRepository(db)
     entries = await repo.get_all()
-    return {"status": "ok", "emails": [{"id": e.id, "email": e.email} for e in entries]}
+    return {
+        "status": "ok",
+        "emails": [
+            {"id": e.id, "email": e.email, "auto_send": bool(e.auto_send)} for e in entries
+        ],
+    }
+
+
+class UpdateEmailRequest(BaseModel):
+    auto_send: bool
+
+
+@router.patch("/scheduler/emails/{email_id}")
+async def update_email(
+    email_id: int,
+    payload: UpdateEmailRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Включить/выключить автоотправку отчёта конкретному адресату."""
+    from app.repositories.email_repository import EmailRepository
+    repo = EmailRepository(db)
+    entry = await repo.set_auto_send(email_id, payload.auto_send)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return {"status": "ok", "id": entry.id, "email": entry.email, "auto_send": bool(entry.auto_send)}
 
 
 @router.post("/scheduler/emails")

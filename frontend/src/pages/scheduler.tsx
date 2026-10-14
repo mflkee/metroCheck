@@ -15,7 +15,6 @@ export function SchedulerPage() {
   const [day, setDay] = useState("1")
   const [time, setTime] = useState("09:00")
   const [offset, setOffset] = useState("-1")
-  const [autoSend, setAutoSend] = useState(true)
   const [example, setExample] = useState("")
   const [emails, setEmails] = useState<api.Email[]>([])
   const [newEmail, setNewEmail] = useState("")
@@ -32,7 +31,6 @@ export function SchedulerPage() {
         setDay(String(scheduler.auto_day ?? 1))
         setTime(scheduler.auto_time ?? "09:00")
         setOffset(String(scheduler.month_offset ?? -1))
-        setAutoSend(scheduler.auto_send_report ?? true)
       } else {
         setMode(scheduler.mode ?? "manual")
       }
@@ -89,7 +87,6 @@ export function SchedulerPage() {
         auto_day: dayNumber,
         auto_time: time,
         month_offset: offsetNumber,
-        auto_send_report: autoSend,
       })
       toast.success("Расписание сохранено")
       await loadStatus(true)
@@ -128,6 +125,17 @@ export function SchedulerPage() {
       await loadEmails()
     } catch {
       toast.error("Ошибка удаления")
+    }
+  }
+
+  async function toggleAutoSend(id: number, autoSend: boolean) {
+    // Оптимистично: сразу переключаем в UI, при ошибке — откатываем.
+    setEmails((prev) => prev.map((item) => (item.id === id ? { ...item, auto_send: autoSend } : item)))
+    try {
+      await api.setEmailAutoSend(id, autoSend)
+    } catch {
+      toast.error("Не удалось изменить автоотправку")
+      await loadEmails()
     }
   }
 
@@ -199,21 +207,13 @@ export function SchedulerPage() {
 
             <div className="border-t border-line" />
 
-            <div className="space-y-1">
-              <label className="flex items-center gap-3 text-sm text-ink" htmlFor="sched-auto-send">
-                <Switch checked={autoSend} id="sched-auto-send" onCheckedChange={setAutoSend} />
-                Автоматически отправлять отчёт после проверки
-              </label>
-              <p className="pl-11 text-xs text-steel">
-                Если выключено — отчёт формируется, но письмо не уходит. Отправить вручную можно
-                на дашборде кнопкой «Отправить отчёт».
-              </p>
-            </div>
-
-            <div className="border-t border-line" />
-
             <div className="space-y-2">
               <label className="text-sm text-steel">Email для отчётов</label>
+              <p className="text-xs text-steel">
+                Ползунок у адреса — автоматическая отправка отчёта после проверки именно ему.
+                Если выключить у всех, отчёт всё равно формируется; отправить вручную можно на
+                дашборде кнопкой «Отправить отчёт».
+              </p>
               <div className="flex gap-2">
                 <input
                   className="form-input"
@@ -241,6 +241,11 @@ export function SchedulerPage() {
                     >
                       <Mail className="size-4 text-steel" />
                       <span className="flex-1 truncate text-steel">{item.email}</span>
+                      <Switch
+                        checked={item.auto_send ?? true}
+                        title="Автоматически отправлять отчёт после проверки"
+                        onCheckedChange={(next) => void toggleAutoSend(item.id, next)}
+                      />
                       <button
                         className="icon-action-button icon-action-button--danger icon-action-button--tiny"
                         title="Удалить"
@@ -275,7 +280,8 @@ export function SchedulerPage() {
               <b className="text-ink">Сдвиг</b> — какой месяц проверять (0 = текущий, -1 = прошлый)
             </p>
             <p>
-              <b className="text-ink">Email</b> — отчёт отправляется всем из списка
+              <b className="text-ink">Email</b> — отчёт уходит автоматически тем адресам, у кого
+              включён ползунок; остальным можно отправить вручную с дашборда
             </p>
           </div>
         </section>

@@ -56,7 +56,6 @@ export interface Scheduler {
   auto_time?: string
   month_offset?: number
   report_email?: string
-  auto_send_report?: boolean
   example?: string
 }
 
@@ -67,6 +66,7 @@ export interface SchedulerStatus {
 export interface Email {
   id: number
   email: string
+  auto_send?: boolean
 }
 
 export interface EmailsResponse {
@@ -216,7 +216,6 @@ export interface SchedulerSettings {
   auto_day: number
   auto_time: string
   month_offset: number
-  auto_send_report?: boolean
 }
 
 export function setSchedulerSettings(settings: SchedulerSettings): Promise<unknown> {
@@ -233,6 +232,11 @@ export function addEmail(email: string): Promise<unknown> {
 
 export function removeEmail(id: number): Promise<unknown> {
   return api(`/v1/arshin/scheduler/emails/${id}`, "DELETE")
+}
+
+/** Включить/выключить автоотправку отчёта конкретному адресату. */
+export function setEmailAutoSend(id: number, autoSend: boolean): Promise<unknown> {
+  return api(`/v1/arshin/scheduler/emails/${id}`, "PATCH", { auto_send: autoSend })
 }
 
 export interface SendReportResult {

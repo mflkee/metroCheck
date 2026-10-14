@@ -14,6 +14,24 @@ class EmailRepository:
         )
         return list(result.scalars().all())
 
+    async def get_auto_send_emails(self) -> list[str]:
+        """Адреса, которым отчёт уходит автоматически после проверки."""
+        result = await self.db.execute(
+            select(ReportEmail.email)
+            .where(ReportEmail.auto_send.is_(True))
+            .order_by(ReportEmail.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def set_auto_send(self, email_id: int, auto_send: bool) -> ReportEmail | None:
+        entry = await self.db.get(ReportEmail, email_id)
+        if not entry:
+            return None
+        entry.auto_send = auto_send
+        await self.db.commit()
+        await self.db.refresh(entry)
+        return entry
+
     async def create(self, email: str) -> ReportEmail:
         entry = ReportEmail(email=email)
         self.db.add(entry)

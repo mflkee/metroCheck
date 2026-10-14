@@ -749,19 +749,6 @@ class JobQueueService:
         except Exception as e:
             logger.error("Failed to send token resumed alert: %s", e)
 
-    @staticmethod
-    def auto_send_enabled() -> bool:
-        """Читает флаг «автоматически отправлять отчёт» из состояния планировщика."""
-        import json
-        import os
-
-        state_file = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
-        try:
-            with open(state_file) as f:
-                return bool(json.load(f).get("auto_send_report", True))
-        except Exception:
-            return True
-
     async def _send_report(self, job: Job, result: dict[str, Any]) -> None:
         """Send email report after completion using a fresh session for report
         generation so long-running Excel creation does not hold the worker's
@@ -778,9 +765,10 @@ class JobQueueService:
         total_missing = 0
         async with AsyncSessionLocal() as session:
             email_repo = EmailRepository(session)
-            entries = await email_repo.get_all()
-            if entries:
-                report_email = ", ".join(e.email for e in entries)
+            # Автоотправка — только тем адресатам, у кого включён личный флаг
+            recipients = await email_repo.get_auto_send_emails()
+            if recipients:
+                report_email = ", ".join(recipients)
 
             try:
                 report_service = ReportService(session)
@@ -796,9 +784,10 @@ class JobQueueService:
             except Exception as e:
                 logger.error("[Email] Failed to generate report: %s", e)
 
-        if not self.auto_send_enabled():
+        if not report_email:
             logger.info(
-                "Auto report sending is disabled — report for job %s (%02d.%s) generated, email skipped",
+                "Auto report sending: нет адресатов с включённой автоотправкой — "
+                "отчёт для job %s (%02d.%s) сформирован, письмо не отправлено",
                 job.id, job.month, job.year,
             )
             return
