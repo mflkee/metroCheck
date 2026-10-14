@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
+from datetime import date
 
 from sqlalchemy import text
 
@@ -82,10 +83,13 @@ async def run(*, dry_run: bool, year: int | None, month: int | None) -> None:
             }
             if not diff:
                 continue
+            # asyncpg строг к типам: дату нужно передавать объектом date
+            if diff.get("verification_date"):
+                diff["verification_date"] = date.fromisoformat(diff["verification_date"])
             for field in diff:
                 changes[field] += 1
                 if len(samples[field]) < 10:
-                    samples[field].append((row.id, current[field], new[field]))
+                    samples[field].append((row.id, current[field], diff[field]))
             updates.append({"id": row.id, **diff})
 
         print(f"протоколов проверено: {len(rows)}")
@@ -101,15 +105,20 @@ async def run(*, dry_run: bool, year: int | None, month: int | None) -> None:
             return
 
         written = 0
-        for item in updates:
-            pid = item.pop("id")
-            set_sql = ", ".join(f"{field} = :{field}" for field in item)
-            await session.execute(
-                text(f"update protocol_data set {set_sql} where id = :id"),
-                {**item, "id": pid},
-            )
-            written += 1
-        await session.commit()
+        try:
+            for item in updates:
+                pid = item.pop("id")
+                set_sql = ", ".join(f"{field} = :{field}" for field in item)
+                await session.execute(
+                    text(f"update protocol_data set {set_sql} where id = :id"),
+                    {**item, "id": pid},
+                )
+                written += 1
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            print(f"ошибка, откат транзакции (успело записаться: {written})")
+            raise
         print(f"обновлено записей: {written}")
 
 

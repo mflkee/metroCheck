@@ -981,25 +981,28 @@ class ReportService:
                 insert_at = 2 + len(public_headers)  # after compare(2) + public(11) columns
                 row_data[insert_at:insert_at] = lk_vals
 
-            mismatches = []
+            errors: list[str] = []
+            warnings: list[str] = []
+            notes: list[str] = []
 
             if not cal_list:
-                mismatches.append("НЕТ В АРШИН")
+                errors.append("НЕТ В АРШИН")
             else:
-                # Multiple records warning only when they are truly for the same (serial, mit_number)
+                # Несколько записей в АРШИН — это пометка, а не расхождение:
+                # сверяемся с наиболее подходящей по дате записью.
                 if len(cal_list) > 1:
                     vri_ids = [c.vri_id for c in cal_list if c.vri_id]
                     vri_part = f" ({', '.join(vri_ids)})" if vri_ids else ""
-                    mismatches.append(f"Записей в АРШИН: {len(cal_list)}{vri_part}")
+                    notes.append(f"Записей в АРШИН: {len(cal_list)}{vri_part}")
 
                 if date_status == "red":
                     proto_date_str = proto.verification_date.strftime("%d.%m.%Y") if proto.verification_date else ""
                     verif_strs = [c.verification_date.strftime("%d.%m.%Y") for c in cal_list if c.verification_date]
-                    mismatches.append(f"Дата: АРШИН {', '.join(verif_strs)} vs протокол {proto_date_str}")
+                    errors.append(f"Дата: АРШИН {', '.join(verif_strs)} vs протокол {proto_date_str}")
 
                 if cal and cal.mit_number and proto.mit_number:
                     if self._normalize_mit_number(cal.mit_number) != self._normalize_mit_number(proto.mit_number):
-                        mismatches.append(f"ОТ: АРШИН {cal.mit_number} vs протокол {proto.mit_number}")
+                        errors.append(f"ОТ: АРШИН {cal.mit_number} vs протокол {proto.mit_number}")
 
                 if use_lk:
                     # Check verifier against best_cal
@@ -1007,7 +1010,7 @@ class ReportService:
                         norm_proto_verifier = normalize_verifier(proto.verifier)
                         norm_cal_verifier = normalize_verifier(cal.verifier)
                         if norm_proto_verifier != norm_cal_verifier:
-                            mismatches.append(f"Поверитель: {format_verifier(cal.verifier)} vs {format_verifier(proto.verifier)}")
+                            errors.append(f"Поверитель: {format_verifier(cal.verifier)} vs {format_verifier(proto.verifier)}")
 
                     # Check conditions exact match
                     for field in ("temperature", "humidity", "pressure"):
@@ -1016,30 +1019,31 @@ class ReportService:
                         if proto_val is not None and cal_val is not None:
                             try:
                                 if float(proto_val) != float(cal_val):
-                                    mismatches.append(f"{field}: {cal_val} vs {proto_val}")
+                                    errors.append(f"{field}: {cal_val} vs {proto_val}")
                             except (ValueError, TypeError):
                                 pass
 
             # Check serial from filename vs protocol (warning context only)
             if file_name_serial and serial and self._serials_differ(file_name_serial, serial):
-                mismatches.append(f"Зав№ в имени файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
+                warnings.append(f"Зав№ в имени файла ({file_name_serial}) ≠ зав№ протокола ({serial})")
 
-            # Status symbol and color
-            if date_status == "green" and not mismatches:
-                status = "✓"
-                status_color = "C6EFCE"
-                status_font_color = "006100"
-            elif date_status == "green" and mismatches:
+            # Status symbol and color: ошибка → ❌, предупреждение → ⚠, пометки → ✓
+            if errors:
+                status = "❌"
+                status_color = "FFC7CE"
+                status_font_color = "9C0006"
+            elif warnings:
                 status = "⚠"
                 status_color = "FFEB9C"
                 status_font_color = "9C5700"
             else:
-                status = "❌"
-                status_color = "FFC7CE"
-                status_font_color = "9C0006"
+                status = "✓"
+                status_color = "C6EFCE"
+                status_font_color = "006100"
 
+            mismatches = errors + warnings
             row_data[STATUS_COL - 1] = status
-            comments = "; ".join(mismatches) if mismatches else ""
+            comments = "; ".join(errors + warnings + notes) if (errors or warnings or notes) else ""
             row_data[COMMENTS_COL - 1] = comments
 
             if status == "❌":
