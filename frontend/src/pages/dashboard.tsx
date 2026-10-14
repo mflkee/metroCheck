@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Download, FileText, Inbox, Loader2, Mail, Play, RefreshCw, Send, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { HealthBadge, jobStatusTone, ToneBadge, TONE_TEXT, type Tone } from "@/components/tone-badge"
+import { HealthBadge, jobStatusTone, ToneBadge } from "@/components/tone-badge"
 import { AppDialog } from "@/components/ui/app-dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { PageHeader } from "@/components/ui/page-header"
@@ -41,14 +41,6 @@ export function DashboardPage() {
   const running = jobs?.running ?? null
   const pending = jobs?.pending ?? []
   const recent = jobs?.recent ?? []
-  const lastCompleted = recent.find((job) => job.status === "completed")
-
-  const devices = running
-    ? (running.total_devices ?? 0) > 0
-      ? `${running.processed_devices ?? 0}/${running.total_devices}`
-      : "—"
-    : (lastCompleted?.phase_stats?.public_api?.saved ?? "—")
-  const errors = lastCompleted?.phase_stats?.full_check?.errors ?? "—"
 
   async function manualRefresh() {
     setRefreshing(true)
@@ -68,17 +60,6 @@ export function DashboardPage() {
           </button>
         }
       />
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="В очереди" tone="blue" value={pending.length} />
-        <StatCard
-          label="Выполняется"
-          tone="green"
-          value={running ? <Loader2 className="size-6 animate-spin" /> : "—"}
-        />
-        <StatCard label="Приборов в последней проверке" tone="green" value={devices} />
-        <StatCard label="Расхождений в последней проверке" tone="amber" value={errors} />
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SystemCard />
@@ -199,15 +180,6 @@ export function DashboardPage() {
         }}
       />
     </div>
-  )
-}
-
-function StatCard({ value, label, tone }: { value: ReactNode; label: string; tone: Tone }) {
-  return (
-    <article className="metric-card">
-      <div className={["text-3xl leading-tight font-bold", TONE_TEXT[tone]].join(" ")}>{value}</div>
-      <div className="metric-card__label mt-1">{label}</div>
-    </article>
   )
 }
 
