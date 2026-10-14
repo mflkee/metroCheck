@@ -263,17 +263,17 @@ async def send_job_report(
     if not recipients:
         raise HTTPException(status_code=400, detail="Не выбран ни один получатель")
 
-    report_result = await ReportService(db).generate_interim_report(
-        job.year, job.month, job_id=job.id, use_lk=job.use_lk
-    )
-    file_path = report_result.get("file_path")
-
     email_service = EmailService()
     if not email_service.is_configured():
         raise HTTPException(
             status_code=503,
             detail="SMTP не сконфигурирован — отправка писем недоступна",
         )
+
+    report_result = await ReportService(db).generate_interim_report(
+        job.year, job.month, job_id=job.id, use_lk=job.use_lk
+    )
+    file_path = report_result.get("file_path")
 
     sent = await email_service.send_check_report(
         year=job.year,
