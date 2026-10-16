@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
+from app.core.config import DEFAULT_SECRET_KEY, settings
 from app.api.v1.routes import ai, arshin, auth, checks, protocols, reports, health, jobs
 
 
@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI):
             "report emails will be skipped. Set SMTP_* in the environment "
             "(docker-compose env_file: .env.production / .env.staging).",
             bool(settings.SMTP_USER), bool(settings.SMTP_PASS),
+        )
+
+    # Секрет подписи JWT: дефолт лежит в открытом репозитории и позволяет
+    # подделать токен, поэтому в production это критично.
+    if settings.SECRET_KEY == DEFAULT_SECRET_KEY:
+        logger.error(
+            "SECURITY: SECRET_KEY — встроенный дефолт из репозитория, JWT можно подделать! "
+            "Задайте SECRET_KEY в env-файле (openssl rand -hex 32) и пересоздайте контейнер."
         )
 
     db = AsyncSessionLocal()

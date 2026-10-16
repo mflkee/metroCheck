@@ -2,6 +2,10 @@
 
 from pydantic_settings import BaseSettings
 
+# Дефолтный ключ подписи JWT лежит в открытом репозитории — с ним токен можно
+# подделать. В production его обязательно переопределять (SECRET_KEY в env-файле).
+DEFAULT_SECRET_KEY = "metrocheck-jwt-secret-change-in-production"
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -24,8 +28,10 @@ class Settings(BaseSettings):
 
     # Security
     FASTAPI_API_KEY: str = "CHANGE_ME_API_KEY"
-    SECRET_KEY: str = "metrocheck-jwt-secret-change-in-production"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
+    SECRET_KEY: str = DEFAULT_SECRET_KEY
+    # Время жизни сессии (минуты). 5 256 000 = 10 лет — «один вход»,
+    # как в metroAuth/metroLog/metroGen.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 5_256_000
 
     # Admin auth
     ADMIN_USERNAME: str = "admin-metrochek"
