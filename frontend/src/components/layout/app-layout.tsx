@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { CalendarClock, LayoutDashboard } from "lucide-react"
+import { CalendarClock, FileCheck2, LayoutDashboard } from "lucide-react"
 import { Outlet } from "react-router-dom"
 import { AppShell, type NavSection } from "@/components/app-shell"
 import { AccountMenu } from "@/components/layout/account-menu"
@@ -25,6 +25,12 @@ const NAV: NavSection[] = [
         label: "Планировщик",
         description: "Расписание и email-отчёты",
         icon: <CalendarClock className="h-5 w-5" />,
+      },
+      {
+        to: "/precheck",
+        label: "Перед АРШИНом",
+        description: "Проверка пачки перед загрузкой",
+        icon: <FileCheck2 className="h-5 w-5" />,
       },
     ],
   },

@@ -3,6 +3,7 @@ import { Toaster } from "sonner"
 import { AppLayout } from "@/components/layout/app-layout"
 import { LoginPage } from "@/components/login-page"
 import { DashboardPage } from "@/pages/dashboard"
+import { PrecheckPage } from "@/pages/precheck"
 import { SchedulerPage } from "@/pages/scheduler"
 import { AuthProvider, useAuth } from "@/state/auth"
 import { HealthProvider } from "@/state/health"
@@ -25,6 +26,7 @@ export default function App() {
           <Route element={<Gate />}>
             <Route index element={<DashboardPage />} />
             <Route path="scheduler" element={<SchedulerPage />} />
+            <Route path="precheck" element={<PrecheckPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

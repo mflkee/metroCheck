@@ -265,3 +265,94 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url)
   document.body.removeChild(link)
 }
+
+// ── Проверка перед АРШИНом (precheck) ──
+
+export interface PrecheckFileInfo {
+  name: string
+  sheet: string
+  rows: number
+  errors: number
+  warnings: number
+}
+
+export interface PrecheckRunResult {
+  run_id: number
+  profile: string
+  files: PrecheckFileInfo[]
+  skipped: string[]
+  totals: { rows: number; errors: number; warnings: number }
+  report_url: string
+}
+
+export interface PrecheckRunItem {
+  id: number
+  created_at: string
+  user: string | null
+  profile: string
+  rows: number
+  errors: number
+  warnings: number
+}
+
+export interface PrecheckReference {
+  types: number
+  mpi: number
+  meth: number
+}
+
+/** Проверить пачку: файлы уходят multipart-ом, ответ — сводка (отчёт скачивается отдельно). */
+export async function runPrecheck(
+  files: File[],
+  options: { profile: "mvp" | "full"; online: boolean },
+): Promise<PrecheckRunResult> {
+  const form = new FormData()
+  for (const file of files) form.append("files", file, file.name)
+  form.append("profile", options.profile)
+  form.append("online", options.online ? "true" : "false")
+  const res = await fetch(BASE + "/v1/precheck/run", {
+    method: "POST",
+    headers: authHeaders(false),
+    body: form,
+  })
+  if (res.status === 401) {
+    unauthorizedHandler?.()
+    throw new ApiError("Unauthorized", 401)
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    throw new ApiError(text || `HTTP ${res.status}`, res.status)
+  }
+  return (await res.json()) as PrecheckRunResult
+}
+
+export function getPrecheckRuns(limit = 10): Promise<PrecheckRunItem[]> {
+  return api<PrecheckRunItem[]>(`/v1/precheck/runs?limit=${limit}`)
+}
+
+export function getPrecheckReference(): Promise<PrecheckReference> {
+  return api<PrecheckReference>("/v1/precheck/reference")
+}
+
+export function syncPrecheckReference(ots: string): Promise<Record<string, number>> {
+  const form = new FormData()
+  form.append("ots", ots)
+  return fetch(BASE + "/v1/precheck/reference/sync", {
+    method: "POST",
+    headers: authHeaders(false),
+    body: form,
+  }).then(async (res) => {
+    if (!res.ok) throw new ApiError((await res.text()) || `HTTP ${res.status}`, res.status)
+    return (await res.json()) as Record<string, number>
+  })
+}
+
+/** Скачать отчёт проверки. */
+export async function downloadPrecheckReport(runId: number, filename?: string): Promise<void> {
+  const res = await fetch(BASE + `/v1/precheck/runs/${runId}/report`, {
+    headers: authHeaders(false),
+  })
+  if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status)
+  const blob = await res.blob()
+  downloadBlob(blob, filename ?? `проверка_${runId}.xlsx`)
+}

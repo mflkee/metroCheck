@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     ACCOUNTS_SERVICE_TOKEN: str = ""
     ACCOUNTS_TIMEOUT_SECONDS: float = 10.0
 
+    # Проверка перед загрузкой в АРШИН (вкладка «Перед АРШИНом»)
+    # Шифры клейма нашей организации: чужие пачки помечаются ошибкой.
+    PRECHECK_CIPHERS: str = "ЕЖБ"
+    # Куда складывать отчёты (xlsx) — файлы пачек не сохраняются.
+    PRECHECK_REPORTS_DIR: str = "/tmp/precheck_reports"
+    # Сколько отсутствующих типов СИ дотягивать из АРШИН за один запуск.
+    PRECHECK_ONLINE_LIMIT: int = 40
+    # any — допустим любой интервал из карточки типа; strict — отбор по году выпуска.
+    PRECHECK_MPI_MODE: str = "any"
+    # Что делать, если срок действия утверждения типа истёк: error | warning | off
+    PRECHECK_OT_EXPIRED: str = "warning"
+
     # App
     APP_ENV: str = "development"
     DEBUG: bool = True
