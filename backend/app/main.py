@@ -110,10 +110,12 @@ app.add_middleware(
 )
 
 # Include routers
+from app.api.v1.routes import precheck  # noqa: E402
 app.include_router(auth.router)
 app.include_router(health.router, tags=["health"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(arshin.router, prefix="/api/v1/arshin", tags=["arshin"])
+app.include_router(precheck.router, prefix="/api/v1/precheck", tags=["precheck"])
 app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
 app.include_router(checks.router, prefix="/api/v1/checks", tags=["checks"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
