@@ -220,17 +220,39 @@ def rule_reverify(r: dict, ctx: Context) -> list[Issue]:
 
 
 def rule_method(r: dict, ctx: Context) -> list[Issue]:
+    """Методика поверки: существует у типа, действует на дату и та ли редакция.
+
+    Ловит именно случай «в описании типа поменялась методика»: в карточке появляется
+    новая редакция (новый приказ), а в файле остаётся старая.
+    """
     out: list[Issue] = []
     ot = (r.get("ot") or "").strip()
     card = ctx.types.get(ot)
     doc = (r.get("doc_title") or "").strip()
     if not card or not doc:
         return out
+
     placeholder = {"МЕТОДИКИПОВЕРКИ", "МЕТОДИКАПОВЕРКИ", "МЕТОДИКИ", "-", ""}
     meth = [m for m in (card.get("meth") or [])
             if (m.get("dec_num") or "").strip() or norm_text(m.get("title")) not in placeholder]
     if not meth:
         return out
+
+    vrf = r.get("vrf_date") or ctx.today
+
+    def label(m: dict) -> str:
+        code = (m.get("dec_num") or m.get("title") or "").strip()[:60]
+        if m.get("valid_from") and m.get("valid_to"):
+            return f"{code} (с {m['valid_from']} до {m['valid_to']})"
+        if m.get("valid_from"):
+            return f"{code} (с {m['valid_from']})"
+        if m.get("valid_to"):
+            return f"{code} (до {m['valid_to']})"
+        return code
+
+    def valid_at(m: dict, day: str) -> bool:
+        return (not m.get("valid_from") or m["valid_from"] <= day) and \
+               (not m.get("valid_to") or day <= m["valid_to"])
 
     base_in, edition_in = meth_core(doc)
     same: list[tuple[dict, str]] = []
@@ -242,27 +264,48 @@ def rule_method(r: dict, ctx: Context) -> list[Issue]:
             if base and base_in and (base == base_in or base.startswith(base_in)
                                      or base_in.startswith(base)):
                 same.append((m, edition))
-    if not same:
-        allowed = "; ".join((m.get("dec_num") or (m.get("title") or "")[:60]) for m in meth)
-        out.append(Issue(r["row"], "Методика поверки", ERROR, "методика",
-                         f"«{doc}» не найдена в карточке типа {ot}",
-                         f"в карточке: {allowed}"))
-        return out
+                break
 
-    m, edition_card = same[0]
-    vrf = r.get("vrf_date") or ctx.today
+    if not same:
+        allowed = "; ".join(label(m) for m in meth)
+        return [Issue(r["row"], "Методика поверки", ERROR, "методика",
+                      f"«{doc}» не найдена в карточке типа {ot}",
+                      f"в карточке: {allowed}")]
+
+    # выбираем редакцию, действовавшую на дату поверки; если такой нет — ближайшую
+    applicable = [(m, e) for m, e in same if valid_at(m, vrf)]
+    if applicable:
+        chosen, edition_card = applicable[-1]
+    else:
+        newer = [(m, e) for m, e in same
+                 if m.get("valid_from") and m["valid_from"] > vrf]
+        chosen, edition_card = newer[0] if newer else same[0]
+
+    problems: list[Issue] = []
+
+    if not valid_at(chosen, vrf) and chosen.get("valid_from") and chosen["valid_from"] > vrf:
+        problems.append(Issue(r["row"], "Методика поверки", ERROR, "методика",
+                              f"«{doc}» вводится только с {chosen['valid_from']}, "
+                              f"а поверка — {vrf}",
+                              "на дату поверки эта редакция ещё не действовала"))
+
     if edition_in and edition_card and edition_in != edition_card:
-        out.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
-                         f"указана редакция изм. №{edition_in}, в карточке — №{edition_card}",
-                         "проверьте, какая редакция действовала на дату поверки"))
-    if m.get("valid_from") and m["valid_from"] > vrf:
-        out.append(Issue(r["row"], "Методика поверки", ERROR, "методика",
-                         f"«{doc}» вводится с {m['valid_from']}, а поверка — {vrf}"))
-    elif m.get("valid_to") and m["valid_to"] < vrf:
-        out.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
-                         f"«{doc}» действовала до {m['valid_to']} — на дату поверки неактуальна",
-                         "проверьте, есть ли новая редакция"))
-    return out
+        problems.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
+                              f"указана редакция изм. №{edition_in}, а в карточке — "
+                              f"№{edition_card} ({label(chosen)})",
+                              "проверьте, какая редакция действовала на дату поверки"))
+
+    if chosen.get("valid_to") and chosen["valid_to"] < vrf:
+        newer = [m for m in meth
+                 if m.get("valid_from") and m["valid_from"] >= (chosen.get("valid_to") or "")]
+        hint = (f"актуальная: {label(newer[0])}" if newer
+                else "проверьте, нет ли новой редакции методики")
+        problems.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
+                              f"«{doc}» действовала до {chosen['valid_to']} — "
+                              f"на дату поверки ({vrf}) уже неактуальна",
+                              hint))
+
+    return problems
 
 
 def rule_modification(r: dict, ctx: Context) -> list[Issue]:
@@ -357,7 +400,9 @@ RULES = [rule_required, rule_ot, rule_mpi, rule_reverify, rule_method,
          rule_modification, rule_dates, rule_duplicates, rule_dragfill, rule_conditions]
 
 PROFILES: dict[str, tuple] = {
-    "mvp": (rule_ot, rule_mpi),
+    # Методика добавлена в базовый профиль: смена редакции в описании типа — тот самый
+    # случай, когда старая методика уходит в АРШИН без предупреждения.
+    "mvp": (rule_ot, rule_mpi, rule_method),
     "full": tuple(RULES),
 }
 

@@ -21,6 +21,7 @@ def build_report(
     issues: list[Issue],
     profile: str,
     checked_at: datetime | None = None,
+    reference_note: str = "",
 ) -> bytes:
     """Собрать xlsx в память.
 
@@ -79,6 +80,8 @@ def build_report(
     ws3.append(["Ошибок (блокируют загрузку)", errors])
     ws3.append(["Предупреждений", warnings])
     ws3.append(["Информационных", info])
+    if reference_note:
+        ws3.append(["Справочник", reference_note])
     ws3.append([])
     ws3.append(["Правило", "Ошибок"])
     ws3.cell(row=ws3.max_row, column=1).font = Font(bold=True)

@@ -73,8 +73,11 @@ async def run_precheck(
 
     ots = sorted({(r.get("ot") or "").strip() for f in parsed for r in f.records
                   if r.get("ot")})
-    types = await ensure_types(session, ots, online=online,
-                               limit=settings.PRECHECK_ONLINE_LIMIT)
+    types, ref_stats = await ensure_types(
+        session, ots, online=online,
+        limit=settings.PRECHECK_ONLINE_LIMIT,
+        ttl_days=settings.PRECHECK_REFERENCE_TTL_DAYS,
+    )
 
     ctx = rules.Context(
         types=types,
@@ -106,7 +109,11 @@ async def run_precheck(
             "warnings": sum(1 for i in issues if i.level == rules.WARNING),
         })
 
-    report = build_report(file_rows, all_issues, profile)
+    reference_note = ""
+    if ref_stats.get("refreshed"):
+        reference_note = (f"справочник обновлён из АРШИН: {ref_stats['refreshed']} тип(ов), "
+                          f"из них новых — {ref_stats['missing']}")
+    report = build_report(file_rows, all_issues, profile, reference_note=reference_note)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = os.path.join(_reports_dir(), f"проверка_{stamp}.xlsx")
     with open(report_path, "wb") as fh:

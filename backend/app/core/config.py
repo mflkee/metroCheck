@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     PRECHECK_REPORTS_DIR: str = "/tmp/precheck_reports"
     # Сколько отсутствующих типов СИ дотягивать из АРШИН за один запуск.
     PRECHECK_ONLINE_LIMIT: int = 40
+    # Через сколько дней перепроверять карточку типа в АРШИН (ловить новые приказы
+    # и смену методики поверки). 0 — не обновлять автоматически.
+    PRECHECK_REFERENCE_TTL_DAYS: int = 7
     # any — допустим любой интервал из карточки типа; strict — отбор по году выпуска.
     PRECHECK_MPI_MODE: str = "any"
     # Что делать, если срок действия утверждения типа истёк: error | warning | off

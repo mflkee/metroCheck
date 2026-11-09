@@ -145,6 +145,7 @@ async def load_types(session: AsyncSession, ots: list[str]) -> dict[str, dict]:
             "title": t.title,
             "notation": t.notation,
             "valid_to": t.valid_to,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "mpi": [],
             "meth": [],
             "mods": [],
@@ -198,17 +199,45 @@ async def sync_types(
     return stats
 
 
+def _is_stale(card: dict, ttl_days: int, now: datetime) -> bool:
+    """Карточка устарела, если обновлялась раньше, чем ttl_days назад."""
+    if ttl_days <= 0:
+        return False
+    updated = card.get("updated_at")
+    if not updated:
+        return True
+    try:
+        stamp = datetime.fromisoformat(updated)
+    except ValueError:
+        return True
+    return (now - stamp).days >= ttl_days
+
+
 async def ensure_types(
     session: AsyncSession,
     ots: list[str],
     online: bool = True,
     limit: int = 40,
-) -> dict[str, dict]:
-    """Загрузить карточки из базы, при необходимости дотянуть отсутствующие из API."""
+    ttl_days: int = 7,
+) -> tuple[dict[str, dict], dict[str, int]]:
+    """Достать карточки типов, обновив отсутствующие и устаревшие (TTL).
+
+    Возвращает (карточки, статистика обновления). TTL нужен, чтобы замечать
+    изменения в описании типа — например, новую редакцию методики поверки.
+    """
     known = await load_types(session, ots)
+    if not online:
+        return known, {"missing": 0, "stale": 0, "refreshed": 0}
+
+    now = datetime.utcnow()
     missing = [ot for ot in ots if ot and ot not in known]
-    if not missing or not online:
-        return known
-    await sync_types(session, missing, limit=min(limit, len(missing)),
-                     source="auto: проверка пачки")
-    return await load_types(session, ots)
+    stale = [ot for ot, card in known.items() if _is_stale(card, ttl_days, now)]
+    todo = list(dict.fromkeys(missing + stale))
+    stats = {"missing": len(missing), "stale": len(stale), "refreshed": 0}
+    if not todo:
+        return known, stats
+
+    synced = await sync_types(session, todo, limit=min(limit, len(todo)),
+                              source="auto: проверка пачки (TTL)")
+    stats["refreshed"] = synced.get("saved", 0)
+    return await load_types(session, ots), stats
