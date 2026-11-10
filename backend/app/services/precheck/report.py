@@ -39,7 +39,7 @@ BAD_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="soli
 BAD_FONT = Font(color="9C0006", bold=True)
 INFO_FILL = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
 INFO_FONT = Font(color="1F4E79")
-GROUP_FILL = PatternFill(start_color="F5F8FC", end_color="F5F8FC", fill_type="solid")
+GROUP_FILL = PatternFill(start_color="EDF2F9", end_color="EDF2F9", fill_type="solid")
 MUTED = Font(color="808080", size=9, italic=True)
 THIN = Border(*[Side(style="thin", color="BFBFBF")] * 4)
 THICK_BOTTOM = Border(left=Side(style="thin", color="BFBFBF"),
@@ -314,7 +314,7 @@ def build_report(
           align=Alignment(horizontal="center", vertical="center"))
     _span(ws, row, 11, 11, len(warnings), fill=TOTAL_FILL, font=TOTAL_FONT, border=THIN,
           align=Alignment(horizontal="center", vertical="center"))
-    _span(ws, row, 12, 12, f"{files_with_errors}/{len(files)}", fill=TOTAL_FILL,
+    _span(ws, row, 12, 12, f"{files_with_errors} из {len(files)}", fill=TOTAL_FILL,
           font=TOTAL_FONT, border=THIN, align=Alignment(horizontal="center", vertical="center"))
     ws.row_dimensions[row].height = 20
     row += 2
@@ -517,14 +517,16 @@ def build_report(
                        align=Alignment(horizontal="left", vertical="top", wrap_text=True))
                 _write(ws2, current, 7, issue.hint or "", fill=fill, border=THIN,
                        align=Alignment(horizontal="left", vertical="top", wrap_text=True))
-            # разделитель между записями
+            # разделитель между записями: линия и пустая строка
             for col in range(1, 8):
                 ws2.cell(row=end, column=col).border = THICK_BOTTOM
             row = end + 1
+            if group_index < len(groups) - 1:
+                ws2.row_dimensions[row].height = 8
+                row += 1
         _fit_rows(ws2, first_data, row - 1, ISSUES_WIDTHS, min_height=20)
 
     ws2.freeze_panes = "A6"
-    ws2.auto_filter.ref = f"A5:G{max(row - 1, 6)}"
     _setup_print(ws2, title_rows="5:5")
 
     buffer = io.BytesIO()
