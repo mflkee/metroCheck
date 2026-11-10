@@ -9,6 +9,9 @@ RUN npm ci
 
 # Build the app (TypeScript check + Vite production bundle)
 COPY frontend/ ./
+# CHANGELOG.md читается как ?raw в «Что нового» — он лежит в корне репозитория,
+# а в образ попадает только frontend/, поэтому копируем отдельно.
+COPY CHANGELOG.md /CHANGELOG.md
 RUN npm run build
 
 # ── Serve stage: static assets behind nginx ──
