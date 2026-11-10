@@ -207,6 +207,17 @@ Inside container: `/shared/tokens/jwt-arshin-token.json`
 
 ---
 
+## 8.5 Версия и CHANGELOG (обязательно)
+
+- Версия живёт в двух местах и должна совпадать: `frontend/package.json` (её показывает шапка)
+  и `backend/app/main.py` (`FastAPI(version=…)`). Поднимать обе.
+- Каждое изменение функциональности (feat/fix, влияющий на поведение) — **новая версия**
+  (`0.x.y` → `0.x.y+1`; новая вкладка/раздел — `0.x+1.0`) и **запись в `CHANGELOG.md`**:
+  `## X.Y.Z — ДД месяц ГГГГ` + пункты для человека (что изменилось и зачем), без технического шума.
+- История показывается в интерфейсе: клик по версии в шапке → «Что нового» (читает `CHANGELOG.md`).
+- CI проверяет это до сборки: `scripts/check_version.py` (расхождение версий или отсутствие
+  раздела в CHANGELOG — красный запуск). Локально: `python3 scripts/check_version.py`.
+
 ## 9. Git Rules
 
 - **Never push directly to `release/*`** without explicit instructions

@@ -19,6 +19,8 @@ jobs:
       env: ${{ steps.tag.outputs.env }}
     steps:
       - uses: actions/checkout@v4
+      - name: Version guard (версия и CHANGELOG)
+        run: python3 scripts/check_version.py
       - name: Compute tags
         id: tag
         run: |

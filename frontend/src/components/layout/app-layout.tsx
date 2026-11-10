@@ -3,7 +3,7 @@ import { CalendarClock, FileCheck2, LayoutDashboard } from "lucide-react"
 import { Outlet } from "react-router-dom"
 import { AppShell, type NavSection } from "@/components/app-shell"
 import { AccountMenu } from "@/components/layout/account-menu"
-import { AppVersionBadge } from "@/components/layout/app-version-badge"
+import { VersionBadgeWithHistory } from "@/components/version-history"
 import { HealthIndicator } from "@/components/layout/health-indicator"
 
 /**
@@ -45,7 +45,7 @@ export function AppLayout({ children }: { children?: ReactNode }) {
       nav={NAV}
       statusIndicator={<HealthIndicator />}
       topbarActions={<AccountMenu />}
-      versionBadge={<AppVersionBadge />}
+      versionBadge={<VersionBadgeWithHistory />}
     >
       {children ?? <Outlet />}
     </AppShell>

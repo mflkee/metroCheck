@@ -201,7 +201,13 @@ def read_batch(filename: str, data: bytes) -> tuple[list[dict], str]:
         return read_xml(data), "(xml)"
     if suffix in (".xlsm", ".xlsx"):
         return read_xlsx(data)
-    raise ValueError(f"неподдерживаемый формат: {suffix or '(без расширения)'}")
+    if suffix == ".xls":
+        raise ValueError(
+            "формат .xls не поддерживается — откройте файл в Excel и сохраните "
+            "как «Книга Excel с поддержкой макросов (*.xlsm)» или «*.xlsx»"
+        )
+    raise ValueError(f"неподдерживаемый формат: {suffix or '(без расширения)'} — "
+                     "нужен .xlsm, .xlsx или .xml")
 
 
 def _cell(row: tuple, index: int | None) -> str:

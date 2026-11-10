@@ -22,6 +22,7 @@ export function PrecheckPage() {
   const [ots, setOts] = useState("")
   const [syncing, setSyncing] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [rejected, setRejected] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
   const loadHistory = useCallback(async () => {
@@ -44,9 +45,22 @@ export function PrecheckPage() {
   function addFiles(list: FileList | null) {
     if (!list) return
     const next = [...files]
+    const bad: string[] = []
     for (const file of Array.from(list)) {
+      const name = file.name.toLowerCase()
+      if (name.endsWith(".xls")) {
+        bad.push(`${file.name} — старый формат .xls, сохраните как .xlsm или .xlsx`)
+        continue
+      }
+      if (!/\.(xlsm|xlsx|xml)$/.test(name)) {
+        bad.push(`${file.name} — нужен .xlsm, .xlsx или .xml`)
+        continue
+      }
       if (!next.some((f) => f.name === file.name && f.size === file.size)) next.push(file)
     }
+    setRejected(bad)
+    if (bad.length) toast.error(bad[0], { duration: 8000 })
+    else if (next.length > files.length) toast.success(`Добавлено: ${next.length - files.length}`)
     setFiles(next)
   }
 
@@ -144,7 +158,7 @@ export function PrecheckPage() {
             </p>
             <input
               ref={inputRef}
-              accept=".xlsm,.xlsx,.xml"
+              accept=".xlsm,.xlsx,.xml,.xls"
               className="hidden"
               multiple
               type="file"
@@ -152,25 +166,57 @@ export function PrecheckPage() {
             />
           </div>
 
-          {files.length > 0 && (
-            <ul className="mt-3 space-y-1 text-sm">
-              {files.map((file) => (
-                <li className="flex items-center justify-between gap-2" key={file.name + file.size}>
-                  <span className="truncate text-ink">{file.name}</span>
-                  <span className="flex items-center gap-2 text-steel">
-                    {formatSize(file.size)}
-                    <button
-                      aria-label="Убрать файл"
-                      className="btn-secondary btn-sm"
-                      type="button"
-                      onClick={() => setFiles(files.filter((f) => f !== file))}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </span>
-                </li>
+          {files.length > 0 ? (
+            <div className="mt-3 rounded-lg border border-[var(--success)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-ink">
+                  Выбрано файлов: {files.length}
+                </span>
+                <button
+                  className="text-xs text-steel underline"
+                  type="button"
+                  onClick={() => setFiles([])}
+                >
+                  очистить
+                </button>
+              </div>
+              <ul className="mt-2 space-y-1">
+                {files.map((file) => (
+                  <li
+                    className="flex items-center justify-between gap-2 rounded border border-line px-2 py-1.5"
+                    key={file.name + file.size}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <FileCheck2 className="h-4 w-4 shrink-0 text-[var(--success)]" />
+                      <span className="truncate text-sm text-ink">{file.name}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-steel">
+                      {formatSize(file.size)}
+                      <button
+                        aria-label="Убрать файл"
+                        className="btn-secondary btn-sm"
+                        type="button"
+                        onClick={() => setFiles(files.filter((f) => f !== file))}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-steel">
+              Файлы не выбраны. Перетащите пачку в рамку выше или нажмите «выберите».
+            </p>
+          )}
+
+          {rejected.length > 0 && (
+            <div className="mt-2 rounded-lg border border-[var(--danger)] p-2 text-xs text-[var(--danger-text)]">
+              {rejected.map((item) => (
+                <div key={item}>{item}</div>
               ))}
-            </ul>
+            </div>
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -195,7 +241,12 @@ export function PrecheckPage() {
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className="btn-primary" disabled={running} type="button" onClick={run}>
+            <button
+              className="btn-primary"
+              disabled={running || files.length === 0}
+              type="button"
+              onClick={run}
+            >
               {running ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Проверяю…
@@ -207,7 +258,11 @@ export function PrecheckPage() {
               )}
             </button>
             {result && (
-              <button className="btn-secondary" type="button" onClick={() => void download(result.run_id)}>
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => void download(result.run_id)}
+              >
                 <Download className="mr-2 h-4 w-4" /> Скачать отчёт
               </button>
             )}
