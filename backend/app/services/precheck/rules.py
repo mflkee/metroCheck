@@ -211,6 +211,11 @@ def rule_reverify(r: dict, ctx: Context) -> list[Issue]:
         return out
     prev = ctx.previous.get((ot, norm_number(mi))) or []
     for p in prev:
+        prev_vrf = p.get("vrf_date")
+        # учитываем только более ранние поверки: та же запись (например, уже опубликованная)
+        # или более поздняя «предыдущей» не является
+        if prev_vrf and prev_vrf >= vrf:
+            continue
         valid = p.get("valid_date")
         if valid and valid >= vrf:
             out.append(Issue(r["row"], "Дата поверки", WARNING, "повторная поверка",
