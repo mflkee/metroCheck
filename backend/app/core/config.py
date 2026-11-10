@@ -48,12 +48,12 @@ class Settings(BaseSettings):
     # Шифры клейма нашей организации: чужие пачки помечаются ошибкой.
     PRECHECK_CIPHERS: str = "ЕЖБ"
     # Куда складывать отчёты (xlsx) — файлы пачек не сохраняются.
-    PRECHECK_REPORTS_DIR: str = "/tmp/precheck_reports"
+    PRECHECK_REPORTS_DIR: str = "/reports/precheck"
     # Сколько отсутствующих типов СИ дотягивать из АРШИН за один запуск.
     PRECHECK_ONLINE_LIMIT: int = 40
     # Через сколько дней перепроверять карточку типа в АРШИН (ловить новые приказы
     # и смену методики поверки). 0 — не обновлять автоматически.
-    PRECHECK_REFERENCE_TTL_DAYS: int = 7
+    PRECHECK_REFERENCE_TTL_DAYS: int = 3
     # any — допустим любой интервал из карточки типа; strict — отбор по году выпуска.
     PRECHECK_MPI_MODE: str = "any"
     # Что делать, если срок действия утверждения типа истёк: error | warning | off

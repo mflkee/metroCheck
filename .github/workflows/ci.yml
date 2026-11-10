@@ -96,8 +96,17 @@ jobs:
         run: |
           cd ~/apps/metroCheck
           IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging pull
-          IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging up -d
+          IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging up -d --wait --wait-timeout 180
           IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging exec -T backend alembic upgrade head
+      - name: Verify deployed version (staging)
+        run: |
+          want=$(python3 -c "import json;print(json.load(open('frontend/package.json'))['version'])")
+          got=$(curl -fsS http://127.0.0.1:9002/api/openapi.json | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])")
+          echo "собрано: $want, на стенде: $got"
+          if [ "$want" != "$got" ]; then
+            echo "::error::на стенде версия $got, а собрана $want — деплой не применился"
+            exit 1
+          fi
       - name: Staging health
         run: |
           for _ in {1..60}; do
@@ -135,8 +144,17 @@ jobs:
         run: |
           cd ~/apps/metroCheck
           IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production pull
-          IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production up -d
+          IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production up -d --wait --wait-timeout 180
           IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
+      - name: Verify deployed version (prod)
+        run: |
+          want=$(python3 -c "import json;print(json.load(open('frontend/package.json'))['version'])")
+          got=$(curl -fsS http://127.0.0.1:8002/api/openapi.json | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])")
+          echo "собрано: $want, на проде: $got"
+          if [ "$want" != "$got" ]; then
+            echo "::error::на проде версия $got, а собрана $want — деплой не применился"
+            exit 1
+          fi
       - name: Prod health
         run: |
           for _ in {1..60}; do

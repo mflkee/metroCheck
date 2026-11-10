@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.calibration import Calibration
 from app.models.precheck import PrecheckRun
 from app.services.precheck import loader, rules
 from app.services.precheck.reference import ensure_types
@@ -25,10 +28,61 @@ class ParsedFile:
     records: list[dict]
 
 
+REPORT_TTL_DAYS = 14
+
+
 def _reports_dir() -> str:
+    """Каталог отчётов (volume /reports — переживает пересоздание контейнера)."""
     path = settings.PRECHECK_REPORTS_DIR
     os.makedirs(path, exist_ok=True)
+    cutoff = datetime.now().timestamp() - REPORT_TTL_DAYS * 86400
+    for old in Path(path).glob("проверка_*.xlsx"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
     return path
+
+
+async def _load_history(
+    session: AsyncSession, records: list[dict],
+) -> tuple[dict[tuple[str, str], list[dict]], dict[str, dict]]:
+    """История поверок из нашей базы: для проверки «раньше окончания предыдущей»
+    и сверки с тем, что уже опубликовано."""
+    from app.services.precheck.common import norm_number
+
+    ots = sorted({(r.get("ot") or "").strip() for r in records if r.get("ot")})
+    serials = {norm_number(r.get("mi_number") or r.get("inventory_number")) for r in records}
+    serials.discard("")
+    if not ots or not serials:
+        return {}, {}
+
+    rows = (await session.execute(
+        select(Calibration).where(Calibration.mit_number.in_(ots))
+    )).scalars()
+
+    previous: dict[tuple[str, str], list[dict]] = {}
+    published: dict[str, dict] = {}
+    for cal in rows:
+        key = (cal.mit_number or "", norm_number(cal.mi_number))
+        if key[1] not in serials:
+            continue
+        item = {
+            "vrf_date": cal.verification_date.isoformat() if cal.verification_date else None,
+            "valid_date": cal.valid_date.isoformat() if cal.valid_date else None,
+            "docnum": cal.result_docnum,
+            "org": cal.org_title,
+        }
+        previous.setdefault(key, []).append(item)
+        if cal.result_docnum:
+            published[cal.result_docnum] = {
+                "ot": cal.mit_number,
+                "mi_number": cal.mi_number,
+                "vrf_date": item["vrf_date"],
+                "valid_date": item["valid_date"],
+            }
+    return previous, published
 
 
 async def run_precheck(
@@ -79,8 +133,12 @@ async def run_precheck(
         ttl_days=settings.PRECHECK_REFERENCE_TTL_DAYS,
     )
 
+    previous, published = await _load_history(session, [r for f in parsed for r in f.records])
+
     ctx = rules.Context(
         types=types,
+        previous=previous,
+        published=published,
         conditions_by_date=conditions,
         profile=profile,
         mpi_mode=settings.PRECHECK_MPI_MODE,

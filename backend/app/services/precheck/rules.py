@@ -40,6 +40,7 @@ class Context:
 
     types: dict[str, dict] = field(default_factory=dict)
     previous: dict[tuple[str, str], list[dict]] = field(default_factory=dict)
+    published: dict[str, dict] = field(default_factory=dict)
     conditions_by_date: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     profile: str = "mvp"
     mpi_mode: str = "any"
@@ -396,13 +397,44 @@ def rule_conditions(r: dict, ctx: Context) -> list[Issue]:
     return out
 
 
-RULES = [rule_required, rule_ot, rule_mpi, rule_reverify, rule_method,
+def rule_published(r: dict, ctx: Context) -> list[Issue]:
+    """Сверка строки с тем, что уже опубликовано в АРШИН (по номеру свидетельства).
+
+    Берём из нашей базы поверок; если такого свидетельства у нас нет — молчим,
+    потому что «нет в базе» не значит «не опубликовано».
+    """
+    doc = (r.get("docnum") or "").strip()
+    if not doc or not ctx.published:
+        return []
+    pub = ctx.published.get(doc)
+    if pub is None:
+        return []
+    problems: list[str] = []
+    if (pub.get("ot") or "") != (r.get("ot") or ""):
+        problems.append(f"ОТ: в реестре {pub.get('ot')}, в строке {r.get('ot')}")
+    if norm_number(pub.get("mi_number")) != norm_number(r.get("mi_number")):
+        problems.append(
+            f"заводской №: в реестре {pub.get('mi_number')}, в строке {r.get('mi_number')}")
+    if pub.get("vrf_date") and r.get("vrf_date") and pub["vrf_date"] != r["vrf_date"]:
+        problems.append(f"дата поверки: в реестре {pub['vrf_date']}, в строке {r['vrf_date']}")
+    if (pub.get("valid_date") or None) != (r.get("valid_date") or None):
+        problems.append(
+            f"действительно до: в реестре {pub.get('valid_date')}, в строке {r.get('valid_date')}")
+    if not problems:
+        return [Issue(r["row"], "Свидетельство", INFO, "опубликовано",
+                      f"совпадает с реестром ({doc})")]
+    return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
+                  "опубликовано не то же самое: " + "; ".join(problems),
+                  "сверьте запись в личном кабинете АРШИН")]
+
+
+RULES = [rule_required, rule_ot, rule_mpi, rule_reverify, rule_method, rule_published,
          rule_modification, rule_dates, rule_duplicates, rule_dragfill, rule_conditions]
 
 PROFILES: dict[str, tuple] = {
     # Методика добавлена в базовый профиль: смена редакции в описании типа — тот самый
     # случай, когда старая методика уходит в АРШИН без предупреждения.
-    "mvp": (rule_ot, rule_mpi, rule_method),
+    "mvp": (rule_ot, rule_mpi, rule_method, rule_reverify, rule_published),
     "full": tuple(RULES),
 }
 
