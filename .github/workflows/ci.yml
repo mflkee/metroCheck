@@ -100,7 +100,7 @@ jobs:
           IMAGE_TAG=staging docker compose -p metrocheck-stg -f docker-compose.staging.yml --env-file .env.staging exec -T backend alembic upgrade head
       - name: Verify deployed version (staging)
         run: |
-          want=$(python3 -c "import json;print(json.load(open('frontend/package.json'))['version'])")
+          want=$(python3 -c "import json;print(json.load(open('$HOME/apps/metroCheck/frontend/package.json'))['version'])")
           ok=0
           for _ in $(seq 1 30); do
             got=$(curl -fsS http://127.0.0.1:9002/openapi.json 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])" 2>/dev/null || true)
@@ -153,7 +153,7 @@ jobs:
           IMAGE_TAG=latest docker compose -p metrocheck --env-file .env.production exec -T backend alembic upgrade head
       - name: Verify deployed version (prod)
         run: |
-          want=$(python3 -c "import json;print(json.load(open('frontend/package.json'))['version'])")
+          want=$(python3 -c "import json;print(json.load(open('$HOME/apps/metroCheck/frontend/package.json'))['version'])")
           ok=0
           for _ in $(seq 1 30); do
             got=$(curl -fsS http://127.0.0.1:8002/openapi.json 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])" 2>/dev/null || true)
