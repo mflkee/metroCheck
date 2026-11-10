@@ -20,10 +20,14 @@ from app.services.precheck.common import norm_text
 
 # «имеют следующие модификации МП2-У, МП3-У, …» / «выпускаются в модификациях …»
 _PATTERNS = [
-    r"(?:имеют|имеет|выпускаются|изготавливаются)\s+(?:следующие\s+)?модификаци\w*[:\s]+([^.;]{10,600})",
-    r"модификации[:\s]+([^.;]{10,600})",
+    r"(?:имеют|имеет|выпускаются|изготавливаются|поставляются)\s+(?:следующие\s+)?модификаци\w*[:\s]+([^.;]{10,600})",
+    r"модификаци\w*[:\s]+([^.;]{10,600})",
     r"исполнени\w*[:\s]+([^.;]{10,600})",
 ]
+
+# фразы, после которых перечисление модификаций заканчивается
+_LIST_END = re.compile(
+    r"\b(?:выпускаются|изготавливаются|поставляются|имеют|имеет|отличаются)\b", re.I)
 
 _STOP_WORDS = {"нет", "модификации", "исполнения", "модификация", "исполнение", "-"}
 
@@ -35,9 +39,13 @@ def parse_modifications(text: str) -> list[str]:
         found: list[str] = []
         for match in re.finditer(pattern, flat, re.I):
             chunk = match.group(1)
+            # обрезаем хвост вида «… ВП4-У выпускаются с 2015 года»
+            chunk = _LIST_END.split(chunk)[0]
             for token in re.split(r",|;", chunk):
                 token = token.strip(" .:«»\"'()")
                 if not (1 < len(token) < 60):
+                    continue
+                if len(token.split()) > 4:
                     continue
                 if norm_text(token) in {norm_text(w) for w in _STOP_WORDS}:
                     continue

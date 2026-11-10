@@ -48,6 +48,8 @@ class Context:
     allowed_ciphers: set[str] = field(default_factory=set)
     today: str = ""
     batch_index: dict[tuple[str, str], list[int]] = field(default_factory=dict)
+    # сколько раз модификация встречается в этой же пачке: (ОТ, нормализованное имя)
+    mod_usage: dict[tuple[str, str], int] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------- правила
@@ -314,6 +316,49 @@ def rule_method(r: dict, ctx: Context) -> list[Issue]:
     return problems
 
 
+def _common_prefix(a: str, b: str) -> int:
+    n = 0
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _common_suffix(a: str, b: str) -> int:
+    return _common_prefix(a[::-1], b[::-1])
+
+
+def similar_mods(
+    name: str,
+    known: list[str],
+    usage: dict[tuple[str, str], int],
+    ot: str,
+    limit: int = 3,
+) -> list[tuple[str, int, int]]:
+    """Похожие модификации: (название, расстояние, сколько раз встречается в пачке).
+
+    Расстояние Левенштейна часто даёт ничью («МП9-У» одинаково далеко от «МП2-У» и «МП3-У»).
+    Тогда решает подсказка из самой пачки: если сотрудник в этом же файле уже писал «МП3-У»,
+    скорее всего опечатка именно в ней. Дальше — длина общего начала и конца.
+    """
+    a = norm_text(name)
+    scored = []
+    for k in known:
+        nk = norm_text(k)
+        used = usage.get((ot, nk), 0)
+        scored.append((
+            levenshtein(name, k),
+            -used,
+            -_common_prefix(a, nk),
+            -_common_suffix(a, nk),
+            len(k),
+            k,
+        ))
+    scored.sort()
+    return [(item[-1], item[0], -item[1]) for item in scored[:limit]]
+
+
 def rule_modification(r: dict, ctx: Context) -> list[Issue]:
     out: list[Issue] = []
     card = ctx.types.get((r.get("ot") or "").strip())
@@ -325,10 +370,18 @@ def rule_modification(r: dict, ctx: Context) -> list[Issue]:
         return out
     if any(norm_text(k) == norm_text(mod) for k in known):
         return out
-    close = sorted(known, key=lambda k: levenshtein(mod, k))[:3]
-    if close and levenshtein(mod, close[0]) <= 2:
+    close = similar_mods(mod, known, ctx.mod_usage, (r.get("ot") or "").strip())
+    if close and close[0][1] <= 2:
+        best, used = close[0][1], close[0][2]
+        # одинаково близкие варианты: если один из них уже встречался в пачке — показываем его
+        tied = [k for k, dist, cnt in close if dist == best and cnt == used]
+        if len(tied) > 1:
+            variants = ", ".join(f"«{k}»" for k in tied[:3])
+            return [Issue(r["row"], "Модификация", WARNING, "модификация",
+                          f"«{mod}» не найдена, возможные варианты: {variants}",
+                          "возможна опечатка или другое написание")]
         return [Issue(r["row"], "Модификация", WARNING, "модификация",
-                      f"«{mod}» не найдена, похоже на «{close[0]}»",
+                      f"«{mod}» не найдена, похоже на «{tied[0]}»",
                       "возможна опечатка или другое написание")]
     return [Issue(r["row"], "Модификация", WARNING, "модификация",
                   f"«{mod}» отсутствует в справочнике модификаций типа",
@@ -507,10 +560,15 @@ def check_ciphers(records: list[dict], allowed: set[str]) -> list[Issue]:
 def run(records: list[dict], ctx: Context) -> list[Issue]:
     """Прогнать правила профиля по записям."""
     ctx.batch_index = {}
+    ctx.mod_usage = {}
     for r in records:
-        key = ((r.get("ot") or "").strip(),
-               norm_number(r.get("mi_number") or r.get("inventory_number") or ""))
+        ot = (r.get("ot") or "").strip()
+        key = (ot, norm_number(r.get("mi_number") or r.get("inventory_number") or ""))
         ctx.batch_index.setdefault(key, []).append(r["row"])
+        mod = (r.get("modification") or "").strip()
+        if ot and mod:
+            mod_key = (ot, norm_text(mod))
+            ctx.mod_usage[mod_key] = ctx.mod_usage.get(mod_key, 0) + 1
     issues: list[Issue] = []
     for r in records:
         for rule in PROFILES.get(ctx.profile, PROFILES["full"]):
