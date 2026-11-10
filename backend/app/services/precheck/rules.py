@@ -50,6 +50,8 @@ class Context:
     batch_index: dict[tuple[str, str], list[int]] = field(default_factory=dict)
     # сколько раз модификация встречается в этой же пачке: (ОТ, нормализованное имя)
     mod_usage: dict[tuple[str, str], int] = field(default_factory=dict)
+    # ОТ → более позднее утверждение того же типа (переутверждение)
+    successors: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------- правила
@@ -100,10 +102,42 @@ def rule_ot(r: dict, ctx: Context) -> list[Issue]:
     if valid_to and r.get("vrf_date") and valid_to < r["vrf_date"]:
         level = {"error": ERROR, "warning": WARNING}.get(ctx.ot_expired)
         if level:
+            successor = ctx.successors.get(ot)
+            if successor:
+                new_ot, new_valid = successor
+                tail = f"; вероятно, тип переутверждён: {new_ot}"
+                if new_valid:
+                    tail += f" (действует до {new_valid})"
+                hint = f"проверьте, не должен ли в строке стоять ОТ {new_ot}"
+            else:
+                tail = ""
+                hint = "уточните, не должен ли использоваться переутверждённый ОТ"
             out.append(Issue(r["row"], "ОТ", level, "ОТ не действует",
                              f"утверждение типа {ot} действовало до {valid_to}, "
-                             f"а поверка — {r['vrf_date']}",
-                             "уточните, не должен ли использоваться переутверждённый ОТ"))
+                             f"а поверка — {r['vrf_date']}{tail}",
+                             hint))
+    return out
+
+
+def build_successors(types: dict[str, dict]) -> dict[str, tuple[str, str]]:
+    """Для каждого ОТ — более позднее утверждение того же типа.
+
+    Номер типа СИ записывается как «номер-год утверждения» (10135-00, 10135-15):
+    одна и та же основа с другим годом означает переутверждение типа. Берём ближайшее
+    следующее утверждение, у которого срок действия позже.
+    """
+    by_base: dict[str, list[tuple[str, str]]] = {}
+    for ot, card in types.items():
+        base = ot.split("-")[0]
+        by_base.setdefault(base, []).append((card.get("valid_to") or "", ot))
+    out: dict[str, tuple[str, str]] = {}
+    for items in by_base.values():
+        items.sort(reverse=True)
+        for valid, ot in items:
+            later = [(v, o) for v, o in items if v and v > valid]
+            if later:
+                # отдаём (номер ОТ, действует до) — в таком порядке их и показываем
+                out[ot] = (later[0][1], later[0][0])
     return out
 
 

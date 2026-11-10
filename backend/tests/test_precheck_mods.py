@@ -1,7 +1,14 @@
 """Тесты справочника модификаций и подсказок в проверке."""
 
 from app.services.precheck.common import norm_text
-from app.services.precheck.rules import Context, rule_modification, similar_mods
+from app.services.precheck.rules import (
+    WARNING,
+    Context,
+    build_successors,
+    rule_modification,
+    rule_ot,
+    similar_mods,
+)
 from app.services.precheck.specs import parse_modifications
 
 SAMPLE = (
@@ -51,3 +58,32 @@ def test_rule_modification_silent_for_known_name():
     ctx = Context(types={"10135-15": {"mods": ["МП3-У"]}}, profile="full")
     assert rule_modification(
         {"row": 2, "ot": "10135-15", "modification": "мп3-у"}, ctx) == []
+
+
+def test_build_successors_finds_reapproval():
+    """10135-00 → 10135-15: та же основа номера, более поздний срок действия."""
+    types = {
+        "10135-00": {"valid_to": "2005-05-01"},
+        "10135-10": {"valid_to": "2015-04-01"},
+        "10135-15": {"valid_to": "2030-04-01"},
+        "22234-01": {"valid_to": "2011-01-01"},
+    }
+    succ = build_successors(types)
+    assert succ["10135-00"] == ("10135-15", "2030-04-01")
+    assert succ["10135-10"] == ("10135-15", "2030-04-01")
+    assert "22234-01" not in succ
+
+
+def test_rule_ot_expired_points_to_new_type():
+    types = {
+        "10135-00": {"title": "Манометры", "valid_to": "2005-05-01"},
+        "10135-15": {"title": "Манометры", "valid_to": "2030-04-01"},
+    }
+    ctx = Context(types=types, successors=build_successors(types),
+                  ot_expired="warning", profile="mvp")
+    issues = rule_ot({"row": 2, "ot": "10135-00", "vrf_date": "2026-06-01"}, ctx)
+    expired = [i for i in issues if i.rule == "ОТ не действует"]
+    assert len(expired) == 1
+    assert expired[0].level == WARNING
+    assert "10135-15" in expired[0].message
+    assert "10135-15" in expired[0].hint

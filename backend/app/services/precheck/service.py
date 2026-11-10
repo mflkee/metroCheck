@@ -145,6 +145,7 @@ async def run_precheck(
         ot_expired=settings.PRECHECK_OT_EXPIRED,
         allowed_ciphers={c.strip().upper() for c in settings.PRECHECK_CIPHERS.split(",")
                          if c.strip()},
+        successors=rules.build_successors(types),
         today=datetime.now().date().isoformat(),
     )
 
