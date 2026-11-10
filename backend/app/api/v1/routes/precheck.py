@@ -138,6 +138,19 @@ async def reference_stats(
                           meth=await count(ArshinMeth))
 
 
+@router.post("/reference/mods")
+async def reference_mods(
+    ots: str = Form("", description="номера ОТ через запятую; пусто — все из справочника"),
+    limit: int = Form(50),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),  # noqa: ARG001
+) -> dict:
+    """Скачать описания типов и обновить справочник модификаций (PDF)."""
+    items = [part.strip() for part in ots.replace(",", "\n").split("\n") if part.strip()]
+    stats = await reference.sync_mods(db, items or None, limit=min(limit, 500))
+    return {"status": "ok", **stats}
+
+
 @router.post("/reference/sync")
 async def reference_sync(
     ots: str = Form("", description="номера ОТ через запятую или с новой строки"),

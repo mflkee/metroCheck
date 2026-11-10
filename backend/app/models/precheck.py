@@ -64,3 +64,14 @@ class PrecheckRun(Base):
     errors: Mapped[int] = mapped_column(Integer, default=0)
     warnings: Mapped[int] = mapped_column(Integer, default=0)
     report_path: Mapped[str | None] = mapped_column(String(512))
+
+
+class ArshinMod(Base):
+    """Модификация типа СИ (из описания типа / подтверждена вручную)."""
+
+    __tablename__ = "arshin_mods"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ot: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    source: Mapped[str] = mapped_column(String(32), default="pdf")

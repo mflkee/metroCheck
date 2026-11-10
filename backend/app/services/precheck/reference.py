@@ -15,7 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.precheck import ArshinMeth, ArshinMpi, ArshinType
+from app.models.precheck import ArshinMeth, ArshinMod, ArshinMpi, ArshinType
 from app.services.precheck.common import iso
 
 # не более ~2 запросов/сек — ограничение публичного API
@@ -165,6 +165,10 @@ async def load_types(session: AsyncSession, ots: list[str]) -> dict[str, dict]:
             "valid_from": m.valid_from,
             "valid_to": m.valid_to,
         })
+    mod_rows = (await session.execute(
+        select(ArshinMod).where(ArshinMod.ot.in_(types)))).scalars()
+    for mod in mod_rows:
+        result[mod.ot]["mods"].append(mod.name)
     for card in result.values():
         card["mpi"].sort(key=lambda x: (x["months"] is None, x["months"] or 0))
     return result
@@ -241,3 +245,31 @@ async def ensure_types(
                               source="auto: проверка пачки (TTL)")
     stats["refreshed"] = synced.get("saved", 0)
     return await load_types(session, ots), stats
+
+
+async def sync_mods(
+    session: AsyncSession,
+    ots: list[str] | None = None,
+    limit: int = 50,
+) -> dict[str, int]:
+    """Скачать описания типов и обновить справочник модификаций."""
+    from app.services.precheck.specs import sync_mods_for_type
+
+    stats = {"requested": 0, "saved": 0, "no_spec": 0, "errors": 0}
+    query = select(ArshinType).where(ArshinType.spec_url.is_not(None))
+    if ots:
+        query = query.where(ArshinType.ot.in_(ots))
+    types = list((await session.execute(query.limit(limit))).scalars())
+    stats["requested"] = len(types)
+    async with httpx.AsyncClient(headers={"User-Agent": "metroCheck-precheck/1.0"}) as client:
+        for row in types:
+            result = await sync_mods_for_type(session, row.ot, row.spec_url or "", client)
+            if result["error"]:
+                if "не найдены" in result["error"]:
+                    stats["no_spec"] += 1
+                else:
+                    stats["errors"] += 1
+            else:
+                stats["saved"] += result["saved"]
+            await session.commit()
+    return stats
