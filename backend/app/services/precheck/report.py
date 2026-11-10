@@ -19,7 +19,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.services.precheck.rules import ERROR, WARNING, Issue
+from app.services.precheck.rules import ERROR, INFO, WARNING, Issue
 
 # ── палитра metroCheck ────────────────────────────────────────────────
 SECTION_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -39,6 +39,8 @@ WARN_FONT = Font(color="9C5700", bold=True)
 BAD_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 BAD_FONT = Font(color="9C0006", bold=True)
 ZEBRA_FILL = PatternFill(start_color="F5F8FC", end_color="F5F8FC", fill_type="solid")
+INFO_FILL = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+INFO_FONT = Font(color="1F4E79")
 MUTED = Font(color="808080", size=9, italic=True)
 THIN = Border(*[Side(style="thin", color="BFBFBF")] * 4)
 
@@ -462,15 +464,20 @@ def build_report(
         first_data = row
         for index, issue in enumerate(ordered):
             is_error = issue.level == ERROR
+            is_info = issue.level == INFO
             zebra = ZEBRA_FILL if index % 2 else None
             _write(ws2, row, 1, issue.file, fill=zebra, border=THIN)
             _write(ws2, row, 2, issue.row if issue.row else "—", fill=zebra, border=THIN,
                    align=Alignment(horizontal="center", vertical="center"))
             _write(ws2, row, 3, issue.column or "—", fill=zebra, border=THIN,
                    align=Alignment(horizontal="center", vertical="center"))
-            _write(ws2, row, 4, "ошибка" if is_error else "предупреждение",
-                   fill=BAD_FILL if is_error else WARN_FILL,
-                   font=BAD_FONT if is_error else WARN_FONT, border=THIN,
+            if is_error:
+                level_text, level_fill, level_font = "ошибка", BAD_FILL, BAD_FONT
+            elif is_info:
+                level_text, level_fill, level_font = "информация", INFO_FILL, INFO_FONT
+            else:
+                level_text, level_fill, level_font = "предупреждение", WARN_FILL, WARN_FONT
+            _write(ws2, row, 4, level_text, fill=level_fill, font=level_font, border=THIN,
                    align=Alignment(horizontal="center", vertical="center", wrap_text=True))
             _write(ws2, row, 5, RULE_LABEL.get(issue.rule, issue.rule),
                    fill=zebra, border=THIN)

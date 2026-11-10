@@ -4,7 +4,7 @@ import io
 import zipfile
 
 from app.services.precheck.report import build_report
-from app.services.precheck.rules import ERROR, WARNING, Issue
+from app.services.precheck.rules import ERROR, INFO, WARNING, Issue
 from app.services.precheck.service import ParsedFile, _object_stats
 
 
@@ -13,6 +13,7 @@ def _issues() -> list[Issue]:
         Issue(2, "ОТ", ERROR, "ОТ не найден", "тип не найден", file="август.xlsx"),
         Issue(3, "МПИ", WARNING, "МПИ", "интервал не сходится", file="август.xlsx"),
         Issue(4, "ОТ", WARNING, "ОТ не действует", "срок истёк", file="август.xlsx"),
+        Issue(4, "ОТ", INFO, "ОТ распознан", "тип найден", file="август.xlsx"),
         Issue(0, "(файл)", WARNING, "имя файла", "не совпадает", file="август.xlsx"),
     ]
 
@@ -49,3 +50,4 @@ def test_report_contains_objects_section():
                        for n in z.namelist() if n.endswith(".xml"))
     assert "Разбивка по объектам" in text
     assert "УКПГ-1" in text
+    assert "информация" in text
