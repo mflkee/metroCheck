@@ -31,10 +31,34 @@ _LIST_END = re.compile(
 
 _STOP_WORDS = {"нет", "модификации", "исполнения", "модификация", "исполнение", "-"}
 
+# признаки текста описания, а не обозначения модификации
+_PROSE = re.compile(
+    r"\b(?:котор\w*|соответств\w*|различа\w*|отлича\w*|метрологическ\w*|"
+    r"нормированн\w*|эксплуатационн\w*|взрывонепроницаем\w*|взрывозащит\w*|"
+    r"измеряем\w*|предназначен\w*|применя\w*|использу\w*|входящ\w*|встроенн\w*|"
+    r"явля\w*|предел\w*|циферблат\w*|индикатор\w*|процессор\w*|погрешност\w*)\b",
+    re.I,
+)
+
+
+def _looks_like_prose(token: str) -> bool:
+    """Отличить обозначение модификации от фразы из описания типа.
+
+    В описаниях перечень часто перемешан с пояснениями («которые различаются
+    быстродействием процессора», «по ГОСТ Р 52931-2008»). Такие фразы в справочник
+    попадать не должны: они дают ложные подсказки.
+    """
+    if _PROSE.search(token):
+        return True
+    if token[:1].islower():  # обозначения начинаются с заглавной буквы или цифры
+        return True
+    return "ГОСТ" in token.upper()
+
 
 def parse_modifications(text: str) -> list[str]:
     """Вытащить список модификаций из текста описания типа."""
     flat = re.sub(r"\s+", " ", text)
+    stop = {norm_text(w) for w in _STOP_WORDS}
     for pattern in _PATTERNS:
         found: list[str] = []
         for match in re.finditer(pattern, flat, re.I):
@@ -45,11 +69,13 @@ def parse_modifications(text: str) -> list[str]:
                 token = token.strip(" .:«»\"'()")
                 if not (1 < len(token) < 60):
                     continue
-                if len(token.split()) > 4:
+                if len(token.split()) > 3:
                     continue
-                if norm_text(token) in {norm_text(w) for w in _STOP_WORDS}:
+                if norm_text(token) in stop:
                     continue
                 if not re.search(r"[А-Яа-яA-Za-z]", token):
+                    continue
+                if _looks_like_prose(token):
                     continue
                 if token not in found:
                     found.append(token)

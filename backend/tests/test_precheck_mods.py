@@ -24,6 +24,15 @@ def test_parse_modifications_from_spec_text():
     assert "МП4А-У" in names
 
 
+def test_parse_modifications_drops_prose_fragments():
+    """Фразы из описания не должны попадать в справочник модификаций."""
+    text = ("Приборы выпускаются в модификациях МП3-У, которые различаются "
+            "быстродействием процессора, МП4-У, по ГОСТ Р 52931-2008, "
+            "методом измерений, ВП2-У.")
+    names = parse_modifications(text)
+    assert names == ["МП3-У", "МП4-У", "ВП2-У"]
+
+
 def test_parse_modifications_ignores_empty_text():
     assert parse_modifications("Описание типа без перечня исполнений.") == []
 
