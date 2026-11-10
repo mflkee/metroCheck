@@ -59,28 +59,37 @@ class Context:
 def rule_required(r: dict, ctx: Context) -> list[Issue]:
     out: list[Issue] = []
     checks = [
-        ("ot", "ОТ (обозначение СИ)", "нет номера типа СИ — запись не пройдёт импорт"),
-        ("vrf_date", "Дата поверки", "обязательное поле"),
-        ("vrf_type", "Вид поверки", "в XSD обязательно: 1 — первичная, 2 — периодическая"),
-        ("owner", "Владелец СИ", "обязательное поле (miOwner)"),
-        ("sign_cipher", "Шифр клейма", "обязательное поле (signCipher)"),
-        ("doc_title", "Методика поверки", "обязательное поле (docTitle)"),
+        ("ot", "ОТ (обозначение СИ)", "Не указан номер типа СИ.",
+         "без номера типа запись не импортируется в АРШИН"),
+        ("vrf_date", "Дата поверки", "Не указана дата поверки.",
+         "по дате считается срок действия"),
+        ("vrf_type", "Вид поверки",
+         "Не указан вид поверки: 1 — первичная, 2 — периодическая.",
+         "поле обязательно для XML"),
+        ("owner", "Владелец СИ", "Не указан владелец СИ.",
+         "поле miOwner обязательно для XML"),
+        ("sign_cipher", "Шифр клейма", "Не указан шифр клейма.",
+         "поле signCipher обязательно для XML"),
+        ("doc_title", "Методика поверки", "Не указана методика поверки.",
+         "поле docTitle обязательно для XML"),
     ]
-    for key, col, why in checks:
+    for key, col, message, hint in checks:
         if empty(r.get(key)):
-            out.append(Issue(r["row"], col, ERROR, "обязательное поле",
-                             f"поле не заполнено: {why}"))
+            out.append(Issue(r["row"], col, ERROR, "обязательное поле", message, hint))
     if empty(r.get("mi_number")) and empty(r.get("inventory_number")):
         out.append(Issue(r["row"], "Заводской/Инвентарный номер", ERROR, "обязательное поле",
-                         "нужен заводской или инвентарный номер"))
+                         "Нет ни заводского, ни инвентарного номера.",
+                         "нужен хотя бы один из них, иначе прибор не идентифицировать"))
     if empty(r.get("etalons")) and empty(r.get("mis")):
         out.append(Issue(r["row"], "Средства поверки", ERROR, "обязательное поле",
-                         "не указаны средства поверки (эталоны / СИ при поверке)"))
+                         "Не указаны средства поверки: эталоны или СИ, применяемые при поверке.",
+                         "без них запись не пройдёт импорт"))
     for key, col in (("temperature", "Температура"), ("pressure", "Давление"),
                      ("humidity", "Влажность")):
         if empty(r.get(key)):
             out.append(Issue(r["row"], col, ERROR, "обязательное поле",
-                             "условия поверки обязательны по XSD"))
+                             f"Не указано значение: {col.lower()}.",
+                             "условия поверки обязательны для XML"))
     return out
 
 
@@ -92,12 +101,12 @@ def rule_ot(r: dict, ctx: Context) -> list[Issue]:
     card = ctx.types.get(ot)
     if card is None:
         out.append(Issue(r["row"], "ОТ", ERROR, "ОТ не найден",
-                         f"тип СИ {ot} отсутствует в справочнике и не найден в реестре",
+                         f"Типа СИ {ot} нет в реестре АРШИН.",
                          "проверьте номер: частая ошибка — «протянутая» последняя цифра"))
         return out
     if card.get("title"):
         out.append(Issue(r["row"], "ОТ", INFO, "ОТ распознан",
-                         f"{ot} — {card['title']}"
+                         f"Тип найден: {ot} — {card['title']}"
                          + (f", обозн. {card['notation']}" if card.get("notation") else "")))
     valid_to = card.get("valid_to")
     if valid_to and r.get("vrf_date") and valid_to < r["vrf_date"]:
@@ -109,16 +118,16 @@ def rule_ot(r: dict, ctx: Context) -> list[Issue]:
         if level:
             if successor:
                 new_ot, new_valid = successor
-                tail = f"; вероятно, тип переутверждён: {new_ot}"
+                tail = f" Вероятно, тип переутверждён: {new_ot}"
                 if new_valid:
-                    tail += f" (действует до {new_valid})"
+                    tail += f" (действует до {new_valid})."
                 hint = f"проверьте, не должен ли в строке стоять ОТ {new_ot}"
             else:
                 tail = ""
                 hint = "уточните, не должен ли использоваться переутверждённый ОТ"
             out.append(Issue(r["row"], "ОТ", level, "ОТ не действует",
-                             f"утверждение типа {ot} действовало до {valid_to}, "
-                             f"а поверка — {r['vrf_date']}{tail}",
+                             f"Срок утверждения типа {ot} истёк {valid_to}, "
+                             f"а поверка проведена {r['vrf_date']}.{tail}",
                              hint))
     return out
 
@@ -179,7 +188,7 @@ def rule_mpi(r: dict, ctx: Context) -> list[Issue]:
     if not empty(r.get("bad_reason")):
         if r.get("valid_date"):
             out.append(Issue(r["row"], "Действительно до", WARNING, "МПИ",
-                             "СИ непригодно, но заполнена дата «действительно до»",
+                             "СИ признано непригодным, но заполнена дата «действительно до».",
                              "для извещения о непригодности дата не указывается"))
         return out
 
@@ -187,7 +196,8 @@ def rule_mpi(r: dict, ctx: Context) -> list[Issue]:
     if not rows:
         if r.get("valid_date"):
             out.append(Issue(r["row"], "Действительно до", WARNING, "МПИ не установлен",
-                             "для этого типа нет периодической поверки, а дата заполнена"))
+                             "У этого типа нет периодической поверки, но дата «действительно до» заполнена.",
+                             "очистите дату, если по типу предусмотрена только первичная поверка"))
         return out
 
     def in_period(m: dict) -> bool:
@@ -207,8 +217,8 @@ def rule_mpi(r: dict, ctx: Context) -> list[Issue]:
     if all(m.get("months") is None for m in cand):
         if real:
             out.append(Issue(r["row"], "Действительно до", WARNING, "МПИ не установлен",
-                             "у типа предусмотрена только первичная поверка — "
-                             "дату заполнять не нужно"))
+                             "У типа предусмотрена только первичная поверка — дату заполнять не нужно.",
+                             "очистите дату «действительно до»"))
         return out
 
     expected = [(m, mpi_valid_until(vrf, int(m["months"]))) for m in cand if m.get("months")]
@@ -219,15 +229,16 @@ def rule_mpi(r: dict, ctx: Context) -> list[Issue]:
         if periodic:
             exp = ", ".join(sorted({e for _, e in expected}))
             out.append(Issue(r["row"], "Действительно до", ERROR, "МПИ",
-                             f"для периодической поверки дата обязательна (ожидается {exp})",
+                             f"Для периодической поверки нужна дата «действительно до»: "
+                             f"ожидается {exp}.",
                              "если СИ признано непригодным — заполните «Причину непригодности»"))
         return out
 
     if any(e == real for _, e in expected):
         m = next(m for m, e in expected if e == real)
         out.append(Issue(r["row"], "Действительно до", INFO, "МПИ",
-                         f"сходится: {m['months']} мес → {real}"
-                         + (f" (условие: {m['parameter']})" if m.get("parameter") else "")))
+                         f"МПИ сходится: {m['months']} мес, действует до {real}."
+                         + (f" Условие: {m['parameter']}." if m.get("parameter") else "")))
         return out
 
     used = used_months(vrf, real)
@@ -236,8 +247,8 @@ def rule_mpi(r: dict, ctx: Context) -> list[Issue]:
         for m, e in expected)
     actual_text = f"указано {used} мес (до {real})" if used else f"указано до {real}"
     out.append(Issue(r["row"], "Действительно до", ERROR, "МПИ",
-                     f"{actual_text}, а в карточке типа — {expected_text}",
-                     "проверьте интервал и дату"))
+                     f"{actual_text}, а по МПИ типа — {expected_text}.",
+                     "проверьте интервал и дату: возможно, применён МПИ другого типа или редакции"))
     return out
 
 
@@ -259,8 +270,9 @@ def rule_reverify(r: dict, ctx: Context) -> list[Issue]:
         valid = p.get("valid_date")
         if valid and valid >= vrf:
             out.append(Issue(r["row"], "Дата поверки", WARNING, "повторная поверка",
-                             f"поверка раньше окончания предыдущей (та действовала до {valid})",
-                             "для отдельных владельцев (ИНК) допускается"))
+                             f"Поверка проведена раньше, чем закончилось действие предыдущей "
+                             f"(та действовала до {valid}).",
+                             "для отдельных владельцев (ИНК) это допускается"))
             break
     return out
 
@@ -315,8 +327,8 @@ def rule_method(r: dict, ctx: Context) -> list[Issue]:
     if not same:
         allowed = "; ".join(label(m) for m in meth)
         return [Issue(r["row"], "Методика поверки", ERROR, "методика",
-                      f"«{doc}» не найдена в карточке типа {ot}",
-                      f"в карточке: {allowed}")]
+                      f"Методики «{doc}» нет в описании типа {ot}.",
+                      f"в карточке типа указаны: {allowed}")]
 
     # выбираем редакцию, действовавшую на дату поверки; если такой нет — ближайшую
     applicable = [(m, e) for m, e in same if valid_at(m, vrf)]
@@ -331,14 +343,14 @@ def rule_method(r: dict, ctx: Context) -> list[Issue]:
 
     if not valid_at(chosen, vrf) and chosen.get("valid_from") and chosen["valid_from"] > vrf:
         problems.append(Issue(r["row"], "Методика поверки", ERROR, "методика",
-                              f"«{doc}» вводится только с {chosen['valid_from']}, "
-                              f"а поверка — {vrf}",
+                              f"Методика «{doc}» вводится только с {chosen['valid_from']}, "
+                              f"а поверка проведена {vrf}.",
                               "на дату поверки эта редакция ещё не действовала"))
 
     if edition_in and edition_card and edition_in != edition_card:
         problems.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
-                              f"указана редакция изм. №{edition_in}, а в карточке — "
-                              f"№{edition_card} ({label(chosen)})",
+                              f"Указана редакция изм. №{edition_in}, а в карточке типа — "
+                              f"№{edition_card} ({label(chosen)}).",
                               "проверьте, какая редакция действовала на дату поверки"))
 
     if chosen.get("valid_to") and chosen["valid_to"] < vrf:
@@ -347,8 +359,8 @@ def rule_method(r: dict, ctx: Context) -> list[Issue]:
         hint = (f"актуальная: {label(newer[0])}" if newer
                 else "проверьте, нет ли новой редакции методики")
         problems.append(Issue(r["row"], "Методика поверки", WARNING, "методика",
-                              f"«{doc}» действовала до {chosen['valid_to']} — "
-                              f"на дату поверки ({vrf}) уже неактуальна",
+                              f"Методика «{doc}» действовала до {chosen['valid_to']} — "
+                              f"на дату поверки ({vrf}) уже неактуальна.",
                               hint))
 
     return problems
@@ -416,14 +428,16 @@ def rule_modification(r: dict, ctx: Context) -> list[Issue]:
         if len(tied) > 1:
             variants = ", ".join(f"«{k}»" for k in tied[:3])
             return [Issue(r["row"], "Модификация", WARNING, "модификация",
-                          f"«{mod}» не найдена, возможные варианты: {variants}",
-                          "возможна опечатка или другое написание")]
+                          f"Модификации «{mod}» нет в перечне типа. "
+                          f"Возможные варианты: {variants}.",
+                          "проверьте написание в описании типа")]
         return [Issue(r["row"], "Модификация", WARNING, "модификация",
-                      f"«{mod}» не найдена, похоже на «{tied[0]}»",
-                      "возможна опечатка или другое написание")]
+                      f"Модификации «{mod}» нет в перечне типа; возможно, имелась в виду "
+                      f"«{tied[0]}».",
+                      "проверьте написание в описании типа")]
     return [Issue(r["row"], "Модификация", WARNING, "модификация",
-                  f"«{mod}» отсутствует в справочнике модификаций типа",
-                  f"известные: {', '.join(known[:8])}")]
+                  f"Модификации «{mod}» нет в перечне типа.",
+                  f"известные модификации: {', '.join(known[:8])}")]
 
 
 def rule_dates(r: dict, ctx: Context) -> list[Issue]:
@@ -433,10 +447,13 @@ def rule_dates(r: dict, ctx: Context) -> list[Issue]:
         return out
     if ctx.today and vrf > ctx.today:
         out.append(Issue(r["row"], "Дата поверки", ERROR, "дата",
-                         f"дата поверки в будущем ({vrf})"))
+                         f"Дата поверки в будущем: {vrf}.",
+                         "проверьте год — вероятно, опечатка"))
     if r.get("valid_date") and r["valid_date"] <= vrf:
         out.append(Issue(r["row"], "Действительно до", ERROR, "дата",
-                         f"«действительно до» ({r['valid_date']}) не позже даты поверки"))
+                         f"Дата «действительно до» ({r['valid_date']}) не позже даты поверки "
+                         f"({vrf}).",
+                         "срок действия должен заканчиваться после поверки"))
     return out
 
 
@@ -448,9 +465,9 @@ def rule_duplicates(r: dict, ctx: Context) -> list[Issue]:
     rows = ctx.batch_index.get(key, [])
     if len(rows) > 1 and r["row"] == rows[0]:
         return [Issue(r["row"], "Заводской номер", WARNING, "дубли",
-                      f"одно СИ встречается в пачке {len(rows)} раза "
-                      f"(строки {', '.join(map(str, rows))})",
-                      "вторая запись перезапишет первую при публикации")]
+                      f"Этот прибор встречается в пачке {len(rows)} раза "
+                      f"(строки {', '.join(map(str, rows))}).",
+                      "при публикации вторая запись перезапишет первую")]
     return []
 
 
@@ -467,8 +484,8 @@ def rule_dragfill(r: dict, ctx: Context) -> list[Issue]:
         neighbour = f"{int(base) + delta:0{len(base)}d}-{year}"
         if neighbour in batch_ots and neighbour not in ctx.types:
             return [Issue(r["row"], "ОТ", WARNING, "похоже на протяжку",
-                          f"в пачке есть ОТ {ot} и {neighbour} (отличаются на 1), "
-                          f"тип {neighbour} в реестре отсутствует",
+                          f"В пачке есть ОТ {ot} и {neighbour} — они отличаются на единицу, "
+                          f"а типа {neighbour} нет в реестре.",
                           "проверьте, не «протянули» ли ячейку с ОТ")]
     return []
 
@@ -488,8 +505,8 @@ def rule_conditions(r: dict, ctx: Context) -> list[Issue]:
         got = norm_condition(r.get(key))
         if got and exp and got != exp:
             out.append(Issue(r["row"], col, WARNING, "условия среды",
-                             f"указано {got}, а на {vrf} в листе «Ввод» — {exp}",
-                             "условия вводятся один раз на дату"))
+                             f"В строке {col.lower()} {got}, а на {vrf} в листе «Ввод» — {exp}.",
+                             "условия среды вводятся один раз на дату — сверьте с протоколом"))
     return out
 
 
@@ -518,9 +535,9 @@ def rule_published(r: dict, ctx: Context) -> list[Issue]:
             f"действительно до: в реестре {pub.get('valid_date')}, в строке {r.get('valid_date')}")
     if not problems:
         return [Issue(r["row"], "Свидетельство", INFO, "опубликовано",
-                      f"совпадает с реестром ({doc})")]
+                      f"Совпадает с опубликованной записью АРШИН ({doc}).")]
     return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
-                  "опубликовано не то же самое: " + "; ".join(problems),
+                  "Запись расходится с опубликованной в АРШИН: " + "; ".join(problems) + ".",
                   "сверьте запись в личном кабинете АРШИН")]
 
 
@@ -552,7 +569,7 @@ def check_filename(name: str, records: list[dict], titles: dict[str, str]) -> li
         declared, actual = int(m.group(1)), len(records)
         if declared != actual:
             out.append(Issue(0, "(файл)", ERROR, "имя файла",
-                             f"в имени указано {declared} шт., а в файле {actual} записей",
+                             f"В имени файла указано {declared} шт., а в файле {actual} записей.",
                              "проверьте, что собран весь файл и выбран верный шаблон"))
     words = [w for w in TYPE_WORDS if w in low]
     if words:
@@ -562,8 +579,8 @@ def check_filename(name: str, records: list[dict], titles: dict[str, str]) -> li
         if file_titles.strip() and not any(w in file_titles for w in words):
             shown = sorted({titles.get((r.get("ot") or "").strip(), "") for r in records} - {""})
             out.append(Issue(0, "(файл)", WARNING, "имя файла",
-                             f"в имени «{', '.join(words)}», а в файле: "
-                             f"{'; '.join(t[:40] for t in shown[:3]) or 'типы не определены'}",
+                             f"В имени файла «{', '.join(words)}», а внутри: "
+                             f"{'; '.join(t[:40] for t in shown[:3]) or 'типы не определены'}.",
                              "возможно, файл собран не из той пачки"))
     return out
 
@@ -582,15 +599,15 @@ def check_ciphers(records: list[dict], allowed: set[str]) -> list[Issue]:
         return []
     if len(foreign) == len(found):
         return [Issue(0, "(файл)", ERROR, "чужой файл",
-                      f"шифр клейма {', '.join(sorted(foreign))} — это данные другой "
-                      f"организации (наш шифр: {', '.join(sorted(allowed))})",
+                      f"Шифр клейма {', '.join(sorted(foreign))} принадлежит другой организации "
+                      f"(наш шифр: {', '.join(sorted(allowed))}).",
                       "такую пачку в АРШИН загружать нельзя: это чужие поверки")]
     out: list[Issue] = []
     for r in records:
         cipher = (r.get("sign_cipher") or "").strip().upper()
         if cipher in foreign:
             out.append(Issue(r["row"], "Шифр клейма", WARNING, "чужой файл",
-                             f"шифр {cipher} — не наш ({', '.join(sorted(allowed))})",
+                             f"Шифр клейма {cipher} — не наш (наш: {', '.join(sorted(allowed))}).",
                              "проверьте, не попала ли в пачку чужая строка"))
     return out[:50]
 
