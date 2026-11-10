@@ -204,6 +204,27 @@ def _brief(text: str, limit: int = 72) -> str:
     return cut.rstrip(",;:") + "…"
 
 
+def _positive(text: str, limit: int = 30) -> str:
+    """Короткая положительная пометка: «Тип найден», «МПИ сходится»."""
+    flat = " ".join((text or "").split())
+    head = flat.split(":", 1)[0] if ":" in flat else flat
+    if len(head) > limit:
+        head = head[:limit].rsplit(" ", 1)[0]
+    return head.rstrip(" .") or "ок"
+
+
+def _cell_text(cell_issues: list[Issue]) -> str:
+    """Текст ячейки: для обязательных полей — список колонок, для справки — коротко."""
+    if all(i.level == INFO for i in cell_issues):
+        return "; ".join(_positive(i.message) for i in cell_issues)
+    if all(i.rule == "обязательное поле" for i in cell_issues):
+        names = list(dict.fromkeys(
+            re.sub(r"\s*\(.*?\)", "", i.column or "поле") for i in cell_issues))
+        prefix = "не заполнено: " if len(names) == 1 else "не заполнены: "
+        return prefix + ", ".join(names)
+    return _brief("; ".join(_brief(i.message, 70) for i in cell_issues), 130)
+
+
 def _status(errors: int, warnings: int) -> tuple[str, PatternFill, Font]:
     if errors:
         return "Ошибки", BAD_FILL, BAD_FONT
@@ -549,8 +570,8 @@ def build_report(
                     cell_fill, cell_font = WARN_FILL, Font(color="9C5700", size=10)
                 else:
                     cell_fill, cell_font = INFO_FILL, Font(color="1F4E79", size=10)
-                text = "; ".join(_brief(i.message, 70) for i in cell_issues)
-                cell = _write(ws2, row, col, _brief(text, 130), fill=cell_fill, font=cell_font,
+                cell = _write(ws2, row, col, _cell_text(cell_issues), fill=cell_fill,
+                              font=cell_font,
                               border=THIN,
                               align=Alignment(horizontal="left", vertical="center",
                                               wrap_text=True))
