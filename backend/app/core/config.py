@@ -56,8 +56,11 @@ class Settings(BaseSettings):
     PRECHECK_REFERENCE_TTL_DAYS: int = 3
     # any — допустим любой интервал из карточки типа; strict — отбор по году выпуска.
     PRECHECK_MPI_MODE: str = "any"
-    # Что делать, если срок действия утверждения типа истёк: error | warning | off
+    # Что делать, если срок действия утверждения типа истёк: error | warning | off.
     PRECHECK_OT_EXPIRED: str = "warning"
+    # Отдельный уровень для случая, когда тип переутверждён (есть более поздний ОТ
+    # той же основы): это явная ошибка выбора ОТ. Пусто — брать PRECHECK_OT_EXPIRED.
+    PRECHECK_OT_EXPIRED_RENEWED: str = ""
 
     # App
     APP_ENV: str = "development"

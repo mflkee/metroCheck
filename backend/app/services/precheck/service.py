@@ -172,6 +172,7 @@ async def run_precheck(
         profile=profile,
         mpi_mode=settings.PRECHECK_MPI_MODE,
         ot_expired=settings.PRECHECK_OT_EXPIRED,
+        ot_expired_renewed=settings.PRECHECK_OT_EXPIRED_RENEWED,
         allowed_ciphers={c.strip().upper() for c in settings.PRECHECK_CIPHERS.split(",")
                          if c.strip()},
         successors=rules.build_successors(types),

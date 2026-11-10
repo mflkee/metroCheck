@@ -45,6 +45,7 @@ class Context:
     profile: str = "mvp"
     mpi_mode: str = "any"
     ot_expired: str = "warning"
+    ot_expired_renewed: str = ""
     allowed_ciphers: set[str] = field(default_factory=set)
     today: str = ""
     batch_index: dict[tuple[str, str], list[int]] = field(default_factory=dict)
@@ -100,9 +101,12 @@ def rule_ot(r: dict, ctx: Context) -> list[Issue]:
                          + (f", обозн. {card['notation']}" if card.get("notation") else "")))
     valid_to = card.get("valid_to")
     if valid_to and r.get("vrf_date") and valid_to < r["vrf_date"]:
-        level = {"error": ERROR, "warning": WARNING}.get(ctx.ot_expired)
+        successor = ctx.successors.get(ot)
+        policy = ctx.ot_expired
+        if successor and ctx.ot_expired_renewed:
+            policy = ctx.ot_expired_renewed
+        level = {"error": ERROR, "warning": WARNING}.get(policy)
         if level:
-            successor = ctx.successors.get(ot)
             if successor:
                 new_ot, new_valid = successor
                 tail = f"; вероятно, тип переутверждён: {new_ot}"
