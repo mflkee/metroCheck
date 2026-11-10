@@ -44,10 +44,15 @@ jobs:
       - name: Verify deployed version (prod)
         run: |
           want=$(python3 -c "import json;print(json.load(open('frontend/package.json'))['version'])")
-          got=$(curl -fsS http://127.0.0.1:8002/openapi.json | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])")
-          echo "собрано: $want, на проде: $got"
-          if [ "$want" != "$got" ]; then
-            echo "::error::на проде версия $got, а собрана $want"
+          ok=0
+          for _ in $(seq 1 30); do
+            got=$(curl -fsS http://127.0.0.1:8002/openapi.json 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])" 2>/dev/null || true)
+            if [ "$want" = "$got" ]; then ok=1; break; fi
+            sleep 2
+          done
+          echo "собрано: $want, на стенде: ${got:-нет ответа}"
+          if [ "$ok" != "1" ]; then
+            echo "::error::деплой не применился: ожидалась версия $want, получено '${got:-нет ответа}'"
             exit 1
           fi
       - name: Prod health
