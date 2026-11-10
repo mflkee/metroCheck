@@ -507,29 +507,25 @@ def build_report(
     _widths(ws2, widths2)
     last_col2 = len(headers2)
 
-    _span(ws2, 1, 1, last_col2, "Замечания по пачке", fill=SECTION_FILL, font=SECTION_FONT,
+    # одна строка на заголовок и отметку формирования: контент начинается сразу
+    _span(ws2, 1, 1, last_col2,
+          f"Замечания по пачке  ·  сформировано {stamp}  ·  metroCheck",
+          fill=SECTION_FILL, font=SECTION_FONT,
           align=Alignment(horizontal="center", vertical="center"), border=THIN)
-    ws2.row_dimensions[1].height = 30
-
-    _span(ws2, 2, 1, last_col2,
-          f"Сформировано: {stamp}  ·  metroCheck  ·  наведите курсор на ячейку — полный текст",
-          font=MUTED, align=Alignment(horizontal="right", vertical="center"))
-    ws2.row_dimensions[2].height = 18
-
-    counts = f"Ошибок: {len(errors)}   ·   Предупреждений: {len(warnings)}   ·   записей с замечаниями: {len(by_record)}"
-    fill = BAD_FILL if errors else (WARN_FILL if warnings else GOOD_FILL)
-    font = BAD_FONT if errors else (WARN_FONT if warnings else GOOD_FONT)
-    _span(ws2, 3, 1, last_col2, counts, fill=fill, font=font,
-          align=Alignment(horizontal="center", vertical="center"), border=THIN)
-    ws2.row_dimensions[3].height = 24
-    ws2.row_dimensions[4].height = 8
+    ws2.row_dimensions[1].height = 24
+    # наведите курсор — полный текст (примечания к ячейкам)
+    ws2.cell(row=1, column=1).comment = Comment(
+        f"Ошибок: {len(errors)} · предупреждений: {len(warnings)} · "
+        f"записей с замечаниями: {len(by_record)}.\n"
+        "Наведите курсор на ячейку проверки — полный текст и рекомендация.",
+        "metroCheck", width=320, height=90)
 
     for col, title in enumerate(headers2, 1):
-        _write(ws2, 5, col, title, fill=HEADER_FILL, font=HEADER_FONT, border=THIN,
+        _write(ws2, 2, col, title, fill=HEADER_FILL, font=HEADER_FONT, border=THIN,
                align=Alignment(horizontal="center", vertical="center", wrap_text=True))
-    ws2.row_dimensions[5].height = 26
+    ws2.row_dimensions[2].height = 24
 
-    row = 6
+    row = 3
     if not by_record:
         _span(ws2, row, 1, last_col2, "Замечаний нет: все записи прошли проверку",
               fill=GOOD_FILL, font=GOOD_FONT, border=THIN,
@@ -595,9 +591,9 @@ def build_report(
             row += 1
         _fit_rows(ws2, first_data, row - 1, widths2, min_height=18.5)
 
-    ws2.freeze_panes = "D6"
-    ws2.auto_filter.ref = f"A5:{get_column_letter(last_col2)}5"
-    _setup_print(ws2, title_rows="5:5")
+    ws2.freeze_panes = "D3"
+    ws2.auto_filter.ref = f"A2:{get_column_letter(last_col2)}2"
+    _setup_print(ws2, title_rows="2:2")
 
     buffer = io.BytesIO()
     wb.save(buffer)
