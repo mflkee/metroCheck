@@ -203,8 +203,9 @@ async def run_precheck(
         reference_note = (f"справочник обновлён из АРШИН: {ref_stats['refreshed']} тип(ов), "
                           f"из них новых — {ref_stats['missing']}")
     objects = _object_stats(parsed, all_issues)
+    records = {(item.name, r["row"]): r for item in parsed for r in item.records}
     report = build_report(file_rows, all_issues, profile, reference_note=reference_note,
-                          objects=objects)
+                          objects=objects, records=records)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = os.path.join(_reports_dir(), f"проверка_{stamp}.xlsx")
     with open(report_path, "wb") as fh:

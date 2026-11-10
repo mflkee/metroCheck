@@ -50,4 +50,4 @@ def test_report_contains_objects_section():
                        for n in z.namelist() if n.endswith(".xml"))
     assert "Разбивка по объектам" in text
     assert "УКПГ-1" in text
-    assert "информация" in text
+    assert "тип найден" in text

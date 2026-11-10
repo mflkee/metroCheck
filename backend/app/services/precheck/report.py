@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from collections import Counter
 from datetime import datetime
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
@@ -42,10 +44,6 @@ INFO_FONT = Font(color="1F4E79")
 GROUP_FILL = PatternFill(start_color="EDF2F9", end_color="EDF2F9", fill_type="solid")
 MUTED = Font(color="808080", size=9, italic=True)
 THIN = Border(*[Side(style="thin", color="BFBFBF")] * 4)
-THICK_BOTTOM = Border(left=Side(style="thin", color="BFBFBF"),
-                      right=Side(style="thin", color="BFBFBF"),
-                      top=Side(style="thin", color="BFBFBF"),
-                      bottom=Side(style="medium", color="4472C4"))
 
 LINE_HEIGHT = 14.5
 ROW_PADDING = 4.0
@@ -54,7 +52,6 @@ ROW_PADDING = 4.0
 COLUMNS = 12
 COL_WIDTH = 14.6
 SUMMARY_WIDTHS = dict.fromkeys(range(1, COLUMNS + 1), COL_WIDTH)
-ISSUES_WIDTHS = {1: 26, 2: 8, 3: 20, 4: 18, 5: 22, 6: 54, 7: 40}
 
 # человеческие названия правил для отчёта
 RULE_LABEL = {
@@ -76,6 +73,30 @@ RULE_LABEL = {
     "чужой файл": "Чужой файл",
     "сбой правила": "Сбой правила",
 }
+
+# замечание -> колонка в листе «Замечания»
+RULE_GROUP = {
+    "обязательное поле": "Обязательные поля",
+    "ОТ не найден": "ОТ",
+    "ОТ не действует": "ОТ",
+    "ОТ распознан": "ОТ",
+    "похоже на протяжку": "ОТ",
+    "МПИ": "Действительно до",
+    "МПИ не установлен": "Действительно до",
+    "повторная поверка": "Повторная поверка",
+    "методика": "Методика поверки",
+    "модификация": "Модификация",
+    "дата": "Даты",
+    "дубли": "Дубли",
+    "условия среды": "Условия среды",
+    "опубликовано": "АРШИН",
+    "имя файла": "Имя файла",
+    "чужой файл": "Имя файла",
+    "сбой правила": "Сбой правила",
+}
+GROUP_ORDER = ["Обязательные поля", "ОТ", "Действительно до", "Повторная поверка",
+               "Методика поверки", "Модификация", "Даты", "Дубли", "Условия среды",
+               "АРШИН", "Имя файла", "Сбой правила"]
 
 # короткое объяснение для разбивки по правилам
 RULE_DESC = {
@@ -101,7 +122,7 @@ RULE_DESC = {
 
 # ── вспомогательные функции оформления ────────────────────────────────
 def _write(ws: Worksheet, row: int, col: int, value: object, *, fill=None, font=None,
-           align: Alignment | None = None, border: Border | None = None) -> None:
+           align: Alignment | None = None, border: Border | None = None):
     cell = ws.cell(row=row, column=col, value=value)
     if fill is not None:
         cell.fill = fill
@@ -110,6 +131,7 @@ def _write(ws: Worksheet, row: int, col: int, value: object, *, fill=None, font=
     cell.alignment = align or Alignment(vertical="center", wrap_text=True)
     if border is not None:
         cell.border = border
+    return cell
 
 
 def _span(ws: Worksheet, row: int, first: int, last: int, value: object = None, *,
@@ -168,6 +190,20 @@ def _fit_rows(ws: Worksheet, first: int, last: int, widths: dict[int, float],
         ws.row_dimensions[row].height = max(min_height, lines * LINE_HEIGHT + ROW_PADDING)
 
 
+def _brief(text: str, limit: int = 72) -> str:
+    """Короткая версия сообщения для компактной ячейки (полный текст — в примечании)."""
+    flat = " ".join((text or "").split())
+    if not flat:
+        return ""
+    if len(flat) <= limit:
+        return flat
+    match = re.search(r"[.!?](?:\s|$)", flat)
+    if match and match.end() <= limit:
+        return flat[:match.end()].strip()
+    cut = flat[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
+
+
 def _status(errors: int, warnings: int) -> tuple[str, PatternFill, Font]:
     if errors:
         return "Ошибки", BAD_FILL, BAD_FONT
@@ -202,6 +238,7 @@ def build_report(
     checked_at: datetime | None = None,
     reference_note: str = "",
     objects: list[dict] | None = None,
+    records: dict[tuple[str, int], dict] | None = None,
 ) -> bytes:
     """Собрать xlsx в память (листы «Сводка» и «Замечания»)."""
     stamp = (checked_at or datetime.now()).strftime("%d.%m.%Y %H:%M")
@@ -428,105 +465,117 @@ def build_report(
     _setup_print(ws, title_rows=None)
 
     # ───────────────────────────── лист «Замечания» ─────────────────────────────
+    # Одна строка = один прибор. Проверки разложены по колонкам: так пачка
+    # на 1000 записей остаётся компактной, а фильтры по шапке работают.
     ws2 = wb.create_sheet("Замечания")
     ws2.sheet_properties.tabColor = "5B9BD5"
-    _widths(ws2, ISSUES_WIDTHS)
 
-    _span(ws2, 1, 1, 7, "Замечания по пачке", fill=SECTION_FILL, font=SECTION_FONT,
+    records = records or {}
+    by_record: dict[tuple[str, int], dict[str, list[Issue]]] = {}
+    for issue in issues:
+        group = RULE_GROUP.get(issue.rule, issue.rule)
+        by_record.setdefault((issue.file, issue.row), {}).setdefault(group, []).append(issue)
+    present_groups = [g for g in GROUP_ORDER if any(g in cells for cells in by_record.values())]
+
+    shown_groups = ["Проверка ОТ" if g == "ОТ" else g for g in present_groups]
+    headers2 = ["№", "Файл", "Стр.", "ОТ", "Заводской №", *shown_groups, "Итог"]
+    widths2 = {1: 5.5, 2: 26, 3: 6.5, 4: 12, 5: 16}
+    for offset in range(len(present_groups)):
+        widths2[6 + offset] = 36
+    widths2[len(headers2)] = 12
+    _widths(ws2, widths2)
+    last_col2 = len(headers2)
+
+    _span(ws2, 1, 1, last_col2, "Замечания по пачке", fill=SECTION_FILL, font=SECTION_FONT,
           align=Alignment(horizontal="center", vertical="center"), border=THIN)
     ws2.row_dimensions[1].height = 30
 
-    _span(ws2, 2, 1, 7, f"Сформировано: {stamp}  ·  metroCheck", font=MUTED,
-          align=Alignment(horizontal="right", vertical="center"))
+    _span(ws2, 2, 1, last_col2,
+          f"Сформировано: {stamp}  ·  metroCheck  ·  наведите курсор на ячейку — полный текст",
+          font=MUTED, align=Alignment(horizontal="right", vertical="center"))
     ws2.row_dimensions[2].height = 18
 
-    counts = f"Ошибок: {len(errors)}   ·   Предупреждений: {len(warnings)}"
+    counts = f"Ошибок: {len(errors)}   ·   Предупреждений: {len(warnings)}   ·   записей с замечаниями: {len(by_record)}"
     fill = BAD_FILL if errors else (WARN_FILL if warnings else GOOD_FILL)
     font = BAD_FONT if errors else (WARN_FONT if warnings else GOOD_FONT)
-    _span(ws2, 3, 1, 7, counts, fill=fill, font=font,
+    _span(ws2, 3, 1, last_col2, counts, fill=fill, font=font,
           align=Alignment(horizontal="center", vertical="center"), border=THIN)
     ws2.row_dimensions[3].height = 24
     ws2.row_dimensions[4].height = 8
 
-    headers2 = ["Файл", "Стр.", "Колонка", "Уровень", "Правило", "Замечание", "Рекомендация"]
     for col, title in enumerate(headers2, 1):
         _write(ws2, 5, col, title, fill=HEADER_FILL, font=HEADER_FONT, border=THIN,
-               align=Alignment(horizontal="center", vertical="center"))
-    ws2.row_dimensions[5].height = 22
-
-    ordered = sorted(issues, key=lambda i: (i.file, i.row, i.level != ERROR))
-    groups: list[tuple[tuple[str, int], list[Issue]]] = []
-    for issue in ordered:
-        key = (issue.file, issue.row)
-        if groups and groups[-1][0] == key:
-            groups[-1][1].append(issue)
-        else:
-            groups.append((key, [issue]))
+               align=Alignment(horizontal="center", vertical="center", wrap_text=True))
+    ws2.row_dimensions[5].height = 26
 
     row = 6
-    if not ordered:
-        _span(ws2, row, 1, 7, "Замечаний нет: все записи прошли проверку",
+    if not by_record:
+        _span(ws2, row, 1, last_col2, "Замечаний нет: все записи прошли проверку",
               fill=GOOD_FILL, font=GOOD_FONT, border=THIN,
               align=Alignment(horizontal="left", vertical="center"))
         ws2.row_dimensions[row].height = 20
         row += 1
     else:
         first_data = row
-        for group_index, ((file, number), items) in enumerate(groups):
-            start = row
-            end = row + len(items) - 1
-            fill = GROUP_FILL if group_index % 2 else None
+        ordered_keys = sorted(by_record, key=lambda k: (k[0], k[1] if k[1] else -1))
+        for index, key in enumerate(ordered_keys):
+            file_name, number = key
+            rec = records.get(key) or {}
+            zebra = GROUP_FILL if index % 2 else None
+            _write(ws2, row, 1, index + 1, fill=zebra, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+            _write(ws2, row, 2, file_name, fill=zebra, border=THIN,
+                   align=Alignment(horizontal="left", vertical="center", wrap_text=True))
+            _write(ws2, row, 3, number if number else "—", fill=zebra, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+            _write(ws2, row, 4, str(rec.get("ot") or "—"), fill=zebra, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+            _write(ws2, row, 5, str(rec.get("mi_number") or rec.get("inventory_number") or "—"),
+                   fill=zebra, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
 
-            # файл и строка — общая ячейка на все замечания одной записи
-            if end > start:
-                ws2.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)
-                ws2.merge_cells(start_row=start, start_column=2, end_row=end, end_column=2)
-            for r in range(start, end + 1):
-                for col in (1, 2):
-                    cell = ws2.cell(row=r, column=col)
-                    cell.border = THIN
-                    if fill is not None:
-                        cell.fill = fill
-            _write(ws2, start, 1, file, fill=fill, border=THIN,
-                   align=Alignment(horizontal="left", vertical="top", wrap_text=True))
-            _write(ws2, start, 2, number if number else "—", fill=fill, border=THIN,
-                   align=Alignment(horizontal="center", vertical="top"))
-
-            for offset, issue in enumerate(items):
-                current = start + offset
-                is_error = issue.level == ERROR
-                is_info = issue.level == INFO
-                if is_error:
-                    level_text, level_fill = "ошибка", BAD_FILL
-                    level_font = Font(color="9C0006", bold=True, size=9)
-                elif is_info:
-                    level_text, level_fill = "информация", INFO_FILL
-                    level_font = Font(color="1F4E79", size=9)
+            levels: list[str] = []
+            for offset, group in enumerate(present_groups):
+                col = 6 + offset
+                cell_issues = by_record[key].get(group)
+                if not cell_issues:
+                    _write(ws2, row, col, "—", fill=zebra, font=Font(color="BFBFBF", size=9),
+                           border=THIN, align=Alignment(horizontal="center", vertical="center"))
+                    continue
+                levels.extend(i.level for i in cell_issues)
+                if any(i.level == ERROR for i in cell_issues):
+                    cell_fill, cell_font = BAD_FILL, Font(color="9C0006", size=10)
+                elif any(i.level == WARNING for i in cell_issues):
+                    cell_fill, cell_font = WARN_FILL, Font(color="9C5700", size=10)
                 else:
-                    level_text, level_fill = "предупреждение", WARN_FILL
-                    level_font = Font(color="9C5700", bold=True, size=9)
-                _write(ws2, current, 3, issue.column or "—", fill=fill, border=THIN,
-                       align=Alignment(horizontal="center", vertical="top"))
-                _write(ws2, current, 4, level_text, fill=level_fill, font=level_font,
-                       border=THIN,
-                       align=Alignment(horizontal="center", vertical="center", wrap_text=True))
-                _write(ws2, current, 5, RULE_LABEL.get(issue.rule, issue.rule),
-                       fill=fill, border=THIN,
-                       align=Alignment(horizontal="left", vertical="top", wrap_text=True))
-                _write(ws2, current, 6, issue.message, fill=fill, border=THIN,
-                       align=Alignment(horizontal="left", vertical="top", wrap_text=True))
-                _write(ws2, current, 7, issue.hint or "", fill=fill, border=THIN,
-                       align=Alignment(horizontal="left", vertical="top", wrap_text=True))
-            # разделитель между записями: линия и пустая строка
-            for col in range(1, 8):
-                ws2.cell(row=end, column=col).border = THICK_BOTTOM
-            row = end + 1
-            if group_index < len(groups) - 1:
-                ws2.row_dimensions[row].height = 8
-                row += 1
-        _fit_rows(ws2, first_data, row - 1, ISSUES_WIDTHS, min_height=20)
+                    cell_fill, cell_font = INFO_FILL, Font(color="1F4E79", size=10)
+                text = "; ".join(_brief(i.message, 70) for i in cell_issues)
+                cell = _write(ws2, row, col, _brief(text, 130), fill=cell_fill, font=cell_font,
+                              border=THIN,
+                              align=Alignment(horizontal="left", vertical="center",
+                                              wrap_text=True))
+                detail = "\n".join(
+                    f"{RULE_LABEL.get(i.rule, i.rule)}: {i.message}"
+                    + (f"\n→ {i.hint}" if i.hint else "")
+                    for i in cell_issues)
+                cell.comment = Comment(detail, "metroCheck", width=360, height=160)
 
-    ws2.freeze_panes = "A6"
+            status_col = last_col2
+            if ERROR in levels:
+                status, status_fill, status_font = "Ошибки", BAD_FILL, BAD_FONT
+            elif WARNING in levels:
+                status, status_fill, status_font = "Замечания", WARN_FILL, WARN_FONT
+            elif INFO in levels:
+                status, status_fill, status_font = "Справка", INFO_FILL, INFO_FONT
+            else:
+                status, status_fill, status_font = "—", None, Font(color="808080")
+            _write(ws2, row, status_col, status, fill=status_fill, font=status_font,
+                   border=THIN, align=Alignment(horizontal="center", vertical="center"))
+            row += 1
+        _fit_rows(ws2, first_data, row - 1, widths2, min_height=18.5)
+
+    ws2.freeze_panes = "D6"
+    ws2.auto_filter.ref = f"A5:{get_column_letter(last_col2)}5"
     _setup_print(ws2, title_rows="5:5")
 
     buffer = io.BytesIO()
