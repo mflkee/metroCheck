@@ -256,6 +256,10 @@ async def sync_mods(
     from app.services.precheck.specs import sync_mods_for_type
 
     stats = {"requested": 0, "saved": 0, "no_spec": 0, "errors": 0}
+    if ots:
+        missing = [ot for ot in ots if await session.get(ArshinType, ot) is None]
+        if missing:
+            await sync_types(session, missing, limit=len(missing), source="mods")
     query = select(ArshinType).where(ArshinType.spec_url.is_not(None))
     if ots:
         query = query.where(ArshinType.ot.in_(ots))
