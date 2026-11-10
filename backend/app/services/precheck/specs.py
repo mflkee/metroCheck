@@ -87,12 +87,14 @@ async def sync_mods_for_type(
         stats["error"] = str(exc)[:120]
         return stats
 
+    # описание скачано и прочитано: старый перечень заменяем целиком,
+    # иначе мусор от прошлого разбора останется в справочнике
+    await session.execute(
+        delete(ArshinMod).where(ArshinMod.ot == ot, ArshinMod.source == "pdf"))
     if not names:
         stats["error"] = "модификации в описании типа не найдены"
         return stats
 
-    await session.execute(
-        delete(ArshinMod).where(ArshinMod.ot == ot, ArshinMod.source == "pdf"))
     for name in names:
         session.add(ArshinMod(ot=ot, name=name, source="pdf"))
     stats["saved"] = len(names)
