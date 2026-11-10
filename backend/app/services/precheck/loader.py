@@ -65,6 +65,8 @@ HEADER_MAP: dict[str, str] = {
     "мпи предл": "mpi_suggested",
     "мпи прим": "mpi_used",
     "заявка": "application",
+    "объект": "object",
+    "object": "object",
     "диапазон": "range",
     "пг": "accuracy",
     "реестр": "registry",

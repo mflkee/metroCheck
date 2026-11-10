@@ -31,6 +31,35 @@ class ParsedFile:
 REPORT_TTL_DAYS = 14
 
 
+def _object_stats(parsed: list[ParsedFile], issues: list[rules.Issue]) -> list[dict]:
+    """Сводка по объектам — если в файлах есть колонка «Объект».
+
+    Схема «месяц × объект»: одна книга за месяц может содержать несколько объектов,
+    и руководителю нужен итог по каждому. Если колонки нет — возвращаем пустой список.
+    """
+    row_object: dict[tuple[str, int], str] = {}
+    stats: dict[str, dict] = {}
+    for item in parsed:
+        for r in item.records:
+            obj = (r.get("object") or "").strip()
+            if not obj:
+                continue
+            row_object[(item.name, r["row"])] = obj
+            entry = stats.setdefault(obj, {"name": obj, "rows": 0, "errors": 0, "warnings": 0})
+            entry["rows"] += 1
+    if not stats:
+        return []
+    for issue in issues:
+        obj = row_object.get((issue.file, issue.row))
+        if not obj:
+            continue
+        if issue.level == rules.ERROR:
+            stats[obj]["errors"] += 1
+        elif issue.level == rules.WARNING:
+            stats[obj]["warnings"] += 1
+    return sorted(stats.values(), key=lambda s: (-s["errors"], -s["warnings"], s["name"]))
+
+
 def _reports_dir() -> str:
     """Каталог отчётов (volume /reports — переживает пересоздание контейнера)."""
     path = settings.PRECHECK_REPORTS_DIR
@@ -172,7 +201,9 @@ async def run_precheck(
     if ref_stats.get("refreshed"):
         reference_note = (f"справочник обновлён из АРШИН: {ref_stats['refreshed']} тип(ов), "
                           f"из них новых — {ref_stats['missing']}")
-    report = build_report(file_rows, all_issues, profile, reference_note=reference_note)
+    objects = _object_stats(parsed, all_issues)
+    report = build_report(file_rows, all_issues, profile, reference_note=reference_note,
+                          objects=objects)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = os.path.join(_reports_dir(), f"проверка_{stamp}.xlsx")
     with open(report_path, "wb") as fh:

@@ -92,6 +92,7 @@ def build_report(
     profile: str,
     checked_at: datetime | None = None,
     reference_note: str = "",
+    objects: list[dict] | None = None,
 ) -> bytes:
     """Собрать xlsx в память (два листа: «Сводка» и «Замечания»)."""
     stamp = (checked_at or datetime.now()).strftime("%d.%m.%Y %H:%M")
@@ -191,6 +192,44 @@ def build_report(
     _write(ws, row, 6, "", fill=TOTAL_FILL, border=THIN)
     ws.row_dimensions[row].height = 16
     row += 2
+
+    # разбивка по объектам (когда в книгах есть колонка «Объект»)
+    if objects:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        _write(ws, row, 1, "Разбивка по объектам", fill=SECTION_FILL, font=SECTION_FONT,
+               align=Alignment(horizontal="left", vertical="center"))
+        ws.row_dimensions[row].height = 24
+
+        row += 1
+        for col, title in enumerate(["Объект", "", "Записей", "Ошибок", "Предупр.", "Статус"], 1):
+            _write(ws, row, col, title, fill=HEADER_FILL, font=HEADER_FONT, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        ws.row_dimensions[row].height = 22
+
+        row += 1
+        first_object_row = row
+        for item in objects:
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            _write(ws, row, 1, item["name"], border=THIN,
+                   align=Alignment(horizontal="left", vertical="center"))
+            _write(ws, row, 3, item["rows"], border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+            _write(ws, row, 4, item["errors"], border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"),
+                   fill=BAD_FILL if item["errors"] else None,
+                   font=BAD_FONT if item["errors"] else None)
+            _write(ws, row, 5, item["warnings"], border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"),
+                   fill=WARN_FILL if item["warnings"] else None,
+                   font=WARN_FONT if item["warnings"] else None)
+            status, fill, font = _status(item["errors"], item["warnings"])
+            _write(ws, row, 6, status, fill=fill, font=font, border=THIN,
+                   align=Alignment(horizontal="center", vertical="center"))
+            row += 1
+        _fit_rows(ws, first_object_row, row - 1, {1: 40, 2: 10, 3: 12, 4: 12, 5: 12, 6: 18},
+                  min_height=16)
+        row += 1
 
     # разбивка по правилам
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
