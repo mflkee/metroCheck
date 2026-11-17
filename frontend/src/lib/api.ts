@@ -190,7 +190,21 @@ export function deleteJob(id: number): Promise<unknown> {
   return api(`/v1/jobs/${id}`, "DELETE")
 }
 
-export async function generateReport(id: number): Promise<Blob> {
+function filenameFromDisposition(res: Response, fallback: string): string {
+  const header = res.headers.get("Content-Disposition") ?? ""
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1])
+    } catch {
+      // некорректная кодировка — берём обычное имя ниже
+    }
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i)
+  return plain?.[1] ?? fallback
+}
+
+export async function generateReport(id: number): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch(`${BASE}/v1/jobs/${id}/generate-report`, {
     method: "POST",
     headers: authHeaders(false),
@@ -200,7 +214,10 @@ export async function generateReport(id: number): Promise<Blob> {
     throw new ApiError("Unauthorized", 401)
   }
   if (!res.ok) throw new ApiError("Не удалось сгенерировать отчёт", res.status)
-  return res.blob()
+  return {
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res, `Проверка протоколов ${id}.xlsx`),
+  }
 }
 
 export function getSchedulerStatus(): Promise<SchedulerStatus> {
@@ -369,5 +386,8 @@ export async function downloadPrecheckReport(runId: number, filename?: string): 
   })
   if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status)
   const blob = await res.blob()
-  downloadBlob(blob, filename ?? `проверка_${runId}.xlsx`)
+  downloadBlob(
+    blob,
+    filename ?? filenameFromDisposition(res, `Перед АРШИНом ${runId}.xlsx`),
+  )
 }

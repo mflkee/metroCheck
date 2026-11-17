@@ -29,13 +29,15 @@ export function padMonth(month: number): string {
 export function fmtDate(iso?: string | null): string {
   if (!iso) return "—"
   const date = new Date(iso)
-  return date.toLocaleString("ru-RU", {
+  const text = date.toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   })
+  return `${text} (МСК)`
 }
 
 export function formatSeconds(totalSeconds: number): string {

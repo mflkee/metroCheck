@@ -380,8 +380,8 @@ function ReportButton({ id }: { id: number }) {
   async function download() {
     setBusy(true)
     try {
-      const blob = await api.generateReport(id)
-      api.downloadBlob(blob, `report_${id}.xlsx`)
+      const { blob, filename } = await api.generateReport(id)
+      api.downloadBlob(blob, filename)
     } catch {
       toast.error("Ошибка генерации отчёта")
     } finally {

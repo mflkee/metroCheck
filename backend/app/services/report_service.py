@@ -4,14 +4,13 @@ import json
 import math
 import os
 import re
-from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
-from app.utils import format_verifier, normalize_verifier
+from app.utils import fmt_msk_now, format_verifier, msk_now, normalize_verifier
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.calibration_repository import CalibrationRepository
@@ -232,8 +231,10 @@ class ReportService:
         self._fill_comparison_sheet(ws_compare, calibrations, protocols, use_lk=use_lk)
 
         os.makedirs(output_dir, exist_ok=True)
-        job_suffix = f"_job{job_id}" if job_id else ""
-        filename = f"report_{year}_{month:02d}{job_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = (
+            f"Проверка протоколов {year}-{month:02d} от "
+            f"{msk_now().strftime('%d.%m.%Y %H-%M-%S')} (МСК).xlsx"
+        )
         file_path = os.path.join(output_dir, filename)
         wb.save(file_path)
 
@@ -493,7 +494,7 @@ class ReportService:
         # Generation stamp
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
         write_cell(row, 1,
-                   f"Сформировано: {datetime.now().strftime('%d.%m.%Y %H:%M')}  ·  metroCheck",
+                   f"Сформировано: {fmt_msk_now()}  ·  metroCheck",
                    font=Font(color="808080", size=9, italic=True),
                    alignment=Alignment(horizontal="right", vertical="center"))
         row += 1

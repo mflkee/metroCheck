@@ -13,6 +13,7 @@ from app.api.v1.dependencies.auth import get_current_user
 from app.integrations.arshin_client import ArshinClient
 from app.services.arshin_service import ArshinService
 from app.services.task_manager import get_task_manager
+from app.utils import msk_now
 
 router = APIRouter()
 
@@ -323,8 +324,7 @@ async def scheduler_status(
         }
     
     # Calculate example
-    from datetime import datetime
-    now = datetime.utcnow()
+    now = msk_now().replace(tzinfo=None)
     offset = state.get("month_offset", -1)
     target = now.month + offset
     year = now.year
@@ -428,8 +428,7 @@ async def update_scheduler_settings(
         json.dump(state, f, indent=2)
     
     # Calculate example
-    from datetime import datetime
-    now = datetime.utcnow()
+    now = msk_now().replace(tzinfo=None)
     offset = state.get("month_offset", -1)
     target = now.month + offset
     year = now.year

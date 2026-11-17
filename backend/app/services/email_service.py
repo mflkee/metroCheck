@@ -10,6 +10,7 @@ from email import encoders
 from typing import Optional
 
 from app.core.config import settings
+from app.utils import fmt_msk_now
 
 
 class EmailService:
@@ -72,7 +73,7 @@ class EmailService:
 <body style="font-family: Arial, sans-serif; color: #333;">
     <h2>Отчет о проверке протоколов поверки</h2>
     <p><strong>Период:</strong> {month:02d}.{year}</p>
-    <p><strong>Дата проверки:</strong> {__import__('datetime').datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
+    <p><strong>Дата проверки:</strong> {fmt_msk_now()}</p>
     <hr>
     <h3>Результаты</h3>
     <ul>

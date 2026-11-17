@@ -158,6 +158,7 @@ async def download_job_report(
     # Search for existing reports in /tmp/reports and /reports
     reports_dirs = ["/tmp/reports", "/reports"]
     search_patterns = [
+        f"*{job.year}-{job.month:02d}*.xlsx",
         f"*{job.year}_{job.month:02d}*.xlsx",
         f"*interim*{job.year}_{job.month:02d}*.xlsx",
     ]

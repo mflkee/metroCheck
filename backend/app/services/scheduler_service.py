@@ -3,10 +3,9 @@
 import asyncio
 import json
 import os
-from datetime import datetime
-from typing import Optional
 
 from app.services.job_queue_service import JobQueueService
+from app.utils import msk_now
 
 # State file for scheduler configuration
 STATE_FILE = os.environ.get("SCHEDULER_STATE", "/tmp/scheduler_state.json")
@@ -85,7 +84,7 @@ class SchedulerService:
 
     async def _check_and_schedule_auto(self) -> None:
         """Check if it's time for automatic monthly check."""
-        now = datetime.utcnow()
+        now = msk_now().replace(tzinfo=None)
         
         # Parse auto time (default 09:00)
         hour, minute = map(int, self._state["auto_time"].split(":"))
@@ -150,7 +149,7 @@ class SchedulerService:
 
     def get_status(self) -> dict:
         """Get scheduler status for UI."""
-        now = datetime.utcnow()
+        now = msk_now().replace(tzinfo=None)
         
         # Calculate next scheduled
         next_scheduled = None
@@ -187,7 +186,7 @@ class SchedulerService:
     
     def _get_example_month(self) -> str:
         """Show example of which month will be checked."""
-        now = datetime.utcnow()
+        now = msk_now().replace(tzinfo=None)
         offset = self._state.get("month_offset", -1)
         target = now.month + offset
         year = now.year

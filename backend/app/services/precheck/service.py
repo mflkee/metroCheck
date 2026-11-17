@@ -16,6 +16,7 @@ from app.models.precheck import PrecheckRun
 from app.services.precheck import loader, rules
 from app.services.precheck.reference import ensure_types
 from app.services.precheck.report import build_report
+from app.utils import msk_now
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_RECORDS = 50_000
@@ -65,7 +66,7 @@ def _reports_dir() -> str:
     path = settings.PRECHECK_REPORTS_DIR
     os.makedirs(path, exist_ok=True)
     cutoff = datetime.now().timestamp() - REPORT_TTL_DAYS * 86400
-    for old in Path(path).glob("проверка_*.xlsx"):
+    for old in Path(path).glob("*.xlsx"):
         try:
             if old.stat().st_mtime < cutoff:
                 old.unlink()
@@ -176,7 +177,7 @@ async def run_precheck(
         allowed_ciphers={c.strip().upper() for c in settings.PRECHECK_CIPHERS.split(",")
                          if c.strip()},
         successors=rules.build_successors(types),
-        today=datetime.now().date().isoformat(),
+        today=msk_now().date().isoformat(),
     )
 
     all_issues: list[rules.Issue] = []
@@ -206,8 +207,8 @@ async def run_precheck(
     records = {(item.name, r["row"]): r for item in parsed for r in item.records}
     report = build_report(file_rows, all_issues, profile, reference_note=reference_note,
                           objects=objects, records=records)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = os.path.join(_reports_dir(), f"проверка_{stamp}.xlsx")
+    stamp = msk_now().strftime("%d.%m.%Y %H-%M-%S")
+    report_path = os.path.join(_reports_dir(), f"Перед АРШИНом {stamp} (МСК).xlsx")
     with open(report_path, "wb") as fh:
         fh.write(report)
 

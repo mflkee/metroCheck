@@ -16,6 +16,7 @@ from app.repositories.job_repository import JobRepository
 from app.services.check_service import CheckService
 from app.services.email_service import EmailService
 from app.services.task_manager import get_task_manager
+from app.utils import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -877,9 +878,9 @@ class JobQueueService:
             "total_devices": job.total_devices,
             "processed_devices": job.processed_devices,
             "current_device": job.current_device,
-            "created_at": job.created_at.isoformat() if job.created_at else None,
-            "started_at": job.started_at.isoformat() if job.started_at else None,
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "created_at": iso_utc(job.created_at),
+            "started_at": iso_utc(job.started_at),
+            "completed_at": iso_utc(job.completed_at),
             "triggered_by": job.triggered_by,
             "check_run_id": job.check_run_id,
             "error_message": job.error_message,

@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.api.v1.dependencies.auth import get_current_user
 from app.services.check_service import CheckService
 from app.services.task_manager import get_task_manager
+from app.utils import iso_utc
 
 router = APIRouter()
 
@@ -163,8 +164,8 @@ async def get_results(
         "status": run.status,
         "year": run.year,
         "month": run.month,
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "started_at": iso_utc(run.started_at),
+        "completed_at": iso_utc(run.completed_at),
         "total_calibrations": run.total_calibrations,
         "total_protocols": run.total_protocols,
         "errors_count": run.errors_count,
@@ -199,7 +200,7 @@ async def get_summary(
             "year": latest.year,
             "month": latest.month,
             "status": latest.status,
-            "started_at": latest.started_at.isoformat() if latest.started_at else None,
+            "started_at": iso_utc(latest.started_at),
         }
         if latest
         else None,

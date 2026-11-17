@@ -22,6 +22,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.services.precheck.rules import ERROR, INFO, WARNING, Issue
+from app.utils import fmt_msk, fmt_msk_now
 
 # ── палитра metroCheck ────────────────────────────────────────────────
 SECTION_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -262,7 +263,7 @@ def build_report(
     records: dict[tuple[str, int], dict] | None = None,
 ) -> bytes:
     """Собрать xlsx в память (листы «Сводка» и «Замечания»)."""
-    stamp = (checked_at or datetime.now()).strftime("%d.%m.%Y %H:%M")
+    stamp = fmt_msk(checked_at) if checked_at else fmt_msk_now()
     errors = [i for i in issues if i.level == ERROR]
     warnings = [i for i in issues if i.level == WARNING]
     rows_total = sum(f["rows"] for f in files)

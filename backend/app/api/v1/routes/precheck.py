@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.models.precheck import ArshinMeth, ArshinMod, ArshinMpi, ArshinType, PrecheckRun
 from app.services.precheck import reference
 from app.services.precheck.service import run_precheck
+from app.utils import fmt_msk
 
 router = APIRouter()
 
@@ -98,7 +99,7 @@ async def list_runs(
     return [
         RunHistoryItem(
             id=r.id,
-            created_at=r.created_at.strftime("%d.%m.%Y %H:%M"),
+            created_at=fmt_msk(r.created_at),
             user=r.user,
             profile=r.profile,
             rows=r.rows,
