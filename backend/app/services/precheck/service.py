@@ -205,7 +205,7 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
             }
             async with semaphore:
                 data: dict = {}
-                for attempt in range(2):
+                for attempt in range(3):
                     try:
                         response = await client.get(
                             settings.ARSHIN_SEARCH_URL, params=params)
@@ -231,12 +231,14 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
                 })
 
         tasks = []
-        for ot, serials in groups.items():
+        # Сначала редкие типы (мало приборов), потом массовые: иначе крупная
+        # группа может занять всё время и «съесть» проверку редкого прибора.
+        for ot, serials in sorted(groups.items(), key=lambda item: len(item[1])):
             ordered = sorted(serials)
             for start in range(0, len(ordered), 25):
                 tasks.append(lookup(ot, ordered[start:start + 25]))
         try:
-            await asyncio.wait_for(asyncio.gather(*tasks), timeout=60)
+            await asyncio.wait_for(asyncio.gather(*tasks), timeout=120)
         except TimeoutError:
             pass
     return found
