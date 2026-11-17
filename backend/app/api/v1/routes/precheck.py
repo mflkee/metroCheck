@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies.auth import get_current_user
 from app.core.database import get_db
-from app.models.precheck import ArshinMeth, ArshinMpi, ArshinType, PrecheckRun
+from app.models.precheck import ArshinMeth, ArshinMod, ArshinMpi, ArshinType, PrecheckRun
 from app.services.precheck import reference
 from app.services.precheck.service import run_precheck
 
@@ -57,6 +57,7 @@ class ReferenceStats(BaseModel):
     types: int
     mpi: int
     meth: int
+    mods: int = 0
 
 
 @router.post("/run", response_model=RunResponse)
@@ -135,7 +136,7 @@ async def reference_stats(
         return int((await db.execute(select(func.count()).select_from(model))).scalar() or 0)
 
     return ReferenceStats(types=await count(ArshinType), mpi=await count(ArshinMpi),
-                          meth=await count(ArshinMeth))
+                          meth=await count(ArshinMeth), mods=await count(ArshinMod))
 
 
 @router.post("/reference/mods")

@@ -270,7 +270,7 @@ def rule_reverify(r: dict, ctx: Context) -> list[Issue]:
         valid = p.get("valid_date")
         if valid and valid >= vrf:
             out.append(Issue(r["row"], "Дата поверки", WARNING, "повторная поверка",
-                             f"Поверка проведена раньше, чем закончилось действие предыдущей "
+                             f"Поверка раньше окончания предыдущей "
                              f"(та действовала до {valid}).",
                              "для отдельных владельцев (ИНК) это допускается"))
             break
@@ -379,12 +379,35 @@ def _common_suffix(a: str, b: str) -> int:
     return _common_prefix(a[::-1], b[::-1])
 
 
+def mod_key(value: str | None, notation: str | None = None) -> str:
+    """Ключ сравнения модификаций: «Метран-150TG» и «150TG» → одно и то же.
+
+    В протоколах пишут полное обозначение («Метран-150TG»), в описании типа —
+    только модель («150TG»). Убираем обозначение типа (notation) и его числовую
+    часть, чтобы сравнивать именно модификацию.
+    """
+    key = norm_text(value)
+    if not key:
+        return ""
+    for name in re.split(r"[;,]", notation or ""):
+        base = norm_text(name)
+        if not base:
+            continue
+        if key.startswith(base) and len(key) > len(base):
+            return key[len(base):]
+        tail = re.search(r"(\d+)$", base)
+        if tail and key.startswith(tail.group(1)) and len(key) > len(tail.group(1)):
+            return key[len(tail.group(1)):]
+    return key
+
+
 def similar_mods(
     name: str,
     known: list[str],
     usage: dict[tuple[str, str], int],
     ot: str,
     limit: int = 3,
+    notation: str | None = None,
 ) -> list[tuple[str, int, int]]:
     """Похожие модификации: (название, расстояние, сколько раз встречается в пачке).
 
@@ -392,13 +415,13 @@ def similar_mods(
     Тогда решает подсказка из самой пачки: если сотрудник в этом же файле уже писал «МП3-У»,
     скорее всего опечатка именно в ней. Дальше — длина общего начала и конца.
     """
-    a = norm_text(name)
+    a = mod_key(name, notation)
     scored = []
     for k in known:
-        nk = norm_text(k)
+        nk = mod_key(k, notation)
         used = usage.get((ot, nk), 0)
         scored.append((
-            levenshtein(name, k),
+            levenshtein(a, nk),
             -used,
             -_common_prefix(a, nk),
             -_common_suffix(a, nk),
@@ -418,9 +441,12 @@ def rule_modification(r: dict, ctx: Context) -> list[Issue]:
     known = [x for x in (card.get("mods") or []) + (card.get("aliases") or []) if x]
     if not known:
         return out
-    if any(norm_text(k) == norm_text(mod) for k in known):
+    notation = card.get("notation")
+    target = mod_key(mod, notation)
+    if target and any(mod_key(k, notation) == target for k in known):
         return out
-    close = similar_mods(mod, known, ctx.mod_usage, (r.get("ot") or "").strip())
+    close = similar_mods(mod, known, ctx.mod_usage, (r.get("ot") or "").strip(),
+                         notation=notation)
     if close and close[0][1] <= 2:
         best, used = close[0][1], close[0][2]
         # одинаково близкие варианты: если один из них уже встречался в пачке — показываем его
@@ -622,8 +648,10 @@ def run(records: list[dict], ctx: Context) -> list[Issue]:
         ctx.batch_index.setdefault(key, []).append(r["row"])
         mod = (r.get("modification") or "").strip()
         if ot and mod:
-            mod_key = (ot, norm_text(mod))
-            ctx.mod_usage[mod_key] = ctx.mod_usage.get(mod_key, 0) + 1
+            notation = (ctx.types.get(ot) or {}).get("notation")
+            mod_key_value = mod_key(mod, notation)
+            mod_key_pair = (ot, mod_key_value)
+            ctx.mod_usage[mod_key_pair] = ctx.mod_usage.get(mod_key_pair, 0) + 1
     issues: list[Issue] = []
     for r in records:
         for rule in PROFILES.get(ctx.profile, PROFILES["full"]):

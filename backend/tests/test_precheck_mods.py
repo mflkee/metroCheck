@@ -6,6 +6,7 @@ from app.services.precheck.rules import (
     WARNING,
     Context,
     build_successors,
+    mod_key,
     rule_modification,
     rule_ot,
     similar_mods,
@@ -35,6 +36,70 @@ def test_parse_modifications_drops_prose_fragments():
 
 def test_parse_modifications_ignores_empty_text():
     assert parse_modifications("Описание типа без перечня исполнений.") == []
+
+
+METRAN_SPEC = """Датчики имеют следующие модели, различающиеся по метрологическим характери-
+стикам, геометрическим размерам, видами технологических соединений, видом измеряемого
+давления, основным элементом измерительного механизма:
+        -150CG-модель для измерения избыточного давления с тензорезистивным сенсором
+или емкостной ячейкой, фланцевое подключение к процессу;
+        -150CGR - модель для измерения избыточного давления, с емкостной ячейкой, фланце-
+вое подключение к процессу;
+        -150TG/150TGR - модели для измерения избыточного давления с тензорезистивным
+сенсором, штуцерное подключение к процессу;
+        -150TA/150TAR - модели для измерения абсолютного давления с тензорезистивным
+сенсором, штуцерное подключение к процессу;
+        -150CD - модель для измерения разности давлений с тензорезистивным сенсором или
+емкостной ячейкой, фланцевое подключение к процессу;
+        -150CDR- модель для измерения разности давлений с емкостной ячейкой, фланцевое
+подключение к процессу;
+        -150L - датчики гидростатического давления (уровня) с емкостной ячейкой, фланцевое
+подключение к процессу.
+                                                                               Лист № 2
+        Датчики моделей 150CG, 150TG, 150CD, 150TA имеют исполнение АС для применения
+на объектах атомной энергетики.
+"""
+
+
+def test_parse_modifications_from_models_list():
+    """Перечень моделей строками («-150TG/150TGR - модели …»), а не в абзаце."""
+    assert parse_modifications(METRAN_SPEC) == [
+        "150CG", "150CGR", "150TG", "150TGR", "150TA", "150TAR",
+        "150CD", "150CDR", "150L",
+    ]
+
+
+def test_parse_modifications_ignores_tables():
+    """Строки таблиц с допусками не должны попадать в справочник."""
+    table = (
+        "Таблица 4 - Пределы допускаемой основной приведенной погрешности\n"
+        "                     исполнение\n"
+        "150CD, 150CG         ±0,0754), ±0,10            -\n"
+        "150ТA                    ±0,075                 -\n"
+    )
+    assert parse_modifications(table) == []
+
+
+def test_mod_key_unifies_full_and_short_names():
+    notation = "Метран-150"
+    assert mod_key("Метран-150TG", notation) == mod_key("150TG", notation)
+    assert mod_key("Метран-150TGR", notation) != mod_key("150TG", notation)
+    assert mod_key("150TG") == "150TG"
+
+
+def test_rule_modification_accepts_full_name_from_protocol():
+    """В протоколе «Метран-150TG», в описании типа — «150TG»: это не ошибка."""
+    ctx = Context(
+        types={"32854-13": {
+            "mods": ["150TG", "150TGR"],
+            "notation": "Метран-150",
+        }},
+        profile="full",
+    )
+    assert rule_modification(
+        {"row": 2, "ot": "32854-13", "modification": "Метран-150TG"}, ctx) == []
+    assert rule_modification(
+        {"row": 2, "ot": "32854-13", "modification": "Метран-150ZZ"}, ctx) != []
 
 
 def test_similar_mods_prefers_usage_in_batch():

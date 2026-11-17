@@ -299,6 +299,7 @@ export interface PrecheckReference {
   types: number
   mpi: number
   meth: number
+  mods: number
 }
 
 /** Проверить пачку: файлы уходят multipart-ом, ответ — сводка (отчёт скачивается отдельно). */
@@ -338,6 +339,20 @@ export function syncPrecheckReference(ots: string): Promise<Record<string, numbe
   const form = new FormData()
   form.append("ots", ots)
   return fetch(BASE + "/v1/precheck/reference/sync", {
+    method: "POST",
+    headers: authHeaders(false),
+    body: form,
+  }).then(async (res) => {
+    if (!res.ok) throw new ApiError((await res.text()) || `HTTP ${res.status}`, res.status)
+    return (await res.json()) as Record<string, number>
+  })
+}
+
+/** Пересобрать модификации из описаний типов (PDF). */
+export function syncPrecheckMods(ots: string): Promise<Record<string, number>> {
+  const form = new FormData()
+  form.append("ots", ots)
+  return fetch(BASE + "/v1/precheck/reference/mods", {
     method: "POST",
     headers: authHeaders(false),
     body: form,

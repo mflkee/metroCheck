@@ -21,6 +21,7 @@ export function PrecheckPage() {
   const [reference, setReference] = useState<api.PrecheckReference | null>(null)
   const [ots, setOts] = useState("")
   const [syncing, setSyncing] = useState(false)
+  const [syncingMods, setSyncingMods] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [rejected, setRejected] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
@@ -110,6 +111,27 @@ export function PrecheckPage() {
       toast.error(error instanceof Error ? error.message : "Не удалось обновить справочник")
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function syncMods() {
+    setSyncingMods(true)
+    try {
+      const stats = await api.syncPrecheckMods(ots)
+      const saved = stats.saved ?? 0
+      const noSpec = stats.no_spec ?? 0
+      const errors = stats.errors ?? 0
+      toast.success(
+        `Модификации: типов ${stats.requested ?? 0}, сохранено ${saved}` +
+          (noSpec ? `, без описания ${noSpec}` : "") +
+          (errors ? `, ошибок ${errors}` : ""),
+      )
+      setOts("")
+      void loadHistory()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обновить модификации")
+    } finally {
+      setSyncingMods(false)
     }
   }
 
@@ -273,12 +295,13 @@ export function PrecheckPage() {
           <h3 className="text-lg font-semibold text-ink">Справочник типов СИ</h3>
           <p className="mt-1 text-sm text-steel">
             {reference
-              ? `${reference.types} типов · ${reference.mpi} интервалов · ${reference.meth} методик`
+              ? `${reference.types} типов · ${reference.mpi} интервалов · ${reference.meth} методик · ${reference.mods} модификаций`
               : "загрузка…"}
           </p>
           <p className="mt-2 text-xs text-steel">
-            Пополняется автоматически при проверке (если включена догрузка). Можно обновить
-            вручную — по списку номеров ОТ из реестра.
+            Типы, МПИ и методики пополняются автоматически при проверке (если включена
+            догрузка). Модификации берутся из описаний типов (PDF) — их можно пересобрать
+            вручную по списку ОТ.
           </p>
           <textarea
             className="form-input mt-3 h-24 w-full"
@@ -286,15 +309,26 @@ export function PrecheckPage() {
             value={ots}
             onChange={(event) => setOts(event.target.value)}
           />
-          <button
-            className="btn-secondary btn-sm mt-2"
-            disabled={syncing}
-            type="button"
-            onClick={syncReference}
-          >
-            <RefreshCw className={(syncing ? "animate-spin " : "") + "mr-2 h-4 w-4"} />
-            Обновить справочник
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              className="btn-secondary btn-sm"
+              disabled={syncing}
+              type="button"
+              onClick={syncReference}
+            >
+              <RefreshCw className={(syncing ? "animate-spin " : "") + "mr-2 h-4 w-4"} />
+              Обновить справочник
+            </button>
+            <button
+              className="btn-secondary btn-sm"
+              disabled={syncingMods}
+              type="button"
+              onClick={syncMods}
+            >
+              <RefreshCw className={(syncingMods ? "animate-spin " : "") + "mr-2 h-4 w-4"} />
+              Обновить модификации
+            </button>
+          </div>
         </section>
       </div>
 
