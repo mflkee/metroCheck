@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     ARSHIN_BEARER_TOKEN: str = ""
     ARSHIN_BASE_URL: str = "https://fgis.gost.ru/fundmetrology/eapi"
+    # Публичный поиск записей АРШИН по заводскому номеру и типу (XCDB).
+    ARSHIN_SEARCH_URL: str = "https://fgis.gost.ru/fundmetrology/cm/xcdb/vri/select"
 
     # Token sync via shared file (Synology Drive / Dropbox / etc.)
     # Path where token JSON file appears after sync from Zonov's PC

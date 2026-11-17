@@ -166,6 +166,76 @@ async def _load_existing_records(records: list[dict]) -> dict[str, dict]:
     return found
 
 
+async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    """Найти в АРШИН все записи по паре (ОТ, заводской номер).
+
+    Публичный поиск АРШИН умеет искать по заводскому номеру и типу, поэтому
+    дубликаты ловятся даже у других поверителей, которых нет в нашей базе.
+    """
+    from app.services.precheck.common import iso, norm_number
+
+    groups: dict[str, set[str]] = {}
+    for record in records:
+        ot = str(record.get("ot") or "").strip()
+        serial = norm_number(record.get("mi_number") or record.get("inventory_number"))
+        if ot and serial:
+            groups.setdefault(ot, set()).add(serial)
+    if not groups:
+        return {}
+
+    import httpx
+
+    fields = ("vri_id,org_title,mi.mitnumber,mi.number,verification_date,valid_date,"
+              "result_docnum,applicability,mi.mititle,mi.modification")
+    found: dict[tuple[str, str], list[dict]] = {}
+    semaphore = asyncio.Semaphore(2)
+
+    def esc(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "metroCheck-precheck/1.0"}, timeout=20.0,
+    ) as client:
+        async def lookup(ot: str, serials: list[str]) -> None:
+            parts = [f'mi.number:"{esc(serial)}"' for serial in serials]
+            query = f'mi.mitnumber:"{esc(ot)}" AND (' + " OR ".join(parts) + ")"
+            params = {
+                "q": query, "fl": fields,
+                "rows": min(500, max(20, len(serials) * 10)), "start": 0,
+            }
+            async with semaphore:
+                try:
+                    response = await client.get(settings.ARSHIN_SEARCH_URL, params=params)
+                    data = response.json()
+                except Exception:  # noqa: BLE001
+                    return
+            for doc in (data.get("response") or {}).get("docs") or []:
+                key = (str(doc.get("mi.mitnumber") or "").strip(),
+                       norm_number(doc.get("mi.number")))
+                if not all(key):
+                    continue
+                found.setdefault(key, []).append({
+                    "vri_id": doc.get("vri_id"),
+                    "org": doc.get("org_title"),
+                    "vrf_date": iso(doc.get("verification_date")),
+                    "valid_date": iso(doc.get("valid_date")),
+                    "docnum": (doc.get("result_docnum") or "").strip(),
+                    "title": doc.get("mi.mititle"),
+                    "modification": doc.get("mi.modification"),
+                })
+
+        tasks = []
+        for ot, serials in groups.items():
+            ordered = sorted(serials)
+            for start in range(0, len(ordered), 80):
+                tasks.append(lookup(ot, ordered[start:start + 80]))
+        try:
+            await asyncio.wait_for(asyncio.gather(*tasks), timeout=30)
+        except TimeoutError:
+            pass
+    return found
+
+
 async def _load_history(
     session: AsyncSession, records: list[dict],
 ) -> tuple[dict[tuple[str, str], list[dict]], dict[str, dict]]:
@@ -258,9 +328,10 @@ async def run_precheck(
     previous, published = await _load_history(session, all_records)
     docnums = sorted({str(r.get("docnum") or "").strip() for r in all_records
                       if str(r.get("docnum") or "").strip()})
-    lk_published, existing_records = await asyncio.gather(
+    lk_published, existing_records, arshin_records = await asyncio.gather(
         _load_lk_published(docnums),
         _load_existing_records(all_records),
+        _load_arshin_records(all_records),
     )
 
     ctx = rules.Context(
@@ -269,6 +340,7 @@ async def run_precheck(
         published=published,
         lk_published=lk_published,
         existing_records=existing_records,
+        arshin_records=arshin_records,
         conditions_by_date=conditions,
         profile=profile,
         online=online,

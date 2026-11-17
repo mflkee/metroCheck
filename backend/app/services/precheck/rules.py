@@ -45,6 +45,8 @@ class Context:
     lk_published: dict[str, dict] = field(default_factory=dict)
     # записи АРШИН, найденные по ссылке/ID из строки: vri_id -> запись
     existing_records: dict[str, dict] = field(default_factory=dict)
+    # все записи АРШИН по прибору: (ОТ, нормализованный заводской №) -> записи
+    arshin_records: dict[tuple[str, str], list[dict]] = field(default_factory=dict)
     conditions_by_date: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     profile: str = "mvp"
     # проверяли ли справочник онлайн и что именно не получилось загрузить
@@ -623,13 +625,69 @@ def rule_published(r: dict, ctx: Context) -> list[Issue]:
     return []
 
 
+def rule_arshin_existing(r: dict, ctx: Context) -> list[Issue]:
+    """Дубли и действующие поверки по данным самого АРШИН (не нашей базы)."""
+    ot = (r.get("ot") or "").strip()
+    serial = norm_number(r.get("mi_number") or r.get("inventory_number"))
+    vrf = r.get("vrf_date")
+    if not ot or not serial or not vrf:
+        return []
+
+    records = ctx.arshin_records.get((ot, serial)) or []
+    if not records:
+        return []
+
+    local = ctx.previous.get((ot, serial), [])
+
+    def in_local(rec: dict) -> bool:
+        return any(
+            p.get("vrf_date") == rec.get("vrf_date")
+            and p.get("valid_date") == rec.get("valid_date")
+            for p in local
+        )
+
+    doc = str(r.get("docnum") or "").strip()
+    for rec in records:
+        if in_local(rec):
+            continue
+        org = rec.get("org") or "АРШИН"
+        rec_doc = str(rec.get("docnum") or "").strip()
+        same = (
+            (doc and rec_doc and doc == rec_doc)
+            or (rec.get("vrf_date") == vrf
+                and (rec.get("valid_date") or None) == (r.get("valid_date") or None))
+        )
+        if same:
+            return [Issue(r["row"], "Свидетельство", WARNING, "уже в АРШИН",
+                          f"Запись уже опубликована в АРШИН (поверитель: {org}"
+                          + (f", свидетельство {rec_doc}" if rec_doc else "") + "). "
+                          "Повторная загрузка создаст дубль или перезапись.",
+                          "если это та же поверка — не загружайте её второй раз")]
+
+    for rec in records:
+        if in_local(rec):
+            continue
+        valid = rec.get("valid_date")
+        rec_vrf = rec.get("vrf_date")
+        if valid and valid >= vrf and (not rec_vrf or rec_vrf < vrf):
+            org = rec.get("org") or "другой поверитель"
+            return [Issue(r["row"], "Дата поверки", WARNING, "уже в АРШИН",
+                          f"У прибора есть действующая поверка в АРШИН до {valid} "
+                          f"(поверитель: {org}). Новая поверка {vrf} сделана раньше "
+                          f"окончания предыдущей.",
+                          "проверьте дату: возможно, поверка ещё действует")]
+    return []
+
+
 RULES = [rule_required, rule_ot, rule_mpi, rule_reverify, rule_method, rule_published,
-         rule_modification, rule_dates, rule_duplicates, rule_dragfill, rule_conditions]
+         rule_arshin_existing, rule_modification, rule_dates, rule_duplicates,
+         rule_dragfill, rule_conditions]
 
 PROFILES: dict[str, tuple] = {
     # Методика добавлена в базовый профиль: смена редакции в описании типа — тот самый
     # случай, когда старая методика уходит в АРШИН без предупреждения.
-    "mvp": (rule_ot, rule_mpi, rule_method, rule_reverify, rule_published),
+    "mvp": (rule_ot, rule_mpi, rule_method, rule_reverify, rule_published,
+            rule_arshin_existing),
     "full": tuple(RULES),
 }
 
