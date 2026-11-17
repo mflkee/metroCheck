@@ -41,6 +41,8 @@ class Context:
     types: dict[str, dict] = field(default_factory=dict)
     previous: dict[tuple[str, str], list[dict]] = field(default_factory=dict)
     published: dict[str, dict] = field(default_factory=dict)
+    # свидетельства, найденные в ЛК АРШИН (когда есть токен): docnum -> запись
+    lk_published: dict[str, dict] = field(default_factory=dict)
     conditions_by_date: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     profile: str = "mvp"
     mpi_mode: str = "any"
@@ -539,15 +541,23 @@ def rule_conditions(r: dict, ctx: Context) -> list[Issue]:
 def rule_published(r: dict, ctx: Context) -> list[Issue]:
     """Сверка строки с тем, что уже опубликовано в АРШИН (по номеру свидетельства).
 
-    Берём из нашей базы поверок; если такого свидетельства у нас нет — молчим,
-    потому что «нет в базе» не значит «не опубликовано».
+    Берём из нашей базы поверок и (если есть токен) из ЛК АРШИН. Если такого
+    свидетельства нигде нет — молчим, потому что «нет у нас» не значит
+    «не опубликовано». Найденное совпадение — предупреждение: повторная загрузка
+    создаст дубль или перезапись.
     """
-    doc = (r.get("docnum") or "").strip()
-    if not doc or not ctx.published:
+    doc = str(r.get("docnum") or "").strip()
+    if not doc:
         return []
     pub = ctx.published.get(doc)
     if pub is None:
-        return []
+        if doc not in ctx.lk_published:
+            return []
+        return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
+                      f"Свидетельство {doc} уже есть в АРШИН (по данным ЛК). "
+                      f"Повторная загрузка создаст дубль или перезапись.",
+                      "если это та же поверка — не загружайте её второй раз")]
+
     problems: list[str] = []
     if (pub.get("ot") or "") != (r.get("ot") or ""):
         problems.append(f"ОТ: в реестре {pub.get('ot')}, в строке {r.get('ot')}")
@@ -560,8 +570,10 @@ def rule_published(r: dict, ctx: Context) -> list[Issue]:
         problems.append(
             f"действительно до: в реестре {pub.get('valid_date')}, в строке {r.get('valid_date')}")
     if not problems:
-        return [Issue(r["row"], "Свидетельство", INFO, "опубликовано",
-                      f"Совпадает с опубликованной записью АРШИН ({doc}).")]
+        return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
+                      f"Свидетельство {doc} уже опубликовано в АРШИН — "
+                      f"повторная загрузка создаст дубль или перезапись.",
+                      "если поверка не менялась — не загружайте её второй раз")]
     return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
                   "Запись расходится с опубликованной в АРШИН: " + "; ".join(problems) + ".",
                   "сверьте запись в личном кабинете АРШИН")]

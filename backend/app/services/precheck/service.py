@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +76,62 @@ def _reports_dir() -> str:
         except OSError:
             pass
     return path
+
+
+def _read_lk_token() -> tuple[str, int] | None:
+    """Прочитать токен ЛК, не забирая файл у основного пайплайна."""
+    try:
+        with open(settings.TOKEN_FILE_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    token = data.get("token")
+    if not token:
+        return None
+    from app.integrations.arshin_client import ArshinClient
+    expires_in = ArshinClient._jwt_expires_in(token)  # noqa: SLF001
+    if expires_in <= 0:
+        return None
+    return token, expires_in
+
+
+async def _load_lk_published(docnums: list[str]) -> dict[str, dict]:
+    """Найти свидетельства в ЛК АРШИН, чтобы предупредить о повторной загрузке.
+
+    Работает только при живом токене ЛК; без токена молча пропускаем — проверка
+    пачки не должна зависеть от личного кабинета.
+    """
+    if not docnums:
+        return {}
+    token_data = _read_lk_token()
+    if token_data is None:
+        return {}
+    token, expires_in = token_data
+
+    from app.integrations.arshin_client import ArshinClient
+
+    client = ArshinClient()
+    client._token = token  # noqa: SLF001
+    client._token_expires = time.time() + expires_in  # noqa: SLF001
+
+    found: dict[str, dict] = {}
+    semaphore = asyncio.Semaphore(3)
+
+    async def lookup(docnum: str) -> None:
+        async with semaphore:
+            try:
+                view = await client.get_lk_details_by_docnum(docnum)
+            except Exception:  # noqa: BLE001
+                view = None
+            if view:
+                found[docnum] = view
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(lookup(doc) for doc in docnums[:50])), timeout=25)
+    except TimeoutError:
+        pass
+    return found
 
 
 async def _load_history(
@@ -163,12 +222,17 @@ async def run_precheck(
         ttl_days=settings.PRECHECK_REFERENCE_TTL_DAYS,
     )
 
-    previous, published = await _load_history(session, [r for f in parsed for r in f.records])
+    all_records = [r for f in parsed for r in f.records]
+    previous, published = await _load_history(session, all_records)
+    docnums = sorted({str(r.get("docnum") or "").strip() for r in all_records
+                      if str(r.get("docnum") or "").strip()})
+    lk_published = await _load_lk_published(docnums)
 
     ctx = rules.Context(
         types=types,
         previous=previous,
         published=published,
+        lk_published=lk_published,
         conditions_by_date=conditions,
         profile=profile,
         mpi_mode=settings.PRECHECK_MPI_MODE,
