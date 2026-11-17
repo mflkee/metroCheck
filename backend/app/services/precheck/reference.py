@@ -181,7 +181,10 @@ async def sync_types(
     source: str = "sync",
 ) -> dict[str, int]:
     """Дотянуть справочник по списку ОТ. Возвращает статистику."""
-    stats = {"requested": len(ots), "saved": 0, "not_found": 0, "errors": 0}
+    stats = {
+        "requested": len(ots), "saved": 0, "not_found": 0, "errors": 0,
+        "not_found_ots": [], "error_ots": [],
+    }
     todo = [ot for ot in dict.fromkeys(o.strip() for o in ots) if ot]
     if limit:
         todo = todo[:limit]
@@ -192,9 +195,11 @@ async def sync_types(
                 card = await api.type_card(client, ot)
             except httpx.HTTPError:
                 stats["errors"] += 1
+                stats["error_ots"].append(ot)
                 continue
             if not card:
                 stats["not_found"] += 1
+                stats["not_found_ots"].append(ot)
                 continue
             if await save_type(session, card, source=source):
                 stats["saved"] += 1
@@ -236,14 +241,23 @@ async def ensure_types(
     now = datetime.utcnow()
     missing = [ot for ot in ots if ot and ot not in known]
     stale = [ot for ot, card in known.items() if _is_stale(card, ttl_days, now)]
-    todo = list(dict.fromkeys(missing + stale))
-    stats = {"missing": len(missing), "stale": len(stale), "refreshed": 0}
+    # Сначала закрываем пробелы: без карточки типа проверять нечего.
+    missing_todo = missing[:limit]
+    skipped_missing = missing[limit:]
+    remaining = max(0, limit - len(missing_todo))
+    stale_todo = stale[:remaining]
+    todo = list(dict.fromkeys(missing_todo + stale_todo))
+    stats = {
+        "missing": len(missing), "stale": len(stale), "refreshed": 0,
+        "not_found_ots": [], "error_ots": [], "skipped_missing": skipped_missing,
+    }
     if not todo:
         return known, stats
 
-    synced = await sync_types(session, todo, limit=min(limit, len(todo)),
-                              source="auto: проверка пачки (TTL)")
+    synced = await sync_types(session, todo, source="auto: проверка пачки (TTL)")
     stats["refreshed"] = synced.get("saved", 0)
+    stats["not_found_ots"] = synced.get("not_found_ots", [])
+    stats["error_ots"] = synced.get("error_ots", [])
     return await load_types(session, ots), stats
 
 

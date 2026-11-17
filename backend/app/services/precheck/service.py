@@ -271,6 +271,10 @@ async def run_precheck(
         existing_records=existing_records,
         conditions_by_date=conditions,
         profile=profile,
+        online=online,
+        reference_failed=set(ref_stats.get("error_ots", []))
+        | set(ref_stats.get("skipped_missing", [])),
+        reference_not_found=set(ref_stats.get("not_found_ots", [])),
         mpi_mode=settings.PRECHECK_MPI_MODE,
         ot_expired=settings.PRECHECK_OT_EXPIRED,
         ot_expired_renewed=settings.PRECHECK_OT_EXPIRED_RENEWED,

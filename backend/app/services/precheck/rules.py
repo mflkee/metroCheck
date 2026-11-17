@@ -47,6 +47,10 @@ class Context:
     existing_records: dict[str, dict] = field(default_factory=dict)
     conditions_by_date: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     profile: str = "mvp"
+    # проверяли ли справочник онлайн и что именно не получилось загрузить
+    online: bool = True
+    reference_failed: set[str] = field(default_factory=set)
+    reference_not_found: set[str] = field(default_factory=set)
     mpi_mode: str = "any"
     ot_expired: str = "warning"
     ot_expired_renewed: str = ""
@@ -104,9 +108,22 @@ def rule_ot(r: dict, ctx: Context) -> list[Issue]:
         return out
     card = ctx.types.get(ot)
     if card is None:
-        out.append(Issue(r["row"], "ОТ", ERROR, "ОТ не найден",
-                         f"Типа СИ {ot} нет в реестре АРШИН.",
-                         "проверьте номер: частая ошибка — «протянутая» последняя цифра"))
+        if not ctx.online:
+            out.append(Issue(r["row"], "ОТ", WARNING, "ОТ не проверен",
+                             f"Тип СИ {ot} не проверялся по АРШИН: догрузка выключена.",
+                             "включите «догружать новые типы СИ из АРШИН» и проверьте снова"))
+        elif ot in ctx.reference_failed:
+            out.append(Issue(r["row"], "ОТ", WARNING, "ОТ не проверен",
+                             f"Не удалось загрузить тип СИ {ot} из АРШИН (сеть или лимит).",
+                             "нажмите «Обновить справочник» для этого ОТ и проверьте снова"))
+        elif ot in ctx.reference_not_found:
+            out.append(Issue(r["row"], "ОТ", ERROR, "ОТ не найден",
+                             f"Типа СИ {ot} нет в реестре АРШИН.",
+                             "проверьте номер: частая ошибка — «протянутая» последняя цифра"))
+        else:
+            out.append(Issue(r["row"], "ОТ", ERROR, "ОТ не найден",
+                             f"Типа СИ {ot} нет в справочнике metroCheck.",
+                             "обновите справочник по этому ОТ и проверьте снова"))
         return out
     if card.get("title"):
         out.append(Issue(r["row"], "ОТ", INFO, "ОТ распознан",

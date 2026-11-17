@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # Куда складывать отчёты (xlsx) — файлы пачек не сохраняются.
     PRECHECK_REPORTS_DIR: str = "/reports/precheck"
     # Сколько отсутствующих типов СИ дотягивать из АРШИН за один запуск.
-    PRECHECK_ONLINE_LIMIT: int = 40
+    PRECHECK_ONLINE_LIMIT: int = 200
     # Через сколько дней перепроверять карточку типа в АРШИН (ловить новые приказы
     # и смену методики поверки). 0 — не обновлять автоматически.
     PRECHECK_REFERENCE_TTL_DAYS: int = 3

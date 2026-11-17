@@ -184,3 +184,25 @@ def test_rule_ot_expired_points_to_new_type():
     assert expired[0].level == WARNING
     assert "10135-15" in expired[0].message
     assert "10135-15" in expired[0].hint
+
+
+def test_rule_ot_missing_offline_is_warning():
+    """Без догрузки нельзя утверждать, что типа нет в АРШИН."""
+    ctx = Context(types={}, online=False, profile="full")
+    issues = rule_ot({"row": 2, "ot": "60967-15", "vrf_date": "2026-06-01"}, ctx)
+    assert issues and issues[0].level == WARNING
+    assert "не проверялся" in issues[0].message
+
+
+def test_rule_ot_failed_download_is_warning():
+    ctx = Context(types={}, reference_failed={"60967-15"}, profile="full")
+    issues = rule_ot({"row": 2, "ot": "60967-15", "vrf_date": "2026-06-01"}, ctx)
+    assert issues and issues[0].level == WARNING
+    assert "Не удалось загрузить" in issues[0].message
+
+
+def test_rule_ot_not_found_is_error():
+    ctx = Context(types={}, reference_not_found={"60967-15"}, profile="full")
+    issues = rule_ot({"row": 2, "ot": "60967-15", "vrf_date": "2026-06-01"}, ctx)
+    assert issues and issues[0].level == ERROR
+    assert "нет в реестре АРШИН" in issues[0].message
