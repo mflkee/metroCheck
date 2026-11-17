@@ -43,6 +43,8 @@ class Context:
     published: dict[str, dict] = field(default_factory=dict)
     # свидетельства, найденные в ЛК АРШИН (когда есть токен): docnum -> запись
     lk_published: dict[str, dict] = field(default_factory=dict)
+    # записи АРШИН, найденные по ссылке/ID из строки: vri_id -> запись
+    existing_records: dict[str, dict] = field(default_factory=dict)
     conditions_by_date: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     profile: str = "mvp"
     mpi_mode: str = "any"
@@ -538,45 +540,70 @@ def rule_conditions(r: dict, ctx: Context) -> list[Issue]:
     return out
 
 
-def rule_published(r: dict, ctx: Context) -> list[Issue]:
-    """Сверка строки с тем, что уже опубликовано в АРШИН (по номеру свидетельства).
+_VRI_ID = re.compile(r"(?:vri/|vri=)(\d+-\d+)", re.I)
 
-    Берём из нашей базы поверок и (если есть токен) из ЛК АРШИН. Если такого
-    свидетельства нигде нет — молчим, потому что «нет у нас» не значит
-    «не опубликовано». Найденное совпадение — предупреждение: повторная загрузка
-    создаст дубль или перезапись.
+
+def vri_id(record: dict) -> str:
+    """ID записи АРШИН из ссылки «Ссылка ФГИС АРШИН» или отдельного поля."""
+    explicit = str(record.get("vri_id") or "").strip()
+    if explicit:
+        return explicit
+    url = str(record.get("arshin_url") or "").strip()
+    if not url:
+        return ""
+    match = _VRI_ID.search(url)
+    if match:
+        return match.group(1)
+    match = re.search(r"/(\d{1,3}-\d{6,})(?:[/?#]|$)", url)
+    return match.group(1) if match else ""
+
+
+def rule_published(r: dict, ctx: Context) -> list[Issue]:
+    """Сверка строки с тем, что уже опубликовано в АРШИН.
+
+    Источники: наша база поверок, ЛК АРШИН (если есть токен) и прямая ссылка
+    на запись АРШИН в строке. Если свидетельства нигде нет — молчим, потому что
+    «нет у нас» не значит «не опубликовано». Найденное совпадение — предупреждение:
+    повторная загрузка создаст дубль или перезапись.
     """
     doc = str(r.get("docnum") or "").strip()
-    if not doc:
-        return []
-    pub = ctx.published.get(doc)
-    if pub is None:
-        if doc not in ctx.lk_published:
-            return []
+    pub = ctx.published.get(doc) if doc else None
+    if pub is not None:
+        problems: list[str] = []
+        if (pub.get("ot") or "") != (r.get("ot") or ""):
+            problems.append(f"ОТ: в реестре {pub.get('ot')}, в строке {r.get('ot')}")
+        if norm_number(pub.get("mi_number")) != norm_number(r.get("mi_number")):
+            problems.append(
+                f"заводской №: в реестре {pub.get('mi_number')}, в строке {r.get('mi_number')}")
+        if pub.get("vrf_date") and r.get("vrf_date") and pub["vrf_date"] != r["vrf_date"]:
+            problems.append(f"дата поверки: в реестре {pub['vrf_date']}, в строке {r['vrf_date']}")
+        if (pub.get("valid_date") or None) != (r.get("valid_date") or None):
+            problems.append(
+                f"действительно до: в реестре {pub.get('valid_date')}, в строке {r.get('valid_date')}")
+        if not problems:
+            return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
+                          f"Свидетельство {doc} уже опубликовано в АРШИН — "
+                          f"повторная загрузка создаст дубль или перезапись.",
+                          "если поверка не менялась — не загружайте её второй раз")]
+        return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
+                      "Запись расходится с опубликованной в АРШИН: "
+                      + "; ".join(problems) + ".",
+                      "сверьте запись в личном кабинете АРШИН")]
+
+    if doc and doc in ctx.lk_published:
         return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
                       f"Свидетельство {doc} уже есть в АРШИН (по данным ЛК). "
                       f"Повторная загрузка создаст дубль или перезапись.",
                       "если это та же поверка — не загружайте её второй раз")]
 
-    problems: list[str] = []
-    if (pub.get("ot") or "") != (r.get("ot") or ""):
-        problems.append(f"ОТ: в реестре {pub.get('ot')}, в строке {r.get('ot')}")
-    if norm_number(pub.get("mi_number")) != norm_number(r.get("mi_number")):
-        problems.append(
-            f"заводской №: в реестре {pub.get('mi_number')}, в строке {r.get('mi_number')}")
-    if pub.get("vrf_date") and r.get("vrf_date") and pub["vrf_date"] != r["vrf_date"]:
-        problems.append(f"дата поверки: в реестре {pub['vrf_date']}, в строке {r['vrf_date']}")
-    if (pub.get("valid_date") or None) != (r.get("valid_date") or None):
-        problems.append(
-            f"действительно до: в реестре {pub.get('valid_date')}, в строке {r.get('valid_date')}")
-    if not problems:
+    vri = vri_id(r)
+    if vri and vri in ctx.existing_records:
         return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
-                      f"Свидетельство {doc} уже опубликовано в АРШИН — "
-                      f"повторная загрузка создаст дубль или перезапись.",
-                      "если поверка не менялась — не загружайте её второй раз")]
-    return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
-                  "Запись расходится с опубликованной в АРШИН: " + "; ".join(problems) + ".",
-                  "сверьте запись в личном кабинете АРШИН")]
+                      f"Запись {vri} уже есть в АРШИН (по ссылке в строке). "
+                      f"Повторная загрузка создаст дубль или перезапись.",
+                      "если это та же поверка — не загружайте её второй раз")]
+
+    return []
 
 
 RULES = [rule_required, rule_ot, rule_mpi, rule_reverify, rule_method, rule_published,

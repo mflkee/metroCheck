@@ -134,6 +134,38 @@ async def _load_lk_published(docnums: list[str]) -> dict[str, dict]:
     return found
 
 
+async def _load_existing_records(records: list[dict]) -> dict[str, dict]:
+    """Проверить по публичному API записи, на которые в строках есть ссылка АРШИН."""
+    ids = sorted({rules.vri_id(r) for r in records if rules.vri_id(r)})[:20]
+    if not ids:
+        return {}
+
+    import httpx
+
+    found: dict[str, dict] = {}
+    semaphore = asyncio.Semaphore(2)
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "metroCheck-precheck/1.0"}, timeout=15.0,
+    ) as client:
+        async def lookup(vri: str) -> None:
+            async with semaphore:
+                try:
+                    response = await client.get(f"{settings.ARSHIN_BASE_URL}/vri/{vri}")
+                    data = response.json()
+                except Exception:  # noqa: BLE001
+                    return
+                if response.status_code == 200 and data.get("result"):
+                    found[vri] = data["result"]
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(lookup(vri) for vri in ids)), timeout=20)
+        except TimeoutError:
+            pass
+    return found
+
+
 async def _load_history(
     session: AsyncSession, records: list[dict],
 ) -> tuple[dict[tuple[str, str], list[dict]], dict[str, dict]]:
@@ -226,13 +258,17 @@ async def run_precheck(
     previous, published = await _load_history(session, all_records)
     docnums = sorted({str(r.get("docnum") or "").strip() for r in all_records
                       if str(r.get("docnum") or "").strip()})
-    lk_published = await _load_lk_published(docnums)
+    lk_published, existing_records = await asyncio.gather(
+        _load_lk_published(docnums),
+        _load_existing_records(all_records),
+    )
 
     ctx = rules.Context(
         types=types,
         previous=previous,
         published=published,
         lk_published=lk_published,
+        existing_records=existing_records,
         conditions_by_date=conditions,
         profile=profile,
         mpi_mode=settings.PRECHECK_MPI_MODE,

@@ -56,3 +56,16 @@ def test_published_mismatch_is_error():
 def test_published_without_docnum_is_silent():
     ctx = Context(published={"X": {"ot": "24116-13"}})
     assert rule_published(_row(docnum=""), ctx) == []
+
+
+def test_published_by_arshin_url():
+    """Ссылка на запись АРШИН в строке — тоже повод предупредить."""
+    ctx = Context(existing_records={"1-443771055": {"result": {}}})
+    issues = rule_published(
+        _row(docnum="", arshin_url="https://fgis.gost.ru/fundmetrology/eapi/vri/1-443771055"),
+        ctx,
+    )
+    assert len(issues) == 1
+    assert issues[0].level == WARNING
+    assert "по ссылке" in issues[0].message
+
