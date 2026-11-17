@@ -42,7 +42,7 @@ def test_active_previous_verification_is_warning():
     issues = rule_arshin_existing(_row(), ctx)
     assert issues and issues[0].level == WARNING
     assert "действующая поверка" in issues[0].message
-    assert "2026-12-06" in issues[0].message
+    assert "06.12.2026" in issues[0].message
 
 
 def test_expired_previous_verification_is_silent():

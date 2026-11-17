@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 
 from app.services.precheck.common import (
     empty,
@@ -21,6 +22,16 @@ from app.services.precheck.common import (
 )
 
 ERROR, WARNING, INFO = "ошибка", "предупреждение", "инфо"
+
+
+def ru_date(value: object) -> str:
+    """ISO-дата → ДД.ММ.ГГГГ для сообщений."""
+    if not value:
+        return "—"
+    try:
+        return date.fromisoformat(str(value)[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return str(value)
 
 
 @dataclass
@@ -294,7 +305,7 @@ def rule_reverify(r: dict, ctx: Context) -> list[Issue]:
         if valid and valid >= vrf:
             out.append(Issue(r["row"], "Дата поверки", WARNING, "повторная поверка",
                              f"Поверка раньше окончания предыдущей "
-                             f"(последняя {prev_vrf or '—'}, действовала до {valid}).",
+                             f"(последняя {ru_date(prev_vrf)}, действовала до {ru_date(valid)}).",
                              "для отдельных владельцев (ИНК) это допускается"))
             break
     return out
@@ -602,8 +613,8 @@ def rule_published(r: dict, ctx: Context) -> list[Issue]:
         if not problems:
             return [Issue(r["row"], "Свидетельство", WARNING, "опубликовано",
                           f"Свидетельство {doc} уже опубликовано в АРШИН "
-                          f"(поверка {pub.get('vrf_date') or '—'}, "
-                          f"действует до {pub.get('valid_date') or '—'}). "
+                          f"(поверка {ru_date(pub.get('vrf_date'))}, "
+                          f"действует до {ru_date(pub.get('valid_date'))}). "
                           f"Повторная загрузка создаст дубль или перезапись.",
                           "если поверка не менялась — не загружайте её второй раз")]
         return [Issue(r["row"], "Свидетельство", ERROR, "опубликовано",
@@ -663,8 +674,8 @@ def rule_arshin_existing(r: dict, ctx: Context) -> list[Issue]:
             return [Issue(r["row"], "Свидетельство", WARNING, "уже в АРШИН",
                           f"Запись уже опубликована в АРШИН (поверитель: {org}"
                           + (f", свидетельство {rec_doc}" if rec_doc else "") + "). "
-                          f"Последняя поверка: {rec.get('vrf_date') or '—'}, "
-                          f"действует до {rec.get('valid_date') or '—'}. "
+                          f"Последняя поверка: {ru_date(rec.get('vrf_date'))}, "
+                          f"действует до {ru_date(rec.get('valid_date'))}. "
                           "Повторная загрузка создаст дубль или перезапись.",
                           "если это та же поверка — не загружайте её второй раз")]
 
@@ -677,7 +688,7 @@ def rule_arshin_existing(r: dict, ctx: Context) -> list[Issue]:
             org = rec.get("org") or "другой поверитель"
             return [Issue(r["row"], "Дата поверки", WARNING, "уже в АРШИН",
                           f"У прибора есть действующая поверка в АРШИН: последняя "
-                          f"{rec_vrf or '—'}, действует до {valid} (поверитель: {org}). "
+                          f"{ru_date(rec_vrf)}, действует до {ru_date(valid)} (поверитель: {org}). "
                           f"Новая поверка {vrf} сделана раньше окончания предыдущей.",
                           "проверьте дату: возможно, поверка ещё действует")]
     return []
