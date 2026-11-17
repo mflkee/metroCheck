@@ -204,11 +204,17 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
                 "rows": min(200, max(20, len(serials) * 5)), "start": 0,
             }
             async with semaphore:
-                try:
-                    response = await client.get(settings.ARSHIN_SEARCH_URL, params=params)
-                    data = response.json()
-                except Exception:  # noqa: BLE001
-                    return
+                data: dict = {}
+                for attempt in range(2):
+                    try:
+                        response = await client.get(
+                            settings.ARSHIN_SEARCH_URL, params=params)
+                        data = response.json()
+                        if response.status_code == 200:
+                            break
+                    except Exception:  # noqa: BLE001
+                        pass
+                    await asyncio.sleep(0.5)
             for doc in (data.get("response") or {}).get("docs") or []:
                 key = (str(doc.get("mi.mitnumber") or "").strip(),
                        norm_number(doc.get("mi.number")))
@@ -230,7 +236,7 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
             for start in range(0, len(ordered), 25):
                 tasks.append(lookup(ot, ordered[start:start + 25]))
         try:
-            await asyncio.wait_for(asyncio.gather(*tasks), timeout=30)
+            await asyncio.wait_for(asyncio.gather(*tasks), timeout=60)
         except TimeoutError:
             pass
     return found
