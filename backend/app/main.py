@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="metroChek Protocol Control API",
     description="API for controlling calibration protocols of OOO metroChek",
-    version="0.9.7",
+    version="0.9.8",
     lifespan=lifespan,
 )
 
