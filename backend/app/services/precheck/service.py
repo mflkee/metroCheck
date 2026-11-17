@@ -188,7 +188,7 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
     fields = ("vri_id,org_title,mi.mitnumber,mi.number,verification_date,valid_date,"
               "result_docnum,applicability,mi.mititle,mi.modification")
     found: dict[tuple[str, str], list[dict]] = {}
-    semaphore = asyncio.Semaphore(2)
+    semaphore = asyncio.Semaphore(1)
 
     def esc(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -201,7 +201,7 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
             query = f'mi.mitnumber:"{esc(ot)}" AND (' + " OR ".join(parts) + ")"
             params = {
                 "q": query, "fl": fields,
-                "rows": min(500, max(20, len(serials) * 10)), "start": 0,
+                "rows": min(200, max(20, len(serials) * 5)), "start": 0,
             }
             async with semaphore:
                 try:
@@ -227,8 +227,8 @@ async def _load_arshin_records(records: list[dict]) -> dict[tuple[str, str], lis
         tasks = []
         for ot, serials in groups.items():
             ordered = sorted(serials)
-            for start in range(0, len(ordered), 80):
-                tasks.append(lookup(ot, ordered[start:start + 80]))
+            for start in range(0, len(ordered), 25):
+                tasks.append(lookup(ot, ordered[start:start + 25]))
         try:
             await asyncio.wait_for(asyncio.gather(*tasks), timeout=30)
         except TimeoutError:
